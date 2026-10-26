@@ -14,6 +14,24 @@ versions follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-26
+
+### Changed
+
+- **CIB's own blue, and a black Night.** The palette is built on `#0C529A`, the
+  blue of CIB's logo lockups, in place of a brighter web blue. Day is neutral
+  greys with near-black text; Night is black with neutral text and a soft
+  CIB-blue glow, rather than navy with sky-blue text. The app icon's plate is
+  the same blue.
+
+### Downloads
+
+- **Windows, Linux and macOS**, as in 1.0.0. The Mac builds are signed ad hoc
+  and are not notarized: on first open macOS says the developer cannot be
+  verified. Allow it under **System Settings › Privacy & Security ›
+  Open Anyway**, and macOS remembers the choice. If macOS says the app is
+  **damaged** instead, compare the download with `SHA256SUMS-*.txt`.
+
 ## [1.0.0] - 2026-10-26
 
 The first Workbench, based on Spagitty 4.0.1. INTERNAL USE ONLY: in

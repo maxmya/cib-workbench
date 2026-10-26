@@ -14,7 +14,7 @@ rules below are Spagitty's and still apply, with these on top:
   is Spagitty's and changes only by an upstream merge.
 - New files take `SPDX-License-Identifier: MIT`. After merging Spagitty, follow
   [`docs/workbench-sync.md`](docs/workbench-sync.md).
-- CIB blue is `#1858A8`. Never redraw, recolour or crop the files in
+- CIB blue is `#0C529A`; Night is black with a CIB-blue ambient, not navy. Never redraw, recolour or crop the files in
   `assets/brand/cib/`.
 
 ## Product goal

@@ -348,7 +348,7 @@ describe('lookup', () => {
 	it('returns the variant for the mode asked for', () => {
 		expect(variantOf('pomodoro', 'light').name).toBe('Day');
 		expect(variantOf('pomodoro', 'dark').name).toBe('Night');
-		expect(paletteOf('pomodoro', 'dark').bg).toBe('#0b1a30');
+		expect(paletteOf('pomodoro', 'dark').bg).toBe('#111214');
 	});
 });
 
@@ -358,7 +358,7 @@ describe('properties', () => {
 
 		expect(tokens['--bg']).toBe('#ffffff');
 		expect(tokens['--on-accent']).toBe('#ffffff');
-		expect(tokens['--lane-1']).toBe('#1858a8');
+		expect(tokens['--lane-1']).toBe('#0c529a');
 		expect(tokens['--on-primary']).toBe('#ffffff');
 		expect(tokens['--lane-5']).toBe('#0e7c72');
 	});
