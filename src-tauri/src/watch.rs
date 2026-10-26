@@ -505,23 +505,35 @@ mod tests {
     /// working-tree candidate.
     #[test]
     fn a_verbatim_git_dir_still_owns_the_events_under_it() {
-        let verbatim = Path::new(r"\\?\/work/app/.git");
-        let plain_dir = Path::new("/work/app/.git");
-        for (git_dir, path) in [
-            (verbatim, r"/work/app/.git/refs/heads/main"),
-            (plain_dir, r"\\?\/work/app/.git/refs/heads/main"),
-        ] {
+        // A path as each platform writes one. `\\?\/work/…` is only a string
+        // on Unix; Windows reads all of it as a verbatim prefix with no drive,
+        // which has no plain form, so there the case needs a drive.
+        let (verbatim, plain_dir, verbatim_ref, plain_ref, object) = if cfg!(windows) {
+            (
+                r"\\?\C:\work\app\.git",
+                r"C:\work\app\.git",
+                r"\\?\C:\work\app\.git\refs\heads\main",
+                r"C:\work\app\.git\refs\heads\main",
+                r"C:\work\app\.git\objects\ab\cd",
+            )
+        } else {
+            (
+                r"\\?\/work/app/.git",
+                "/work/app/.git",
+                r"\\?\/work/app/.git/refs/heads/main",
+                "/work/app/.git/refs/heads/main",
+                "/work/app/.git/objects/ab/cd",
+            )
+        };
+        let verbatim = Path::new(verbatim);
+        for (git_dir, path) in [(verbatim, plain_ref), (Path::new(plain_dir), verbatim_ref)] {
             let mut candidates = HashSet::new();
             let out = super::classify(&event(WROTE, &[path]), git_dir, &mut candidates);
             assert!(out.refs, "{git_dir:?} and {path}");
             assert!(candidates.is_empty(), "{git_dir:?} and {path}");
         }
         let mut candidates = HashSet::new();
-        let quiet = super::classify(
-            &event(WROTE, &["/work/app/.git/objects/ab/cd"]),
-            verbatim,
-            &mut candidates,
-        );
+        let quiet = super::classify(&event(WROTE, &[object]), verbatim, &mut candidates);
         assert!(quiet.is_empty());
         assert!(
             candidates.is_empty(),
