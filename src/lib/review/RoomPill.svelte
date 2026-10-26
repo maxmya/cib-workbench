@@ -1,0 +1,218 @@
+<!-- SPDX-License-Identifier: MIT -->
+<script lang="ts">
+	import Icon from '$lib/ui/Icon.svelte';
+	import { room } from './room.svelte';
+
+	/**
+	 * The review controls (FEAT-091): a second glass pill floating at the
+	 * bottom of the diff column, the way the toolbar floats under the pane.
+	 *
+	 * The only blurred surface the room adds — WebKitGTK paints blur in
+	 * software, and a diff row is never blurred.
+	 */
+
+	/** Open the Finish review card, which the room owns. */
+	let { onfinish }: { onfinish: () => void } = $props();
+
+	const file = $derived(room.selectedFile);
+	const name = $derived(file ? file.path.slice(file.path.lastIndexOf('/') + 1) : '');
+	const viewed = $derived(file !== null && room.isViewed(file.path));
+	// Every file read: what is left is to finish (TASK-053).
+	const done = $derived(room.files.length > 0 && room.viewedCount === room.files.length);
+
+	/** Not viewed: tick it and go on to the next. Viewed: take the tick back. */
+	function mark() {
+		if (file && viewed) void room.setViewed(file.path, false);
+		else void room.viewedNext();
+	}
+</script>
+
+<div class="pill ornament" role="toolbar" aria-label="Review controls">
+	<span class="group">
+		<button class="tool icon" aria-label="Previous file" onclick={() => room.step(-1)}>
+			<Icon name="chevron-left" size="1.1em" weight={1.9} />
+		</button>
+		<span class="where">
+			{#if room.layout === 'one'}
+				<span class="name mono" title={file?.path}>{name}</span>
+				<span class="note">{room.position + 1} of {room.files.length}</span>
+			{:else}
+				<span class="name mono">All files</span>
+				<span class="note">{room.files.length} {room.files.length === 1 ? 'file' : 'files'}</span>
+			{/if}
+		</span>
+		<button class="tool icon" aria-label="Next file" onclick={() => room.step(1)}>
+			<Icon name="chevron-right" size="1.1em" weight={1.9} />
+		</button>
+	</span>
+	<span class="vr"></span>
+	<span class="segments">
+		<button class="tool" aria-pressed={room.scope === 'changes'} onclick={() => room.setScope('changes')}>
+			Changes
+		</button>
+		<button
+			class="tool"
+			aria-pressed={room.scope === 'whole'}
+			disabled={!room.canShowWhole}
+			title={room.canShowWhole ? undefined : 'Needs the pull request fetched'}
+			onclick={() => room.setScope('whole')}
+		>
+			Whole file
+		</button>
+		<button
+			class="tool"
+			aria-pressed={room.scope === 'sides'}
+			disabled={!room.canShowWhole}
+			title={room.canShowWhole
+				? 'The whole file as it was, beside the whole file as it is'
+				: 'Needs the pull request fetched'}
+			onclick={() => room.setScope('sides')}
+		>
+			Before and after
+		</button>
+	</span>
+	<span class="segments">
+		<button class="tool" aria-pressed={room.layout === 'one'} onclick={() => room.setLayout('one')}>One</button>
+		<button class="tool" aria-pressed={room.layout === 'all'} onclick={() => room.setLayout('all')}>All</button>
+	</span>
+	<span class="vr"></span>
+	{#if done}
+		<button class="tool finish" disabled={room.phase !== 'ready'} onclick={onfinish}>Finish review</button>
+	{:else}
+		<button
+			class="tool viewed"
+			aria-pressed={viewed}
+			disabled={!file}
+			title={viewed ? undefined : 'Tick it and go to the next file'}
+			onclick={mark}
+		>
+			<Icon name={viewed ? 'circle-check' : 'circle'} size="1.1em" weight={2} />Viewed
+		</button>
+	{/if}
+</div>
+
+<style>
+	/*
+	 * Centred by its margins, between the column's two edges, and its groups
+	 * go onto a second row when one row will not hold them (BUG-080). With
+	 * left at 50% and a transform it had half the column to be laid out in:
+	 * in a narrow column the file's name was squeezed to nothing and the rest
+	 * ran out over the conversation.
+	 */
+	.pill {
+		position: absolute;
+		left: 8px;
+		right: 8px;
+		bottom: 14px;
+		width: fit-content;
+		max-width: calc(100% - 16px);
+		margin-inline: auto;
+		box-sizing: border-box;
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: center;
+		gap: 4px 6px;
+		min-height: 52px;
+		padding: 9px;
+		border-radius: 26px;
+		white-space: nowrap;
+		z-index: 2;
+	}
+
+	.group {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.tool {
+		display: flex;
+		align-items: center;
+		gap: 7px;
+		height: 34px;
+		padding: 0 12px;
+		border-radius: var(--r-pill);
+		font-size: var(--fs-secondary);
+		color: var(--ink);
+		white-space: nowrap;
+		transition:
+			background var(--t-fast) var(--ease),
+			color var(--t-fast) var(--ease);
+	}
+
+	.tool:hover:not(:disabled) {
+		background: var(--hover);
+	}
+
+	.tool:disabled {
+		opacity: 0.4;
+	}
+
+	.tool.icon {
+		width: 32px;
+		padding: 0;
+		justify-content: center;
+	}
+
+	.where {
+		display: flex;
+		flex-direction: column;
+		line-height: 1.15;
+		flex: none;
+		max-width: 150px;
+	}
+
+	.name {
+		font-size: var(--fs-mono);
+		font-weight: 600;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.where .note {
+		font-size: var(--fs-mono);
+	}
+
+	/* Two or three choices in a sunken track; the chosen one raised out of it. */
+	.segments {
+		display: flex;
+		padding: 2px;
+		border-radius: var(--r-pill);
+		background: color-mix(in srgb, var(--sunken) 70%, transparent);
+		border: 1px solid var(--pane-edge);
+	}
+
+	.segments .tool {
+		height: 28px;
+		color: var(--muted);
+	}
+
+	.segments .tool[aria-pressed='true'] {
+		background: var(--surface-2);
+		color: var(--ink);
+		font-weight: 600;
+		box-shadow: var(--shadow-1);
+	}
+
+	/* A ring while the file is still to read; the ring ticked, in green, once
+	   it is read (TASK-053). */
+	.viewed {
+		font-weight: 600;
+	}
+
+	.viewed[aria-pressed='true'] {
+		background: color-mix(in srgb, var(--ok) 18%, transparent);
+		color: var(--ok);
+	}
+
+	.finish {
+		background: var(--accent);
+		color: var(--on-accent);
+		font-weight: 600;
+	}
+
+	.finish:hover:not(:disabled) {
+		background: color-mix(in srgb, var(--accent) 86%, var(--ink));
+	}
+</style>

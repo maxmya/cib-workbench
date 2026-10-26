@@ -1,0 +1,602 @@
+// SPDX-License-Identifier: MIT
+
+//! Spagitty's own preferences.
+//!
+//! Application state rather than repository state, so it lives here beside
+//! [`crate::recents`] rather than in `spagitty-core`: none of it is a fact about
+//! a repository, and none of it belongs in `.git/config` where every other tool
+//! would read it.
+//!
+//! The identity — `user.name` and `user.email` — is deliberately *not* here. It
+//! is git's own configuration, every tool reads it, and it is handled by
+//! `spagitty_core::identity` through `git config`.
+//!
+//! Commit signing left this file for the same reason (FEAT-019). It was here,
+//! as `signCommits`, and nothing read it — but wiring it up would have been the
+//! defect rather than the fix: `commit.gpgsign` is the same preference in the
+//! place every other tool looks, and two switches for one behaviour disagree
+//! the moment one of them is changed outside this application. A settings file
+//! written before that still carrying the key is not a problem; unknown keys
+//! are ignored on the way in, and the next write drops it.
+//!
+//! A hand-edited file must not stop the application starting, so anything that
+//! does not parse reads as the defaults. That is the same treatment the
+//! repository list gets, for the same reason.
+
+use std::path::PathBuf;
+
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Deserializer, Serialize};
+use spagitty_core::calls::settings::CallsSettings;
+use tauri::{AppHandle, Manager, Runtime};
+
+const FILE: &str = "settings.json";
+
+/// How much personality Spagitty is allowed to show (FEAT-072).
+///
+/// The delight layer is opt-in *intensity*, never opt-in existence: badges are
+/// earned at every level and the badge screen works at every level. What this
+/// changes is how loudly an unlock arrives — a line in the corner, a reward
+/// moment, or the full thing with the jokes and the Hall of Shame.
+///
+/// `Off` is the default (TASK-045). The author asked for the layer to be kept
+/// and to stay out of the way until somebody turns it on. Badges are still
+/// recorded while it is off, so turning it on later shows what was earned.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Personality {
+    /// Recorded and never shown: no notice, no reward moment, and no Badges or
+    /// God mode offered. Sound is a separate setting.
+    #[default]
+    Off,
+    /// Badges, quietly. No reward moment, no jokes, no Hall of Shame.
+    Professional,
+    Balanced,
+    /// Everything, including the anti-badges and the easter eggs.
+    FullSpagitty,
+}
+
+/// How loud, if at all (FEAT-072).
+///
+/// `Off` by default, and that is not a hedge. Every other preference in this
+/// file that changes what the application *does* is off until somebody asks for
+/// it, and a desktop application that makes a noise the first time it is used
+/// gets muted at the operating system — which would lose the sounds worth
+/// having along with the one that annoyed somebody.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SoundLevel {
+    #[default]
+    Off,
+    Subtle,
+    Full,
+}
+
+/// Where the screens a person hid go (FEAT-134).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RailWhere {
+    /// Under the rail's More button.
+    #[default]
+    More,
+    /// Nowhere on the rail. The palette lists every screen whatever is chosen.
+    Palette,
+}
+
+/// What a person pinned, hid and reordered on the rail (FEAT-134).
+///
+/// Screens are named by their codes — `1E`, `1G` — as strings rather than as
+/// an enum: which codes exist is the frontend's `NAV_ITEMS`, and a file written
+/// by a newer build that names a screen this one has not got must keep the
+/// rest of the list. The rail ignores a code it does not know.
+///
+/// The default is everything pinned, in the built-in order (TASK-056).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Rail {
+    /// The screens taken off the rail.
+    pub hidden: Vec<String>,
+    /// Every screen in the order chosen. Empty means the built-in order.
+    pub order: Vec<String>,
+    /// Where the hidden ones go.
+    #[serde(rename = "where", deserialize_with = "lenient")]
+    pub place: RailWhere,
+}
+
+/// Which cards Home shows, and in what order (FEAT-148).
+///
+/// Cards are named by id strings, as the rail's screens are by code, so a
+/// file from a newer build that names a card this one has not got keeps the
+/// rest. The default is every card, in the designed order.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HomeLayout {
+    /// The cards taken off Home.
+    pub hidden: Vec<String>,
+    /// Every card in the order chosen. Empty means the designed order.
+    pub order: Vec<String>,
+}
+
+/// Read a value that has a default, falling back rather than failing.
+///
+/// A hand-edited `"personality": "loud"` must cost the personality, not every
+/// other setting in the file. Without this the whole object fails to parse and
+/// [`parse`] hands back the defaults for everything — so one typo would silently
+/// undo an unrelated toggle somebody had set months earlier.
+fn lenient<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Default + DeserializeOwned,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(T::deserialize(value).unwrap_or_default())
+}
+
+/// The behaviour toggles on the Settings screen.
+///
+/// Every field is optional on the way in and written in full on the way out, so
+/// a settings file from an older build gains new keys at their defaults instead
+/// of being rejected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Settings {
+    /// Ask the project whether there is a newer Spagitty, at startup.
+    ///
+    /// On by default, which is the one preference here that changes what the
+    /// application *does* rather than what it checks — the others are off for
+    /// exactly that reason. It earns the exception by being the only way a
+    /// person finds out their client is old: there is no package manager
+    /// behind an AppImage or a bare `.exe`, and a security fix nobody hears
+    /// about is not a fix. It can be turned off, and turning it off stops
+    /// every request.
+    pub check_for_updates: bool,
+    /// Ask before anything that rewrites history.
+    pub confirm_history_rewrite: bool,
+    /// Show the `git` command behind each action.
+    pub show_git_commands: bool,
+    /// Delete remote-tracking refs the remote no longer has, when fetching.
+    ///
+    /// A setting rather than something that always happens (FEAT-018).
+    /// Pruning deletes refs, and a destructive step that nobody chose is the
+    /// thing this setting exists to stop — it was passed on every fetch before
+    /// this was added.
+    pub prune_on_fetch: bool,
+    /// Fetch each author's real picture for the graph's nodes (FEAT-079).
+    ///
+    /// On by default, and the second preference here to earn that — the
+    /// reasoning is the same shape as the update check's. What it costs is one
+    /// request per author, once, to a host that already knows the address; what
+    /// it buys is a graph where a node says *who*, which is the question a node
+    /// is looked at to answer. Off falls back to the generated face, which is
+    /// what the graph drew before this existed and is never worse than nothing.
+    ///
+    /// Turning it off stops every request and empties the cache: a picture
+    /// fetched before somebody opted out must not go on being shown from disk
+    /// afterwards.
+    pub fetch_avatars: bool,
+    /// How much personality the delight layer shows (FEAT-072).
+    #[serde(deserialize_with = "lenient")]
+    pub personality: Personality,
+    /// Whether Spagitty makes a sound, and how loud (FEAT-072).
+    #[serde(deserialize_with = "lenient")]
+    pub sound: SoundLevel,
+    /// Watch the connected accounts' pull requests and say when something
+    /// happens (FEAT-114). Off until asked: it is a request to every connected
+    /// host on a timer, for as long as Spagitty is open.
+    pub notify_pull_requests: bool,
+    /// Also show each one as an operating-system notification.
+    pub notify_desktop: bool,
+    /// Your pull request was merged or closed.
+    pub notify_merged: bool,
+    /// Somebody else commented on or reviewed a pull request you are in.
+    pub notify_comments: bool,
+    /// You were asked to review.
+    pub notify_review_requests: bool,
+    /// The checks on your pull request started failing.
+    pub notify_checks: bool,
+    /// Minutes between looks. Clamped to [`NOTIFY_EVERY`] on the way in.
+    #[serde(deserialize_with = "lenient_minutes")]
+    pub notify_every_minutes: u32,
+    /// What is pinned, hidden and reordered on the rail (FEAT-134).
+    #[serde(deserialize_with = "lenient")]
+    pub rail: Rail,
+    /// Which cards Home shows, and in what order (FEAT-148).
+    #[serde(deserialize_with = "lenient")]
+    pub home: HomeLayout,
+    /// The shell a terminal runs (FEAT-130). Empty is the platform's own:
+    /// `$SHELL`, or PowerShell on Windows.
+    #[serde(deserialize_with = "lenient")]
+    pub terminal_shell: String,
+    /// Run the terminal inside tmux, or psmux on Windows, when one can run.
+    /// On, because that is what keeps a session alive when Spagitty closes.
+    /// Off is a plain terminal for each tab.
+    pub terminal_multiplexer: bool,
+    /// Give the multiplexer's bars and borders the theme's colours
+    /// (FEAT-157). On, so the terminal matches the window around it. Off
+    /// leaves the colours of the person's own tmux or psmux config.
+    pub terminal_colours: bool,
+    /// Settings › Calls (FEAT-165). A repository may override any of them
+    /// in its calls folder's `settings.json`.
+    #[serde(deserialize_with = "lenient")]
+    pub calls: CallsSettings,
+}
+
+/// How often the screen offers to look, in minutes. The first is the floor:
+/// once a minute is the interval GitHub asks pollers to keep to.
+pub const NOTIFY_EVERY: [u32; 4] = [1, 2, 5, 15];
+
+/// The interval a new install starts at.
+const NOTIFY_EVERY_DEFAULT: u32 = 2;
+
+/// A hand-edited interval that is not on offer reads as the default rather than
+/// as a tighter loop than any host asked for.
+fn lenient_minutes<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(value
+        .as_u64()
+        .and_then(|minutes| u32::try_from(minutes).ok())
+        .filter(|minutes| NOTIFY_EVERY.contains(minutes))
+        .unwrap_or(NOTIFY_EVERY_DEFAULT))
+}
+
+impl Default for Settings {
+    /// Off, except the one that asks first and the one that looks for updates.
+    ///
+    /// A confirmation defaults to on because the cost of asking is a click and
+    /// the cost of not asking is a rewritten history. The update check is the
+    /// deliberate exception to "a preference the user did not set should not
+    /// change what the application does" — its reasoning is on the field.
+    /// The rest are off.
+    fn default() -> Self {
+        Settings {
+            check_for_updates: spagitty_core::brand::CHECKS_FOR_UPDATES,
+            confirm_history_rewrite: true,
+            show_git_commands: false,
+            // Off, like the other two that change what the application does.
+            // A branch that vanishes from the graph because a fetch pruned it
+            // is a surprise, and one nobody asked for.
+            prune_on_fetch: false,
+            // On, for the reasoning on the field: a node that cannot say who
+            // somebody is has not answered the question it is there for.
+            fetch_avatars: true,
+            // Off until asked (TASK-045). See the type.
+            personality: Personality::Off,
+            // Silent until asked, like every other preference here that
+            // changes what the application does.
+            sound: SoundLevel::Off,
+            // Off until asked: a request to every connected host on a timer.
+            // Once on, everything it can say is on, and the reader turns off
+            // what they do not want.
+            notify_pull_requests: false,
+            notify_desktop: true,
+            notify_merged: true,
+            notify_comments: true,
+            notify_review_requests: true,
+            notify_checks: true,
+            notify_every_minutes: NOTIFY_EVERY_DEFAULT,
+            // Every screen pinned, as TASK-056 left the rail.
+            rail: Rail::default(),
+            // Every card, as Home was designed.
+            home: HomeLayout::default(),
+            // The platform's own shell, inside a multiplexer when one can run.
+            terminal_shell: String::new(),
+            terminal_multiplexer: true,
+            terminal_colours: true,
+            calls: CallsSettings::default(),
+        }
+    }
+}
+
+/// The stored settings, or the defaults.
+pub fn load<R: Runtime>(app: &AppHandle<R>) -> Settings {
+    let Some(path) = file(app) else {
+        return Settings::default();
+    };
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Settings::default();
+    };
+    parse(&text)
+}
+
+/// Write the settings, reporting whether they reached the disk.
+///
+/// A failed write is worth saying out loud here, unlike the repository list: a
+/// toggle that silently did not persist looks exactly like one that did until
+/// the next restart.
+pub fn save<R: Runtime>(app: &AppHandle<R>, settings: Settings) -> Result<(), String> {
+    let path =
+        file(app).ok_or_else(|| "there is no configuration directory to write to".to_string())?;
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let text = serde_json::to_string_pretty(&settings).map_err(|error| error.to_string())?;
+    std::fs::write(path, text).map_err(|error| error.to_string())
+}
+
+/// Anything that is not a settings object reads as the defaults, and a partial
+/// object keeps the keys it does carry.
+fn parse(text: &str) -> Settings {
+    serde_json::from_str(text).unwrap_or_default()
+}
+
+fn file<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
+    app.path().app_config_dir().ok().map(|dir| dir.join(FILE))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_missing_file_reads_as_the_defaults() {
+        // The file does not exist until something is toggled, which is the
+        // ordinary case rather than an error.
+        assert_eq!(parse(""), Settings::default());
+    }
+
+    #[test]
+    fn asking_before_a_history_rewrite_is_on_by_default() {
+        // The cost of asking is a click. The cost of not asking is a rewritten
+        // history, so this is the one that defaults to on.
+        assert!(Settings::default().confirm_history_rewrite);
+        assert!(!Settings::default().show_git_commands);
+        // Workbench: off, since it comes through CIB's internal channel.
+        assert!(!Settings::default().check_for_updates);
+    }
+
+    #[test]
+    fn a_hand_edited_file_that_is_not_settings_does_not_stop_the_application() {
+        // The file sits in the user's config directory and invites editing.
+        for corrupt in ["{", "[]", "null", "not json", "42"] {
+            assert_eq!(parse(corrupt), Settings::default(), "for {corrupt:?}");
+        }
+    }
+
+    #[test]
+    fn a_file_from_an_older_build_keeps_what_it_carries_and_defaults_the_rest() {
+        let partial = parse(r#"{"showGitCommands": true}"#);
+
+        assert!(partial.show_git_commands);
+        assert!(
+            partial.confirm_history_rewrite,
+            "a key the file predates arrives at its default"
+        );
+    }
+
+    #[test]
+    fn the_delight_layer_is_off_and_silent_until_it_is_asked_otherwise() {
+        // Badges are recorded at every level; what defaults here is whether
+        // anything is shown (TASK-045). Sound must never start on.
+        assert_eq!(Settings::default().personality, Personality::Off);
+        assert_eq!(Settings::default().sound, SoundLevel::Off);
+    }
+
+    #[test]
+    fn a_file_that_already_names_a_personality_keeps_it() {
+        // Only a file that names none — every new install — starts at Off.
+        let settings = parse(r#"{"personality": "balanced"}"#);
+        assert_eq!(settings.personality, Personality::Balanced);
+        assert_eq!(
+            serde_json::to_string(&Personality::Off).expect("serialising"),
+            "\"off\""
+        );
+    }
+
+    #[test]
+    fn the_personality_levels_are_stored_as_the_names_the_screen_uses() {
+        let text = serde_json::to_string(&Settings {
+            personality: Personality::FullSpagitty,
+            sound: SoundLevel::Subtle,
+            ..Settings::default()
+        })
+        .expect("serialising");
+
+        assert!(text.contains("\"personality\":\"fullSpagitty\""), "{text}");
+        assert!(text.contains("\"sound\":\"subtle\""), "{text}");
+    }
+
+    #[test]
+    fn a_personality_this_build_does_not_know_costs_only_the_personality() {
+        // The file invites hand-editing, and a bad enum value used to fail the
+        // whole object — which would quietly undo every other setting in it.
+        let settings = parse(r#"{"personality": "loud", "showGitCommands": true}"#);
+
+        assert_eq!(settings.personality, Personality::default());
+        assert!(
+            settings.show_git_commands,
+            "an unreadable personality must not cost an unrelated toggle"
+        );
+    }
+
+    #[test]
+    fn a_key_the_build_does_not_know_is_ignored_rather_than_fatal() {
+        // Going back a version must not cost the settings that still apply.
+        // `signCommits` is one such key now: it lived here until FEAT-019 moved
+        // the preference to `commit.gpgsign`, and a file written before that
+        // still carries it.
+        let settings = parse(r#"{"signCommits": true, "showGitCommands": true, "later": "on"}"#);
+
+        assert!(settings.show_git_commands);
+        assert!(settings.confirm_history_rewrite);
+    }
+
+    #[test]
+    fn settings_read_back_as_they_were_written() {
+        let written = Settings {
+            check_for_updates: false,
+            confirm_history_rewrite: false,
+            show_git_commands: true,
+            prune_on_fetch: true,
+            fetch_avatars: false,
+            personality: Personality::FullSpagitty,
+            sound: SoundLevel::Full,
+            notify_pull_requests: true,
+            notify_desktop: false,
+            notify_merged: false,
+            notify_comments: true,
+            notify_review_requests: false,
+            notify_checks: true,
+            notify_every_minutes: 5,
+            rail: Rail {
+                hidden: vec!["1E".to_string(), "1G".to_string()],
+                order: vec!["1Q".to_string(), "1C".to_string(), "1A".to_string()],
+                place: RailWhere::Palette,
+            },
+            home: HomeLayout {
+                hidden: vec!["heat".to_string()],
+                order: vec!["farm".to_string(), "needs".to_string()],
+            },
+            terminal_shell: "/usr/bin/fish".to_string(),
+            terminal_multiplexer: false,
+            terminal_colours: false,
+            calls: CallsSettings {
+                timeout_seconds: 5,
+                follow_redirects: false,
+                ..CallsSettings::default()
+            },
+        };
+        let text = serde_json::to_string_pretty(&written).expect("serialising");
+
+        assert_eq!(parse(&text), written);
+    }
+
+    #[test]
+    fn pull_request_notifications_are_off_until_asked() {
+        let settings = Settings::default();
+
+        assert!(!settings.notify_pull_requests);
+        assert!(settings.notify_desktop && settings.notify_merged && settings.notify_comments);
+        assert_eq!(settings.notify_every_minutes, 2);
+    }
+
+    #[test]
+    fn an_interval_that_is_not_on_offer_reads_as_the_default() {
+        // A hand-edited `0` must not become a request loop with no pause.
+        for odd in ["0", "3", "-1", "\"soon\"", "99999999999"] {
+            let settings = parse(&format!(
+                r#"{{"notifyEveryMinutes": {odd}, "showGitCommands": true}}"#
+            ));
+            assert_eq!(settings.notify_every_minutes, 2, "for {odd}");
+            assert!(settings.show_git_commands, "for {odd}");
+        }
+        assert_eq!(
+            parse(r#"{"notifyEveryMinutes": 15}"#).notify_every_minutes,
+            15
+        );
+    }
+
+    #[test]
+    fn every_screen_is_pinned_until_somebody_hides_one() {
+        // TASK-056 put every tool back on the rail; FEAT-134 lets a person take
+        // some off, and changes nothing for anybody who has not.
+        let rail = Settings::default().rail;
+
+        assert!(rail.hidden.is_empty());
+        assert!(rail.order.is_empty());
+        assert_eq!(rail.place, RailWhere::More);
+    }
+
+    #[test]
+    fn the_rail_is_stored_under_the_names_the_screen_uses() {
+        let text = serde_json::to_string(&Settings {
+            rail: Rail {
+                hidden: vec!["1G".to_string()],
+                order: Vec::new(),
+                place: RailWhere::Palette,
+            },
+            ..Settings::default()
+        })
+        .expect("serialising");
+
+        assert!(
+            text.contains(r#""rail":{"hidden":["1G"],"order":[],"where":"palette"}"#),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_home_layout_this_build_cannot_read_costs_only_the_layout() {
+        let settings = parse(r#"{"home": ["farm"], "showGitCommands": true}"#);
+        assert_eq!(settings.home, HomeLayout::default());
+        assert!(settings.show_git_commands);
+
+        let settings = parse(r#"{"home": {"hidden": ["heat", "later"]}}"#);
+        assert_eq!(
+            settings.home.hidden,
+            vec!["heat".to_string(), "later".to_string()]
+        );
+        assert!(settings.home.order.is_empty());
+    }
+
+    #[test]
+    fn a_rail_this_build_cannot_read_costs_only_the_rail() {
+        // A hand-edited `"rail": "short"`, or a place this build has not got,
+        // must not undo an unrelated toggle.
+        let settings = parse(r#"{"rail": "short", "showGitCommands": true}"#);
+        assert_eq!(settings.rail, Rail::default());
+        assert!(settings.show_git_commands);
+
+        let settings = parse(r#"{"rail": {"hidden": ["1G"], "where": "drawer"}}"#);
+        assert_eq!(settings.rail.hidden, vec!["1G".to_string()]);
+        assert_eq!(settings.rail.place, RailWhere::More);
+    }
+
+    #[test]
+    fn a_screen_this_build_does_not_know_stays_in_the_list() {
+        // Going back a version must not rewrite what a newer one stored.
+        let settings = parse(r#"{"rail": {"hidden": ["9Z", "1G"]}}"#);
+
+        assert_eq!(
+            settings.rail.hidden,
+            vec!["9Z".to_string(), "1G".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_terminal_runs_the_platforms_shell_in_a_multiplexer_until_told_otherwise() {
+        let settings = Settings::default();
+
+        assert_eq!(settings.terminal_shell, "");
+        assert!(settings.terminal_multiplexer);
+        assert!(settings.terminal_colours);
+        // A file from before the terminal keeps what it carries and gains these.
+        let older = parse(r#"{"showGitCommands": true}"#);
+        assert!(older.terminal_multiplexer);
+        assert!(older.terminal_colours);
+        assert!(older.show_git_commands);
+        // A shell that is not text costs only the shell.
+        let odd = parse(r#"{"terminalShell": 7, "terminalMultiplexer": false}"#);
+        assert_eq!(odd.terminal_shell, "");
+        assert!(!odd.terminal_multiplexer);
+    }
+
+    #[test]
+    fn author_pictures_are_fetched_by_default() {
+        // The second preference here that changes what the application does
+        // and is still on: a node that cannot say who somebody is has not
+        // answered the question a node is looked at to answer (FEAT-079).
+        assert!(Settings::default().fetch_avatars);
+    }
+
+    #[test]
+    fn the_stored_keys_are_the_camel_case_names_the_screen_uses() {
+        // The file is meant to be readable by hand, and the frontend types name
+        // these keys. A rename on either side has to be a deliberate one.
+        let text = serde_json::to_string(&Settings::default()).expect("serialising");
+
+        assert!(text.contains("checkForUpdates"), "{text}");
+        assert!(text.contains("confirmHistoryRewrite"), "{text}");
+        assert!(text.contains("showGitCommands"), "{text}");
+        assert!(text.contains("pruneOnFetch"), "{text}");
+        assert!(text.contains("fetchAvatars"), "{text}");
+        assert!(text.contains("personality"), "{text}");
+        assert!(text.contains("sound"), "{text}");
+        // And the one that left: writing it again would recreate a second
+        // switch for a preference `commit.gpgsign` already holds.
+        assert!(!text.contains("signCommits"), "{text}");
+    }
+}

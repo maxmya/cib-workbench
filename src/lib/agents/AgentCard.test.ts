@@ -1,0 +1,491 @@
+// SPDX-License-Identifier: MIT
+
+/**
+ * The Agent card (2.0), mounted: the sentence, the meter, the timeline, each
+ * kind of gate — asked at the top of the card (FEAT-124) — and every control
+ * reaching the engine.
+ */
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { click, render } from '../../testing/mount';
+import { aFinding, aMerge, aRemote, aReview, aSnapshot, aStep } from '../../testing/agent-fixtures';
+
+vi.mock('./api', () => ({
+	control: vi.fn(() => Promise.resolve()),
+	transcript: vi.fn(() => Promise.resolve('the whole transcript')),
+	forget: vi.fn(() => Promise.resolve())
+}));
+
+import * as api from './api';
+import { agents } from './store.svelte';
+import { dialog } from '$lib/ui/dialog.svelte';
+import AgentCard from './AgentCard.svelte';
+import type { Assignment } from './types';
+import { PRODUCT_NAME } from '$lib/brand';
+
+const text = (el: Element | null | undefined) => el?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+
+function mount(assignment: Assignment, props: Record<string, unknown> = {}) {
+	return render(AgentCard, { assignment, ...props });
+}
+
+function button(view: ReturnType<typeof mount>, name: string) {
+	return view.all('button').find((b) => text(b) === name || b.getAttribute('title') === name)!;
+}
+
+beforeEach(() => {
+	vi.clearAllMocks();
+	agents.reset(aSnapshot());
+});
+
+describe('what the card says', () => {
+	it('names the agent, its level, the one sentence and the meter', () => {
+		const view = mount(aReview());
+		expect(view.text()).toContain('Claude Code');
+		expect(view.text()).toContain('Ask every step');
+		expect(view.get('.sentence').className).toContain('waiting');
+		expect(view.text()).toContain('Waiting for you: 2 findings on avatars.rs');
+		expect(view.text()).toMatch(/0 \/ 4 · \d+:\d\d/);
+	});
+
+	it('shows a remote agent’s tokens against its budget', () => {
+		agents.reset(aSnapshot({ remote: [aRemote({ id: 'api-1', tokensPerRun: 40000 })] }));
+		const view = mount(
+			aReview({ agent: { id: 'api-1', name: 'Anthropic', reach: 'remote', version: null, provider: 'anthropic', model: 'm' }, tokens: { input: 12000, output: 400 } })
+		);
+		expect(view.text()).toContain('12,400 / 40,000 tokens');
+	});
+
+	it('says pausing while a pause waits for the step to end', () => {
+		const view = mount(aReview({ state: 'working', pausing: true }));
+		expect(view.text()).toContain('Pausing after this step');
+	});
+
+	it('shows why it stopped, and offers Resume and forget once it has', () => {
+		const resume = vi.fn();
+		const failed = aReview({ state: 'failed', reason: 'Codex exited with 1 after 4 of 12 files.' });
+		agents.reset(aSnapshot(), [failed]);
+		const view = mount(failed, { onresume: resume });
+		expect(view.text()).toContain('Codex exited with 1 after 4 of 12 files.');
+		click(button(view, 'Resume'));
+		expect(resume).toHaveBeenCalled();
+		click(button(view, 'forget'));
+		expect(api.forget).toHaveBeenCalledWith('/work/spagitty', 'review-1');
+	});
+
+	it('says where the person took over', () => {
+		const view = mount(aReview({ state: 'stopped', tookOver: 'You took over at file 2 of 4' }));
+		expect(view.text()).toContain('You took over at file 2 of 4');
+	});
+});
+
+describe('the controls', () => {
+	it('pause, stop, take over and tell all reach the engine', async () => {
+		const view = mount(aReview({ state: 'working' }));
+		click(button(view, 'Pause after this step'));
+		click(button(view, 'Stop now. Everything proposed stays.'));
+		click(button(view, 'Take over'));
+		const box = view.get('input[aria-label="Tell the agent"]') as HTMLInputElement;
+		box.value = 'look at the migration first';
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+		box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+		await vi.waitFor(() => expect(api.control).toHaveBeenCalledTimes(4));
+		expect(vi.mocked(api.control).mock.calls.map((c) => c[1])).toEqual([
+			{ kind: 'pause' },
+			{ kind: 'stop' },
+			{ kind: 'takeOver' },
+			{ kind: 'tell', text: 'look at the migration first' }
+		]);
+	});
+
+	it('resumes a paused agent', () => {
+		const view = mount(aReview({ state: 'paused' }));
+		click(button(view, 'Resume'));
+		expect(api.control).toHaveBeenCalledWith('review-1', { kind: 'resume' });
+	});
+
+	it('offers the levels in a menu, the ones above the repository’s highest disabled with why', () => {
+		const view = mount(aReview({ state: 'working' }));
+		click(view.all('button').find((b) => text(b).startsWith('Ask every step'))!);
+		const menu = document.querySelector('[role="menu"]')!;
+		const items = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+		expect(items.map(text).join(' | ')).toContain('Full access');
+		const unattended = items.find((i) => text(i).includes('Full access')) as HTMLButtonElement;
+		expect(unattended.disabled).toBe(true);
+		expect(text(unattended)).toContain('The most allowed here is Ask before sending or merging');
+		click(items.find((i) => text(i).includes('Ask before sending or merging'))!);
+		expect(api.control).toHaveBeenCalledWith('review-1', { kind: 'level', level: 'signOff' });
+	});
+
+	it('follows the agent only when asked', () => {
+		const onfollow = vi.fn();
+		const view = mount(aReview({ state: 'working' }), { follow: false, onfollow });
+		click(button(view, 'Follow the agent'));
+		expect(onfollow).toHaveBeenCalledWith(true);
+	});
+
+	it('shows nothing of what was sent or said until Details is opened (FEAT-118)', () => {
+		const view = mount(
+			aReview({
+				steps: [
+					aStep({
+						prompt: 'Review avatars.rs and say what is wrong.',
+						record: [{ kind: 'reply', text: 'The cache path is wrong.' }]
+					})
+				]
+			})
+		);
+		expect(view.text()).not.toContain('Review avatars.rs and say what is wrong.');
+		expect(view.text()).not.toContain('The cache path is wrong.');
+		expect(view.find('.step-details')).toBeNull();
+	});
+
+	it('shows, for a step, what was sent and what came back, each labelled as what it is', () => {
+		const onfile = vi.fn();
+		const view = mount(
+			aReview({
+				steps: [
+					aStep({
+						index: 1,
+						label: 'avatars.rs · 2 findings',
+						prompt: 'Review avatars.rs and say what is wrong.',
+						record: [
+							{ kind: 'sent', text: 'You · look at the tests too' },
+							{ kind: 'reply', text: 'The cache path is **wrong**.' },
+							{ kind: 'reply', text: 'See the test.' },
+							{ kind: 'read', text: 'src/avatars.rs', path: 'src/avatars.rs' },
+							{ kind: 'command', text: 'cargo test' },
+							{ kind: 'error', text: 'failed: permission denied' }
+						]
+					})
+				]
+			}),
+			{ onfile }
+		);
+		click(button(view, 'Details'));
+
+		const details = view.get('.step-details');
+		expect(text(details)).toContain('avatars.rs · 2 findings');
+		expect(text(details)).toContain(`What ${PRODUCT_NAME} asked`);
+		expect(text(details.querySelector('.sent pre'))).toBe('Review avatars.rs and say what is wrong.');
+		// Adjacent reply lines are one reply, drawn as Markdown.
+		expect(details.querySelectorAll('.block.reply')).toHaveLength(1);
+		expect(details.querySelector('.block.reply strong')?.textContent).toBe('wrong');
+		expect(text(details.querySelector('.block.command pre'))).toBe('$ cargo test');
+		expect(text(details.querySelector('.block.error'))).toContain('permission denied');
+		const labels = [...details.querySelectorAll('.block > .kind')].map((el) => text(el));
+		expect(labels).toEqual(expect.arrayContaining(['You', 'Agent', 'Read', 'Command', 'Error']));
+		// A file it read is a link into the diff.
+		click(details.querySelector<HTMLElement>('.block.read button')!);
+		expect(onfile).toHaveBeenCalledWith('src/avatars.rs');
+	});
+
+	it('opens on the step that was clicked, not the current one', () => {
+		const view = mount(
+			aReview({
+				steps: [
+					aStep({ index: 0, label: 'Read the pull request', prompt: 'first' }),
+					aStep({ index: 1, label: 'avatars.rs', state: 'running', endedAt: null, prompt: 'second' })
+				]
+			})
+		);
+		click(button(view, 'Details'));
+		expect(text(view.get('.step-details .label'))).toBe('avatars.rs');
+		click(view.all('button.line').find((b) => text(b).includes('Read the pull request'))!);
+		expect(text(view.get('.step-details .label'))).toBe('Read the pull request');
+	});
+
+	it('shows the raw output, and the command that started the run', async () => {
+		const view = mount(aReview({ steps: [aStep({ command: 'claude -p --permission-mode plan …' })] }));
+		click(button(view, 'Details'));
+		click(view.all('.raw-toggle').find((b) => text(b) === 'Raw output')!);
+		await vi.waitFor(() => expect(view.text()).toContain('the whole transcript'));
+		expect(view.text()).toContain('claude -p --permission-mode plan …');
+	});
+});
+
+describe('how far through it is (FEAT-119)', () => {
+	const NOW = Math.floor(Date.now() / 1000);
+	const at = (state: Assignment['state'], extra: Partial<Assignment> = {}) =>
+		aReview({ state, startedAt: NOW - 90, endedAt: null, ...extra });
+
+	it('says which step it is on and for how long, while it works', () => {
+		const view = mount(
+			at('working', {
+				planned: 0,
+				sentence: 'Reading the pull request',
+				steps: [aStep({ index: 0, label: 'Read the pull request · 4 files', state: 'running', startedAt: NOW - 42, endedAt: null })]
+			})
+		);
+		expect(text(view.get('[data-testid="doing"]'))).toMatch(/^Read the pull request · 4 files · \d+:\d\d$/);
+		view.destroy();
+	});
+
+	it('counts the steps when there are no files or conflicts to count yet', () => {
+		const view = mount(
+			at('working', {
+				planned: 0,
+				steps: [aStep({ index: 0, state: 'done' }), aStep({ index: 1, state: 'running', endedAt: null })]
+			})
+		);
+		// Nothing says how many there will be, so it says how many are done.
+		expect(view.get('.meter .mono').textContent).not.toMatch(/ \/ /);
+		view.destroy();
+	});
+
+	it('counts the files once the plan has said how many', () => {
+		const view = mount(at('working', { planned: 7 }));
+		expect(text(view.get('.meter'))).toMatch(/\/ 4 · /);
+		view.destroy();
+	});
+
+	it('has no pulsing dot', () => {
+		const view = mount(at('working'));
+		expect(view.find('.sentence .state')).toBeNull();
+		view.destroy();
+	});
+
+	it('moves the sentence while the agent is at work, with the strands before it (FEAT-124)', () => {
+		const view = mount(at('working', { sentence: 'Reading the pull request' }));
+		expect(text(view.get('.sentence .shimmer'))).toBe('Reading the pull request');
+		expect(view.find('.sentence .strands')).not.toBeNull();
+		view.destroy();
+	});
+
+	it.each<Assignment['state']>(['waiting', 'paused', 'stopped', 'failed', 'done'])(
+		'keeps the sentence still when the run is %s',
+		(state) => {
+			const view = mount(aReview({ state }));
+			expect(view.find('.sentence .shimmer')).toBeNull();
+			expect(view.find('.sentence .strands')).toBeNull();
+			view.destroy();
+		}
+	);
+
+	it('keeps the sentence still once the agent has gone quiet', () => {
+		const view = mount(at('working', { quietSince: Math.floor(Date.now() / 1000) - 5 * 60 }));
+		expect(view.find('.sentence .shimmer')).toBeNull();
+		view.destroy();
+	});
+
+	it('says plainly that an agent has gone quiet, and offers to stop it', () => {
+		const view = mount(at('working', { quietSince: Math.floor(Date.now() / 1000) - 5 * 60 }));
+		expect(view.get('.sentence').className).toContain('quiet');
+		expect(view.get('.quiet[role="status"]').textContent).toMatch(/Nothing from Claude Code for 5 min/);
+		expect(view.find('[data-testid="doing"]')).toBeNull();
+		click(view.all('.quiet[role="status"] button').find((b) => text(b) === 'Stop')!);
+		expect(api.control).toHaveBeenCalledWith('review-1', { kind: 'stop' });
+		view.destroy();
+	});
+
+	it('does not call a short silence quiet', () => {
+		const view = mount(at('working', { quietSince: Math.floor(Date.now() / 1000) - 30 }));
+		expect(view.find('.quiet[role="status"]')).toBeNull();
+		view.destroy();
+	});
+
+	it.each<[Assignment['state'], string]>([
+		['starting', 'working'],
+		['working', 'working'],
+		['waiting', 'waiting'],
+		['paused', 'paused'],
+		['stopped', 'stopped'],
+		['failed', 'failed'],
+		['done', 'done']
+	])('draws a run that is %s as %s', (state, tone) => {
+		const view = mount(aReview({ state }));
+		expect(view.get('.sentence').className).toContain(tone);
+		view.destroy();
+	});
+});
+
+describe('the gates', () => {
+	it('a file’s findings: go to them, accept both, go on, or redo with a note', async () => {
+		const ongo = vi.fn();
+		const onaccept = vi.fn();
+		const view = mount(aReview(), { ongo, onaccept });
+		expect(view.get('.now.asking').textContent).toContain('2 findings · 1 high, 1 low');
+		click(button(view, 'Go to them'));
+		expect(ongo).toHaveBeenCalled();
+		click(button(view, 'Accept both'));
+		await vi.waitFor(() => expect(api.control).toHaveBeenCalledWith('review-1', { kind: 'continue' }));
+		expect(onaccept.mock.calls[0][0]).toHaveLength(2);
+
+		vi.spyOn(dialog, 'prompt').mockResolvedValue('the offline case matters most');
+		click(button(view, 'Redo with a note'));
+		await vi.waitFor(() =>
+			expect(api.control).toHaveBeenCalledWith('review-1', { kind: 'redo', note: 'the offline case matters most' })
+		);
+	});
+
+	it('the plan: drop a file from it, then go on', () => {
+		const review = aReview({
+			steps: [aStep(), aStep({ index: 1, kind: { kind: 'plan' }, label: 'Plan · 2 files', state: 'waiting', gate: 'plan', endedAt: null })],
+			proposals: [
+				{
+					id: 'p1-0',
+					step: 1,
+					body: { kind: 'plan', files: [{ path: 'a.rs', why: '' }, { path: 'b.rs', why: '' }], lookFor: 'races' },
+					sure: true,
+					state: 'proposed',
+					decidedBy: null,
+					why: null,
+					stale: false
+				}
+			]
+		});
+		const view = mount(review);
+		expect(view.get('.now.asking').textContent).toContain('races');
+		// The files are the more: closed until asked for.
+		expect(view.text()).not.toContain('b.rs');
+		click(button(view, 'The plan'));
+		click(view.all('button').find((b) => b.getAttribute('title') === 'Leave a.rs out')!);
+		expect(api.control).toHaveBeenCalledWith('review-1', { kind: 'plan', files: ['b.rs'] });
+		click(button(view, 'Go on'));
+		expect(api.control).toHaveBeenCalledWith('review-1', { kind: 'continue' });
+	});
+
+	it('the last act at Ask before sending or merging is the person’s, filled in', () => {
+		const onlast = vi.fn();
+		const view = mount(
+			aReview({ steps: [aStep({ kind: { kind: 'last' }, label: 'Finish review', state: 'waiting', gate: 'send', endedAt: null })], proposals: [] }),
+			{ onlast }
+		);
+		click(button(view, 'Finish review'));
+		expect(onlast).toHaveBeenCalled();
+	});
+
+	it('failing checks show their output, and can run again', () => {
+		const view = mount(
+			aMerge({
+				state: 'waiting',
+				steps: [
+					aStep({
+						kind: { kind: 'checks' },
+						label: 'Checks · 1 failed',
+						state: 'waiting',
+						gate: 'checks',
+						endedAt: null,
+						checks: [{ command: 'bun test', passed: false, output: 'expected 2, got 3', durationMs: 10 }]
+					})
+				]
+			})
+		);
+		expect(view.get('.now.asking').textContent).toContain('bun test failed');
+		// The sentence in the fixture is the merge's, so the card says what failed itself.
+		expect(view.find('.asked')).toBeNull();
+		click(button(view, 'The output'));
+		expect(view.get('.asked').textContent).toContain('expected 2, got 3');
+		click(button(view, 'Run again'));
+		expect(api.control).toHaveBeenCalledWith('merge-1', { kind: 'redo', note: '' });
+	});
+
+	it('a conflict says the agent’s one sentence on why', () => {
+		const merge = aMerge({
+			state: 'waiting',
+			steps: [aStep({ index: 1, kind: { kind: 'conflict', path: 'a', region: 0 }, state: 'waiting', gate: 'conflict', endedAt: null })],
+			proposals: [{ ...aMerge().proposals[0], step: 1, state: 'proposed' }]
+		});
+		const view = mount(merge, { names: { a: 'main', b: 'feat' }, ongo: vi.fn(), onaccept: vi.fn() });
+		expect(view.get('.now.asking').textContent).toContain('Keeps pinned from main and dragging from feat/tab-drag.');
+		expect(button(view, 'Go to it')).toBeDefined();
+		expect(button(view, 'Accept')).toBeDefined();
+	});
+
+	it('a moved head offers Carry on or Stop', () => {
+		const view = mount(aReview({ steps: [aStep()], reason: 'The pull request changed since the agent started.' }));
+		expect(view.text()).toContain('The pull request changed since the agent started.');
+		click(button(view, 'Carry on'));
+		expect(api.control).toHaveBeenCalledWith('review-1', { kind: 'carryOn' });
+	});
+
+	it('a gate with nothing to decide just goes on', () => {
+		const view = mount(aReview({ proposals: [aFinding({ state: 'accepted' })] }));
+		expect(view.get('.now.asking').textContent).toContain('Nothing to decide here.');
+		click(button(view, 'Go on'));
+		expect(api.control).toHaveBeenCalledWith('review-1', { kind: 'continue' });
+	});
+});
+
+describe('what it asks, at the top of the card (FEAT-124)', () => {
+	it('is asked above the meter and the timeline, never in the timeline', () => {
+		const view = mount(aReview(), { ongo: vi.fn(), onaccept: vi.fn() });
+		const asking = view.get('.now.asking');
+		const accept = button(view, 'Accept both');
+		expect(asking.contains(accept)).toBe(true);
+		expect(asking.contains(view.get('.sentence'))).toBe(true);
+		const follows = (later: Element) => asking.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING;
+		expect(follows(view.get('.meter'))).toBeTruthy();
+		expect(follows(view.get('.timeline'))).toBeTruthy();
+		expect(view.get('.timeline').querySelectorAll('.acts')).toHaveLength(0);
+	});
+
+	it('is not drawn when the agent is not waiting', () => {
+		const view = mount(aReview({ state: 'working' }));
+		expect(view.find('.now.asking')).toBeNull();
+		expect(view.find('.now .acts')).toBeNull();
+	});
+
+	it('says the findings in one line, and each of them once that is opened', () => {
+		const view = mount(aReview(), { ongo: vi.fn(), onaccept: vi.fn() });
+		expect(view.text()).not.toContain('Two windows can write this file at once.');
+		const toggle = button(view, 'The findings');
+		expect(toggle.getAttribute('aria-expanded')).toBe('false');
+		click(toggle);
+		expect(toggle.getAttribute('aria-expanded')).toBe('true');
+		const items = [...view.get('.asked').querySelectorAll('li')].map(text);
+		expect(items).toEqual([
+			'avatars.rs:16 high Two windows can write this file at once. Write to a temporary file, then rename.',
+			'avatars.rs:15 low · unsure Offline, a stale file now fails the avatar.'
+		]);
+		click(toggle);
+		expect(view.find('.asked')).toBeNull();
+	});
+
+	it('does not say twice what the sentence already says', () => {
+		const view = mount(
+			aReview({
+				sentence: 'Waiting for you: Finish review',
+				steps: [aStep({ kind: { kind: 'last' }, label: 'Finish review', state: 'waiting', gate: 'send', endedAt: null })],
+				proposals: []
+			})
+		);
+		expect(view.get('.summary').textContent).toBe('Ready for you to send.');
+		view.destroy();
+
+		const moved = mount(
+			aReview({
+				sentence: 'Waiting for you: The pull request changed since the agent started.',
+				steps: [aStep()],
+				reason: 'The pull request changed since the agent started.'
+			})
+		);
+		expect(moved.find('.summary')).toBeNull();
+		expect(button(moved, 'Carry on')).toBeDefined();
+	});
+
+	it('says the verdict in a line, and its summary once that is opened', () => {
+		const view = mount(
+			aReview({
+				sentence: 'Waiting for you: the verdict',
+				steps: [aStep({ index: 3, kind: { kind: 'verdict' }, label: 'Verdict · Request changes', state: 'waiting', gate: 'verdict', endedAt: null })],
+				proposals: [
+					{
+						id: 'p3-0',
+						step: 3,
+						body: { kind: 'verdict', summary: 'The cache can be written twice at once.', verdict: 'requestChanges', sure: true },
+						sure: true,
+						state: 'proposed',
+						decidedBy: null,
+						why: null,
+						stale: false
+					}
+				]
+			})
+		);
+		expect(view.get('.summary').textContent).toBe('Verdict · Request changes');
+		expect(view.text()).not.toContain('The cache can be written twice at once.');
+		click(button(view, 'The summary'));
+		expect(view.get('.asked').textContent).toContain('The cache can be written twice at once.');
+	});
+});

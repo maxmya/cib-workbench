@@ -1,0 +1,169 @@
+# SPDX-License-Identifier: MIT
+#
+# Collect the files a person downloads, and nothing else.
+#
+# This exists because of how the v0.2.0 release died. Gate 5 uploaded
+# `target/release/bundle/**` whole, and gate 6 attached every file under it
+# with `find artifacts -type f`. A bundle tree is not a list of downloads — it
+# carries the application's own resources, and the macOS lane alone produces
+# `icon.icns` twice (once inside `spagitty.app/Contents/Resources`, once in the
+# .dmg staging directory beside it). A GitHub release asset is keyed by its
+# basename, so the second upload came back
+#
+#     HTTP 422  ReleaseAsset.name already exists
+#
+# after all five gates had passed and, worse, after the tag had been pushed.
+# A tag is never moved, so v0.2.0 can never be released: the only
+# way out is a version bump.
+#
+# draft-release.yml had always collected only the installers, which is why that
+# lane never hit this. The correct version now lives here, once, so the three
+# lanes cannot drift apart again — that drift is the whole reason two of them
+# were broken and one was not.
+#
+# It also collects the AppImage's `.zsync`, and refuses to hand over an AppImage
+# that cannot be updated — see the check at the foot of the script.
+name: Collect the release assets
+description: Copy the installers, executables and AppImage zsync file out of the build tree into ./out
+
+inputs:
+  suffix:
+    description: >
+      Appended to each collected filename, before the extension. Needed where
+      two runners produce the same name — the two macOS architectures both
+      build `Spagitty_0.3.0_.dmg`, and only one of them could be attached.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Collect what is worth downloading
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p out
+
+        # Tauri has put the bundle under both `target/` and `src-tauri/target/`
+        # across versions, so this searches rather than guessing. `-prune` on
+        # node_modules keeps it from walking a tree that cannot contain a
+        # bundle and is the largest thing in the checkout.
+        # The `.zsync` is a download in its own right: it is the file an
+        # updater fetches first, and an AppImage whose zsync was never attached
+        # advertises an update source that answers 404.
+        find . -path ./node_modules -prune -o \
+               \( -name '*.AppImage' \
+               -o -name '*.AppImage.zsync' \
+               -o -name '*.deb' \
+               -o -name '*.rpm' \
+               -o -name '*-setup.exe' \
+               -o -name '*.msi' \
+               -o -name '*.dmg' \) \
+               -print -exec cp -n {} out/ \;
+
+        # The bare executable, for anyone who would rather not run an
+        # installer. Named for its platform, because `cib-workbench.exe` says
+        # nothing about which download it is.
+        if [ "${RUNNER_OS}" = "Windows" ]; then
+          find . -path ./node_modules -prune -o \
+                 -name 'cib-workbench.exe' -path '*release*' -print -quit \
+            | xargs -r -I {} cp {} out/cib-workbench-windows-x86_64.exe
+        fi
+
+        # Disambiguate before the files ever reach a release, rather than
+        # discovering the clash from GitHub after a tag has been pushed.
+        if [ -n "${SUFFIX}" ]; then
+          for file in out/*; do
+            [ -e "$file" ] || continue
+            case "$file" in
+              # The `.zsync` names the AppImage it patches, and the update
+              # information globs for both by name, so renaming either half of
+              # the pair breaks in-place updates. Nothing needs it anyway: the
+              # suffix exists for the two macOS runners, and neither builds an
+              # AppImage.
+              *.AppImage|*.AppImage.zsync) continue ;;
+              *"-${SUFFIX}."*) continue ;;
+            esac
+            base=${file%.*}
+            extension=${file##*.}
+            mv "$file" "${base}-${SUFFIX}.${extension}"
+          done
+        fi
+
+        if [ -z "$(ls -A out)" ]; then
+          echo "::error::the build produced nothing that can be released"
+          exit 1
+        fi
+
+        # An AppImage built without update information is not a broken build.
+        # It starts, it works, and every gate stays green — it is simply
+        # unupdatable for ever, and the first person to find that out is a user
+        # on a version nobody can move them off. So it is checked here, beside
+        # the other release-asset failures that used to surface only after a
+        # tag had been pushed.
+        appimage=$(find out -maxdepth 1 -name '*.AppImage' -print -quit)
+        if [ -n "$appimage" ]; then
+          # The string sits in an ELF section of the AppImage's runtime, and the
+          # runtime is the head of the file, so readelf reads it straight out of
+          # the bundle without unpacking anything.
+          information=$(readelf -p .upd_info "$appimage" | sed -n 's/^ *\[ *0\] *//p' || true)
+
+          case "$information" in
+            'gh-releases-zsync|'*) ;;
+            *)
+              echo "::error::$appimage has no gh-releases-zsync update information in .upd_info (found: '$information'). Did the build lane run ./.github/actions/appimage-update-info?"
+              exit 1
+              ;;
+          esac
+
+          if [ ! -f "$appimage.zsync" ]; then
+            echo "::error::$appimage.zsync is missing. appimagetool writes it beside the bundle whenever -u is given, so its absence means the AppImage and its update source disagree."
+            exit 1
+          fi
+
+          # The last field is the glob an updater matches against the release's
+          # asset names. A glob that matches nothing fails silently, on somebody
+          # else's machine, long after the release it belongs to — so the built
+          # filename is matched against it here. AppImageUpdate prefixes the
+          # pattern with `*` before matching, and so does this.
+          glob=${information##*|}
+          # Deliberately unquoted: it is a pattern being matched, not a string.
+          case "$(basename "$appimage.zsync")" in
+            *$glob) ;;
+            *)
+              echo "::error::the update information globs for '$glob', which does not match $(basename "$appimage.zsync"). An updater would find no asset to fetch."
+              exit 1
+              ;;
+          esac
+
+          echo "$appimage is updatable: $information"
+        fi
+
+        # Checksums, published with the downloads (TASK-040).
+        #
+        # A user told their macOS download is damaged has no way to find out
+        # whether they are holding the bytes that were built. That is the first
+        # question any diagnosis of that dialog has to answer, and until this
+        # existed the honest answer was "nobody knows" — so an incomplete
+        # download and a packaging defect were indistinguishable from the
+        # outside, and the release notes guessed.
+        #
+        # One file per runner, named for the artifact set it covers, because
+        # each lane's runners upload into a shared directory and a single
+        # `SHA256SUMS` written three times would collide exactly the way the
+        # .dmg names did. The release ends up carrying one per platform.
+        #
+        # `shasum` on macOS, `sha256sum` on Linux and on Windows' bash — the
+        # runners genuinely differ, and neither is present on both.
+        sums="SHA256SUMS-${SUFFIX:-$(echo "${RUNNER_OS}" | tr '[:upper:]' '[:lower:]')}.txt"
+        if command -v sha256sum >/dev/null 2>&1; then
+          (cd out && sha256sum -- * > "../$sums")
+        else
+          (cd out && shasum -a 256 -- * > "../$sums")
+        fi
+        mv "$sums" out/
+        cat "out/$sums"
+
+        ls -l out
+      env:
+        SUFFIX: ${{ inputs.suffix }}

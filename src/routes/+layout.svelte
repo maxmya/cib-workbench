@@ -1,0 +1,684 @@
+<!-- SPDX-License-Identifier: MIT -->
+<script lang="ts">
+	import { onMount } from 'svelte';
+	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
+	import { page } from '$app/state';
+	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+	import '../app.css';
+
+	import { farmStore } from '$lib/farm/store.svelte';
+	import * as api from '$lib/api';
+	import { timing } from '$lib/timing.svelte';
+	import { gentleFly } from '$lib/motion';
+	import CloneModal from '$lib/clone/CloneModal.svelte';
+	import { clone } from '$lib/clone/store.svelte';
+	import WorktreesModal from '$lib/worktrees/WorktreesModal.svelte';
+	import AddWorktreeModal from '$lib/worktrees/AddWorktreeModal.svelte';
+	import SubmodulesModal from '$lib/submodules/SubmodulesModal.svelte';
+	import { network } from '$lib/network/store.svelte';
+	import { rebase } from '$lib/rebase/store.svelte';
+	import CommandLog from '$lib/commandlog/CommandLog.svelte';
+	import { commandLog } from '$lib/commandlog/store.svelte';
+	import RewardOverlay from '$lib/delight/RewardOverlay.svelte';
+	import { delight } from '$lib/delight/store.svelte';
+	import { watcher } from '$lib/notifications/watcher.svelte';
+	import { attach as attachNotifications } from '$lib/notifications/feed.svelte';
+	import NotificationCenter from '$lib/notifications/NotificationCenter.svelte';
+	import NavRail from '$lib/chrome/NavRail.svelte';
+	import ResizeEdges from '$lib/chrome/ResizeEdges.svelte';
+	import { appWindow } from '$lib/chrome/window';
+	import StatusStrip from '$lib/chrome/StatusStrip.svelte';
+	import TitleBar from '$lib/chrome/TitleBar.svelte';
+	import Launch from '$lib/chrome/Launch.svelte';
+	import Toolbar from '$lib/chrome/Toolbar.svelte';
+	import { avatars } from '$lib/graph/avatars.svelte';
+	import { density } from '$lib/graph/density.svelte';
+	import { graphOrder } from '$lib/graph/order.svelte';
+	import { graph } from '$lib/graph/store.svelte';
+	import { ROW_PITCH } from '$lib/metrics';
+	import FileMenu from '$lib/files/FileMenu.svelte';
+	import Palette from '$lib/palette/Palette.svelte';
+	import { palette } from '$lib/palette/store.svelte';
+	import { registerCommands } from '$lib/palette/commands';
+	import { panels } from '$lib/panels.svelte';
+	import { repo } from '$lib/repo.svelte';
+	import { review } from '$lib/review/store.svelte';
+	import { agents } from '$lib/agents/store.svelte';
+	import { follow as followReviews, syncAll as syncReviews } from '$lib/review/agent.svelte';
+	import { follow as followMerges } from '$lib/merger/agent.svelte';
+	import { reading } from '$lib/reading.svelte';
+	import { scale } from '$lib/scale.svelte';
+	import { settings } from '$lib/settings/store.svelte';
+	import { isMac } from '$lib/platform';
+	import { isToggle, kept, pressedOf } from '$lib/terminal/keys';
+	import { terminal } from '$lib/terminal/store.svelte';
+	import DialogHost from '$lib/ui/DialogHost.svelte';
+	import { watchScrolling } from '$lib/ui/scrolling';
+	import HookRunWindow from '$lib/hooks/HookRunWindow.svelte';
+	import ExtensionHost from '$lib/extensions/ExtensionHost.svelte';
+	import NoticeToast from '$lib/ui/NoticeToast.svelte';
+	import SpeedSearchBox from '$lib/ui/SpeedSearchBox.svelte';
+	import { settings as settingsStore } from '$lib/settings/store.svelte';
+	import { theme } from '$lib/theme.svelte';
+	import { resumeSession } from '$lib/session';
+	import { nameOf, workspace } from '$lib/workspace.svelte';
+	import { DESKTOP_THEME_EVENT, REPO_CHANGED_EVENT, type RepoChangedEvent } from '$lib/types';
+	import type { DesktopTheme } from '$lib/omarchy';
+
+	let { children } = $props();
+
+	/** Re-walk when a ref moves, but not on every keystroke into a rebase. */
+	let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+	const cleanups: Array<() => void> = [];
+
+	/** Workbench: the launch screen, up until the session's first repository is open. */
+	let launching = $state(true);
+	let launchingRepo = $state<string | null>(null);
+
+	onMount(() => {
+		theme.init();
+		// The theme keeps a media query listener while it is following the
+		// desktop, and it belongs to the shell's lifetime like every other
+		// listener here (BUG-031).
+		cleanups.push(() => theme.dispose());
+		// Scrollbars show while their element scrolls, and not at rest (BUG-054).
+		cleanups.push(watchScrolling());
+		// Publishes the structural metrics as well as the type scale, at the
+		// stored zoom — so there is no frame at 100% before the user's zoom
+		// arrives.
+		scale.init();
+		// How code is set (FEAT-090). After the scale: it sets the code size
+		// the scale multiplies.
+		reading.init();
+		// After the metrics, so stored panel widths win over the defaults.
+		panels.init();
+		// The graph's column density, before the Graph screen lays itself out
+		// (TASK-041).
+		density.init();
+		// How the graph sequences commits, before a walk can start with the
+		// other order and then have to be thrown away.
+		graphOrder.init();
+		// The tab strip, before anything can open a repository into it.
+		workspace.init();
+		registerCommands();
+		// The window's own corner and shadow come off when it is maximized, and
+		// CSS cannot ask Tauri whether it is (FEAT-037).
+		appWindow.watchMaximized().then((off) => cleanups.push(off));
+
+		if (!api.inTauri()) {
+			launching = false;
+			return;
+		}
+
+		let cancelled = false;
+
+		// Whether there is a newer Spagitty, asked once at startup and only if
+		// the preference says so — which means reading the preference before
+		// asking, because a setting that stops a request has to stop it before
+		// it is made.
+		//
+		// Deliberately not awaited with the rest: it is the one thing here that
+		// touches a network, and nothing on screen should wait on it. A failure
+		// is left in the Settings screen rather than raised as a notice — a
+		// toast on every launch behind a captive portal would be worse than the
+		// feature is worth.
+		(async () => {
+			try {
+				const stored = await api.settings();
+				if (cancelled || !stored.checkForUpdates) return;
+				await settingsStore.checkForUpdate();
+			} catch {
+				// Settings unreadable, or the check failed. Neither is a reason
+				// to interrupt somebody opening a repository.
+			}
+		})();
+
+		(async () => {
+			// Listeners go up before anything can emit, so the first batch of a
+			// walk is never missed.
+			cleanups.push(await graph.attach());
+			// A clone survives navigation, so its listener belongs to the shell
+			// rather than to whichever screen started it.
+			cleanups.push(await clone.attach());
+			// A rebase survives navigation for the same reason: people leave the
+			// screen for Conflicts while it is still running, and its progress
+			// must not stop being heard when they do.
+			cleanups.push(await rebase.attach());
+			// A fetch survives navigation too: somebody who starts one from the
+			// toolbar and walks to Branches should not stop hearing about it.
+			cleanups.push(await network.attach());
+			// Recording starts with the app, not with the panel: turning the
+			// toggle on mid-session should show what has already run.
+			cleanups.push(await commandLog.attach());
+			// What the notification center keeps: failures, the farm, the
+			// checks. Up before anything can say something (FEAT-142).
+			cleanups.push(await attachNotifications());
+
+			/*
+			 * The desktop's own palette (FEAT-080).
+			 *
+			 * Read unconditionally, and *before* the watch: whether the option
+			 * can be offered at all is the answer to this call, so Appearance
+			 * cannot show it until the read has landed — and somebody who has
+			 * already chosen to follow the desktop needs the palette itself,
+			 * not the offer.
+			 *
+			 * The watch is started only when it is being followed. A machine
+			 * that is not following one has no reason to hold two inotify
+			 * watches on a directory it does not read.
+			 */
+			try {
+				theme.receiveDesktop(await api.desktopTheme());
+			} catch {
+				// An older backend without the command. The option is simply
+				// not offered, which is the same as any non-Omarchy machine.
+			}
+
+			const desktopEvent: UnlistenFn = await listen<DesktopTheme>(
+				DESKTOP_THEME_EVENT,
+				(event) => theme.receiveDesktop(event.payload)
+			);
+			cleanups.push(desktopEvent);
+			cleanups.push(() => void api.desktopThemeUnwatch().catch(() => {}));
+
+			// The toggles are read once, here, rather than by the Settings
+			// screen alone. Everything that consults them — the confirmation
+			// before a history rewrite, the command log — is reachable without
+			// ever opening Settings, and until this read lands they answer from
+			// the defaults instead of from what the user chose.
+			settings.load();
+
+			const off: UnlistenFn = await listen<RepoChangedEvent>(
+				REPO_CHANGED_EVENT,
+				(event) => {
+					if (event.payload.refs) {
+						// Refs moved: HEAD, the chips and the history itself are
+						// all potentially stale, so re-read and re-walk.
+						if (refreshTimer) clearTimeout(refreshTimer);
+						refreshTimer = setTimeout(() => {
+							repo.refresh();
+							graph.reload();
+						}, 100);
+					} else if (event.payload.worktree) {
+						repo.refresh();
+					}
+				}
+			);
+			cleanups.push(off);
+
+			// Guard against the two definitions of the row pitch drifting apart.
+			try {
+				const rust = await api.metrics();
+				if (rust.rowPitch !== ROW_PITCH) {
+					console.error(
+						`row pitch mismatch: Rust says ${rust.rowPitch}, frontend says ${ROW_PITCH}. ` +
+							'Lanes and rows will not line up.'
+					);
+				}
+			} catch {
+				// Older backend without the command; not fatal.
+			}
+
+			/*
+			 * What this launch opens: the path on the command line, or else the
+			 * tab the last session was on, with its route and its selection
+			 * (BUG-013).
+			 *
+			 * The order lives in `$lib/session` rather than here, because a
+			 * missing call in it is exactly the bug that got through, and
+			 * `src/routes/**` is outside the coverage scope — nothing written in
+			 * this file can be asserted on (TASK-019).
+			 */
+			await resumeSession({
+				launchPath: api.launchPath,
+				open: (path) => {
+					launchingRepo = nameOf(path);
+					return repo.open(path);
+				},
+				active: () => workspace.active,
+				placeOf: (path) => workspace.placeOf(path),
+				route: () => page.url.pathname,
+				goto,
+				want: (id) => graph.want(id),
+				cancelled: () => cancelled
+			});
+			// Workbench: whatever happened above, the launch screen gives way, so a
+			// listener that failed to attach cannot leave the window covered.
+		})().finally(() => (launching = false));
+
+		return () => {
+			cancelled = true;
+			if (refreshTimer) clearTimeout(refreshTimer);
+			for (const cleanup of cleanups) cleanup();
+		};
+	});
+
+	/**
+	 * `Ctrl+F` — or the command key equivalent on macOS — reaches Log search from
+	 * anywhere, with the first field focused. The focus is carried in the URL
+	 * rather than through a store, so the same shortcut and a bookmark behave
+	 * identically.
+	 */
+	// How long a screen takes to appear, from asking for it to its first
+	// painted frame (TASK-052). God mode's Timings panel reads it.
+	beforeNavigate(({ to }) => {
+		if (to) timing.start('navigate', to.url.pathname);
+	});
+	afterNavigate(() => timing.settle('navigate'));
+
+	function shortcut(event: KeyboardEvent) {
+		// The terminal's keys (FEAT-130). While it has the focus every key is
+		// the shell's except the two it keeps, so nothing below fires for one
+		// typed there; and `Ctrl+\`` opens it from anywhere else.
+		const pressed = pressedOf(event);
+		const typing = (event.target as Element | null)?.closest?.('.xterm') != null;
+		if (typing) {
+			const what = kept(pressed, isMac());
+			if (what === 'palette') {
+				event.preventDefault();
+				palette.toggle();
+			} else if (what === 'leave') {
+				event.preventDefault();
+				void goto(terminal.from);
+			}
+			return;
+		}
+		if (isToggle(pressed, isMac())) {
+			event.preventDefault();
+			void goto(terminal.toggle(page.url.pathname + page.url.search));
+			return;
+		}
+
+		if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
+
+		switch (event.key) {
+			case 'f':
+				event.preventDefault();
+				goto('/search?focus=1');
+				return;
+			case 'p':
+				event.preventDefault();
+				palette.toggle();
+				return;
+			// `=` is the unshifted key most keyboards put `+` on, and browsers
+			// report both. Accepting only one means the shortcut works on some
+			// layouts and not others.
+			case '+':
+			case '=':
+				event.preventDefault();
+				scale.zoomIn();
+				return;
+			case '-':
+				event.preventDefault();
+				scale.zoomOut();
+				return;
+			case '0':
+				event.preventDefault();
+				scale.reset();
+				return;
+		}
+	}
+
+	// A newly opened repository means a fresh walk.
+	let lastGeneration = 0;
+	$effect(() => {
+		if (repo.generation !== lastGeneration) {
+			lastGeneration = repo.generation;
+			graph.restart();
+		}
+	});
+
+	// And a fresh read of its pull requests, once, so the rail's Review dot
+	// says whether one is waiting on you before the screen is visited
+	// (FEAT-087). Nothing is read for a repository with no account.
+	$effect(() => {
+		if (repo.info !== null) review.prime(repo.generation);
+	});
+
+	// Agents (2.0): the machine list and this repository's assignments, read
+	// once per repository, so Review and Merger know whether there is one to
+	// offer — and say nothing about agents when there is none. Assignments
+	// are followed into the review records as they change.
+	let agentsFor: string | null | undefined = undefined;
+	$effect(() => {
+		const path = repo.info?.path ?? null;
+		if (path === agentsFor) return;
+		agentsFor = path;
+		followReviews();
+		followMerges();
+		void agents.load(path).then(() => syncReviews());
+	});
+
+	// Pull request notifications (FEAT-114): watch while they are on, at the
+	// chosen interval. Switching off forgets the last answer, so switching back
+	// on starts from now rather than with a burst of old news.
+	$effect(() => {
+		const on = settings.settings.notifyPullRequests;
+		const minutes = settings.settings.notifyEveryMinutes;
+		// Until the read lands the defaults say off, and forgetting then would
+		// lose what was merged while Spagitty was closed.
+		if (!settings.loaded || !api.inTauri()) return;
+		if (!on) {
+			watcher.forget();
+			return;
+		}
+		watcher.start(minutes);
+		return () => watcher.stop();
+	});
+
+	// A repository that has a farm is read once, so the rail's Farm dot says
+	// whether something waits on you before the screen is visited (FEAT-109).
+	// Only one with a farm, and never in place of a farm mid-run: see `prime`.
+	$effect(() => {
+		const path = repo.info?.path;
+		if (path) void farmStore.prime(path);
+	});
+
+	/*
+	 * The delight layer follows the open repository and the git identity
+	 * (FEAT-072).
+	 *
+	 * Both are pushed to it rather than read by it: the badge record must not
+	 * import the repository store, because almost everything that reports a git
+	 * operation is reachable from `repo` and importing it back would close a
+	 * cycle through half the frontend. The shell already knows both facts, so
+	 * the shell is where they are handed over.
+	 */
+	$effect(() => {
+		delight.bind(repo.info?.path ?? null);
+	});
+
+	$effect(() => {
+		const identity = settings.identity;
+		if (!identity) return;
+		delight.identify(
+			identity.name?.local ?? identity.name?.global ?? null,
+			identity.email?.local ?? identity.email?.global ?? null
+		);
+	});
+
+	/*
+	 * The desktop palette is watched only while it is being followed
+	 * (FEAT-080).
+	 *
+	 * Here rather than inside the theme store, which has no component to own an
+	 * effect and must stay usable on a first paint before Tauri exists. A
+	 * machine that is not following a desktop palette has no reason to hold two
+	 * inotify watches on a directory it does not read, and a machine that
+	 * starts following one mid-session must not have to restart to get live
+	 * updates.
+	 */
+	$effect(() => {
+		if (!api.inTauri()) return;
+		const following = theme.source === 'omarchy';
+		void (following ? api.desktopThemeWatch() : api.desktopThemeUnwatch()).catch(() => {
+			// An older backend, or no watches left. The palette that has been
+			// read still applies; only live updates are lost.
+		});
+	});
+
+	/*
+	 * Author pictures follow the preference (FEAT-079).
+	 *
+	 * Here rather than inside the avatar store, which has no component to own
+	 * an effect, and here rather than on the Graph screen, which is not the
+	 * only thing that draws a face and is not mounted when the preference is
+	 * changed on Settings. The store starts disabled, so nothing leaves the
+	 * machine in the window between the first paint and this read landing.
+	 */
+	$effect(() => {
+		avatars.setEnabled(settings.settings.fetchAvatars);
+	});
+</script>
+
+<svelte:window onkeydown={shortcut} />
+
+<div class="app">
+	<!--
+		The column the shell is laid out in.
+
+		It was the element a pane of glass bent (FEAT-057): `.app` carries the
+		window's outline and cast shadow, both drawn outside its border box, and
+		a filter clips to that box — so the filter went on an inner element that
+		casts nothing. The lens was retired in TASK-022 when it was measured at
+		180ms of every frame, and nothing filters anything now.
+
+		The element stays because the layout does: it holds the chrome column and
+		is the positioning context `.ground` is placed against. Folding it back
+		into `.app` is a tidy-up worth doing on its own, not as a passenger to a
+		performance fix.
+	-->
+	<div class="lens">
+		<!--
+			The ground the window paints on: the environment (FEAT-082), `aria-hidden` and
+			pointer-transparent, because it is a material property of the window
+			rather than content. It carried the ambient washes until those were
+			taken out, and it stays because FEAT-055 needs it — with the DMABuf
+			renderer off, WebKitGTK keeps painting reliably only on a layer it
+			was given at startup, and without this one the content area stops
+			painting and the desktop shows through the window.
+		-->
+		<div class="ground" aria-hidden="true"></div>
+
+		{#if launching}<Launch repository={launchingRepo} />{/if}
+
+		<!--
+			The spatial shell (FEAT-082): one row above, the rail and the pane,
+			and one row below. The title bar carries the tabs; the status strip
+			carries the toolbar, centred, as an ornament under the pane.
+		-->
+		<TitleBar />
+		<div class="stage">
+			<NavRail />
+			<main class="window-pane">
+				<!--
+					Screens arrive rather than appear (FEAT-053).
+
+					Keyed on the path, so every navigation remounts the screen inside
+					a short upward slide. `gentleFly` rather than `fly`, because a
+					Svelte transition is driven from JavaScript and no stylesheet rule
+					can honour `prefers-reduced-motion` for it (TASK-041).
+				-->
+				{#key page.url.pathname}
+					<div class="screen-slot" in:gentleFly={{ y: 6, duration: 140 }}>
+						{@render children()}
+					</div>
+				{/key}
+			</main>
+		</div>
+		<StatusStrip>
+			<Toolbar />
+		</StatusStrip>
+	</div>
+</div>
+
+<!--
+	Mounted here rather than by a screen: a clone keeps running while the user
+	navigates, and a modal owned by a screen would go with it.
+-->
+<CloneModal />
+<WorktreesModal />
+<AddWorktreeModal />
+<SubmodulesModal />
+
+<!-- Reaches every command from every screen, so it belongs to the shell. -->
+<Palette />
+
+<!-- Right-click a file on any screen to open it in Files. -->
+<FileMenu />
+
+<!--
+	Every confirmation and every result. Both are mounted once, here, because an
+	action started on the graph can finish after the user has navigated away —
+	a dialog owned by a screen would take the question with it.
+-->
+<ExtensionHost />
+<DialogHost />
+<HookRunWindow />
+<NoticeToast />
+<!-- What has been typed into a list's search, on any screen (FEAT-158). -->
+<SpeedSearchBox />
+<!-- Over any screen, from the title bar's bell (FEAT-142). -->
+<NotificationCenter />
+
+<!--
+	The reward moment (FEAT-072). Mounted by the shell for the same reason as
+	the dialog and the notice: a rebase started on the Graph screen can finish
+	after the user has walked to Conflicts, and the badge it earns has to arrive
+	wherever they are.
+-->
+<RewardOverlay />
+
+<!--
+	The record of what Spagitty ran. Mounted by the shell for the same reason as
+	the dialog: a command started on one screen finishes wherever the user is.
+-->
+<CommandLog />
+
+<!-- The window is undecorated, so it provides its own resize edges. -->
+<ResizeEdges />
+
+<style>
+	/*
+	 * The card the whole application sits on (FEAT-037).
+	 *
+	 * The window is transparent and undecorated, so the corner, the edge and the
+	 * shadow are all drawn here. Three things together make it read as a
+	 * physical surface rather than a flat rectangle:
+	 *
+	 * - a **hairline outline** at sub-pixel width, which on a HiDPI display
+	 *   lands as a real edge and on a 1x display as a faint one. Heavier and it
+	 *   reads as a border, which is a different thing — a border belongs to a
+	 *   component, an edge belongs to a window;
+	 * - an **inset highlight** along the top, where light would catch a raised
+	 *   surface. It is what stops the outline reading as a drawn line;
+	 * - a **two-part shadow** — a tight, dark contact shadow holding the card
+	 *   down, and a wide, soft one giving it height. One shadow can do either
+	 *   but not both, and a single mid-sized blur is what makes a page look
+	 *   like it has a sticker on it.
+	 */
+	.app {
+		flex: 1;
+		min-height: 0;
+		height: 100%;
+		width: 100%;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+		background: var(--environment);
+		/* The lens is positioned against this. */
+		position: relative;
+		border-radius: var(--r-window);
+		outline: 0.2px solid var(--window-edge);
+		outline-offset: -0.2px;
+		box-shadow:
+			0 1px 2px var(--window-contact),
+			0 12px 30px var(--window-cast),
+			inset 0 1px 0 var(--window-sheen);
+	}
+
+	/*
+	 * The shell's column (was the filtered element, FEAT-057, until TASK-022).
+	 *
+	 * It fills `.app` exactly and draws nothing of its own — no outline, no
+	 * shadow, no background to double the one underneath. That was what let a
+	 * filter sit on it without clipping anything visible; it is now simply why
+	 * the element is invisible.
+	 *
+	 * It inherits the window's radius and carries the column layout, both of
+	 * which are still load-bearing.
+	 */
+	.lens {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+		position: relative;
+		border-radius: inherit;
+	}
+
+	/*
+	 * Square against the screen edge, and nothing to cast a shadow onto.
+	 *
+	 * `flush` is the same picture arrived at from the other direction: the
+	 * compositor drew the corner and the shadow already, so a second set inside
+	 * them is a card sitting in a window rather than a window (BUG-029). The
+	 * outline goes too — it was the inner card's edge, and against the
+	 * compositor's own border it reads as a double rule.
+	 */
+	:global(:root[data-window='maximized']) .app,
+	:global(:root[data-window='flush']) .app {
+		border-radius: 0;
+		box-shadow: none;
+	}
+
+	:global(:root[data-window='flush']) .app {
+		outline: none;
+	}
+
+	/*
+	 * The rail and the pane, side by side on the environment (FEAT-082). The gap
+	 * is what makes each an object: with nothing between them they read as one
+	 * surface divided by a line, which is the shell this replaces.
+	 */
+	.stage {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		gap: 12px;
+		padding: 4px 14px 0 12px;
+		/* Above the ground layer. The rail's open state sits above the pane. */
+		position: relative;
+		z-index: 1;
+	}
+
+	/*
+	 * The pane. `overflow: hidden` clips every screen to its corner, and
+	 * `isolation` keeps a screen's own stacking inside it — nothing a screen
+	 * raises can climb over the rail.
+	 */
+	.window-pane {
+		flex: 1;
+		min-width: 0;
+		min-height: 0;
+		display: flex;
+		overflow: hidden;
+		isolation: isolate;
+	}
+
+	/*
+	 * The ground (see the note in the markup). One flat promoted layer that
+	 * never animates and never repaints for content — content paints above it,
+	 * and it exists so the window always has a surface that does paint.
+	 *
+	 * `z-index: -1` rather than `0`: it has to sit under the chrome bars, none
+	 * of which carry a stacking index of their own, while still painting over
+	 * `.app`'s own background.
+	 */
+	.ground {
+		position: absolute;
+		inset: 0;
+		z-index: -1;
+		pointer-events: none;
+		background: var(--environment);
+		transform: translateZ(0);
+	}
+
+	/*
+	 * The box a screen is transitioned inside. It has to be a flex container of
+	 * its own: every screen is `flex: 1` against `.main`, and wrapping one in a
+	 * plain div would leave it sized by its content instead of by the window.
+	 */
+	.screen-slot {
+		flex: 1;
+		min-width: 0;
+		min-height: 0;
+		height: 100%;
+		width: 100%;
+		display: flex;
+		overflow: hidden;
+	}
+
+</style>

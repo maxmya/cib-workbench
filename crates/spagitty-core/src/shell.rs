@@ -1,0 +1,3105 @@
+// SPDX-License-Identifier: MIT
+
+//! # The `git` binary boundary
+//!
+//! This module is the **only** place in Spagitty that spawns a process. Nothing
+//! else in `spagitty-core` shells out; if you need to, add it here.
+//!
+//! Everything Spagitty *reads* — log walking, refs, diffing, status — is done
+//! in-process with `gix`. But a specific set of operations is deliberately
+//! **not** reimplemented in Rust:
+//!
+//! | Operation | Why we shell out |
+//! |---|---|
+//! | **Interactive rebase execution** | The rebase machinery is a stateful protocol (`rebase-merge/`, `done`, `git-rebase-todo`, `ORIG_HEAD`, the reflog trail) that other tools and the user's own `git` expect to find intact. A reimplementation that got the on-disk state subtly wrong would strand people mid-rebase with a repo their CLI can't finish. We *plan* the rebase in Rust (that is the Rebase screen's preview) and hand the todo list to `git rebase -i` to execute. |
+//! | **Hooks** | `pre-commit`, `commit-msg`, `pre-push` and friends are arbitrary executables with an environment contract, and users expect the same behavior they get on the CLI. `git` already runs them correctly. |
+//! | **LFS** | LFS is a filter/smudge protocol implemented by a separate binary that git invokes via config. Bypassing git means bypassing LFS, and checkouts silently produce pointer files. |
+//! | **Submodule recursion** | Recursive init/update/sync spans nested repositories with their own config, URLs and credentials. `git submodule` is the reference implementation. |
+//! | **Cloning** | The first operation that needs credentials, and therefore the one credential helpers exist for. It is also transport — the smart protocol over HTTPS or SSH — which is the largest thing in git that is not worth a second implementation. |
+//! | **Credential helpers** | Helpers are external programs resolved through config with a documented stdin/stdout protocol, and they are where OS keychain integration already lives. Reimplementing the protocol would mean reimplementing every helper's quirks. |
+//! | **Committing** | `pre-commit` and `commit-msg` hooks have to run, and a signed commit goes through the user's configured GPG or SSH program. Writing the commit object ourselves would silently skip both, so a commit made in Spagitty would differ from the same commit made on the command line. |
+//! | **Staging** | The index is the most-read piece of shared state there is: the user's own `git status`, their prompt, their editor's gutter and their hooks all read it. Writing it ourselves — including through `git apply --cached` for a single hunk — keeps the on-disk format and its locking in git's hands. |
+//!
+//! The rule of thumb: if the operation *mutates* state that the wider git
+//! ecosystem also reads, or if it delegates to something outside the repository,
+//! it belongs here. Read-only history questions belong in `gix`.
+//!
+//! **One read breaks that rule, and it is written down rather than quietly
+//! done.** [`blame`] shells out, because `gix::blame` 0.16 — the newest there
+//! is — panics on an ordinary history shape rather than returning an error. The
+//! rule stands; blame is an exception with a reason and an end condition, and
+//! it moves back in-process when the upstream defect is fixed. See [`blame`]
+//! itself for what exactly goes wrong.
+//!
+//! Nothing in this module is called by the Graph screen. It exists now so the
+//! boundary is drawn before the screens that need it are built.
+
+use std::collections::HashMap;
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::time::Instant;
+
+use crate::error::{Error, Result};
+use crate::record::{self, Outcome};
+
+/// A program to run, with no console window of its own (BUG-046).
+///
+/// The release build is a Windows GUI program with no console, so Windows gives
+/// each console program it starts a console window of its own: a black box that
+/// flashes up for every git command, and stays for as long as a fetch takes.
+/// Every process this crate starts is built here, so none can forget the flag.
+pub fn program(name: impl AsRef<OsStr>) -> Command {
+    #[allow(unused_mut)]
+    let mut command = Command::new(name);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        /// `CREATE_NO_WINDOW`, from `winbase.h`.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
+
+/// Build the `git` command every function here spawns.
+///
+/// One place, so the invariants hold for all of them: the working directory is
+/// the repository, and `GIT_TERMINAL_PROMPT=0` stops git blocking on a tty
+/// prompt we have no terminal for — credential requests must come back as a
+/// failure the UI can act on, rather than hanging the app forever.
+fn command(repo: &Path, args: &[&str]) -> Command {
+    let mut command = program("git");
+    command.current_dir(repo).env("GIT_TERMINAL_PROMPT", "0");
+    if reaches_a_remote(args) {
+        sign_in(&mut command);
+    }
+    command.args(args);
+    command
+}
+
+/// Does this git command talk to a remote, and so may need to sign in?
+fn reaches_a_remote(args: &[&str]) -> bool {
+    matches!(
+        args.first(),
+        Some(&("fetch" | "push" | "pull" | "clone" | "ls-remote" | "submodule"))
+    )
+}
+
+/// The connected accounts git signs in with, as host and login (BUG-097).
+fn logins() -> &'static std::sync::RwLock<Vec<(String, String)>> {
+    static LOGINS: OnceLock<std::sync::RwLock<Vec<(String, String)>>> = OnceLock::new();
+    LOGINS.get_or_init(Default::default)
+}
+
+/// Sign git in to each of these hosts with its connected account's token,
+/// over HTTPS (BUG-097). The application calls this when it starts and
+/// whenever an account is connected or removed.
+///
+/// A push to a GitLab whose credential helper had nothing usable opened the
+/// helper's own sign-in window, asking for the user name and token the person
+/// had already given Spagitty. With an account connected for the host, git
+/// is handed that token instead; a host with no account is left to the
+/// credential helpers git is configured with, as before.
+pub fn sign_in_with_accounts(accounts: Vec<(String, String)>) {
+    if let Ok(mut held) = logins().write() {
+        *held = accounts;
+    }
+}
+
+/// Give `command` the connected accounts' tokens, for their hosts only.
+fn sign_in(command: &mut Command) {
+    let accounts = logins().read().map(|held| held.clone()).unwrap_or_default();
+    let signed: Vec<(String, String, String)> = accounts
+        .into_iter()
+        .filter_map(|(host, user)| {
+            let token = crate::forge::keychain::read(&host, &user).ok().flatten()?;
+            Some((host, user, token))
+        })
+        .collect();
+    sign_in_as(command, &signed);
+}
+
+/// For each host, a credential helper that answers with that login and
+/// token, in place of the helpers configured for the host.
+///
+/// `credential.https://<host>.helper` set empty clears the list git has
+/// gathered for that host, the system's helper included; the helper after it
+/// is then the only one asked. The token reaches it through the environment,
+/// so it is never in the command line or in Spagitty's record of what ran.
+fn sign_in_as(command: &mut Command, accounts: &[(String, String, String)]) {
+    for (index, (host, user, token)) in accounts.iter().enumerate() {
+        let key = format!("credential.https://{host}.helper");
+        let helper = format!(
+            "!f() {{ if test \"$1\" = get; then \
+             echo \"username=$SPAGITTY_GIT_USER_{index}\"; \
+             echo \"password=$SPAGITTY_GIT_TOKEN_{index}\"; fi; }}; f"
+        );
+        command
+            .arg("-c")
+            .arg(format!("{key}="))
+            .arg("-c")
+            .arg(format!("{key}={helper}"))
+            .env(format!("SPAGITTY_GIT_USER_{index}"), user)
+            .env(format!("SPAGITTY_GIT_TOKEN_{index}"), token);
+    }
+}
+
+/// Run a prepared command to completion, record what happened, and turn a
+/// non-zero exit into [`Error::Git`].
+///
+/// Every spawn in this module ends here or in [`record_spawn`], which is what
+/// makes [`crate::record`] a record of what ran rather than of what someone
+/// remembered to log. Adding a spawn that bypasses both is the one mistake this
+/// shape is meant to make obvious.
+fn finish(mut command: Command, args: &[&str]) -> Result<String> {
+    let started = Instant::now();
+    let output = command.output();
+    let elapsed = started.elapsed().as_millis() as u64;
+
+    let output = match output {
+        Ok(output) => output,
+        Err(error) => {
+            // git missing from PATH, or the repository gone from under us. It
+            // never ran, and that is worth showing in the log too — an empty
+            // log next to a failed operation reads as "Spagitty did nothing".
+            record::push(
+                args,
+                Outcome::Failed {
+                    code: None,
+                    stderr: error.to_string(),
+                },
+                elapsed,
+            );
+            return Err(error.into());
+        }
+    };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        record::push(
+            args,
+            Outcome::Failed {
+                code: output.status.code(),
+                stderr: stderr.clone(),
+            },
+            elapsed,
+        );
+        return Err(Error::Git {
+            command: args.join(" "),
+            stderr,
+        });
+    }
+
+    record::push(args, Outcome::Ok, elapsed);
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Spawn a prepared command without waiting, and record it as started.
+///
+/// [`clone_start`], [`rebase_interactive_spawn`], [`fetch_spawn`] and
+/// [`push_spawn`] use this: each runs for long enough that waiting for the
+/// outcome before recording would hide the one command the user is most likely
+/// to be asking about while it runs.
+fn record_spawn(mut command: Command, args: &[&str]) -> Result<std::process::Child> {
+    match command.spawn() {
+        Ok(child) => {
+            record::push(args, Outcome::Started, 0);
+            Ok(child)
+        }
+        Err(error) => {
+            record::push(
+                args,
+                Outcome::Failed {
+                    code: None,
+                    stderr: error.to_string(),
+                },
+                0,
+            );
+            Err(error.into())
+        }
+    }
+}
+
+/// Run `git` in `repo` and return stdout on success.
+fn run(repo: &Path, args: &[&str]) -> Result<String> {
+    let lock = operation_lock(repo);
+    let _guard = lock.lock().expect("git operation lock");
+    finish(command(repo, args), args)
+}
+
+/// Serialize synchronous Git operations for the same checkout inside Spagitty.
+/// External Git processes still own their own coordination and Git lockfiles.
+fn operation_lock(repo: &Path) -> Arc<Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Weak<Mutex<()>>>>> = OnceLock::new();
+    let key = repo.canonicalize().unwrap_or_else(|_| repo.to_path_buf());
+    let mut locks = LOCKS.get_or_init(Mutex::default).lock().expect("git locks");
+    locks.retain(|_, lock| lock.strong_count() > 0);
+    if let Some(lock) = locks.get(&key).and_then(Weak::upgrade) {
+        return lock;
+    }
+    let lock = Arc::new(Mutex::new(()));
+    locks.insert(key, Arc::downgrade(&lock));
+    lock
+}
+
+/// The `git` version on PATH, or an error if there is no usable `git`.
+///
+/// Called at startup: the operations above have no in-process fallback, so a
+/// missing `git` is worth telling the user about before they hit one.
+pub fn version(repo: &Path) -> Result<String> {
+    Ok(run(repo, &["--version"])?.trim().to_string())
+}
+
+/// Run `git` with `input` on its stdin. Used for `git apply`, which is how a
+/// single hunk reaches the index.
+fn run_with_stdin(repo: &Path, args: &[&str], input: &str) -> Result<String> {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let started = Instant::now();
+    let mut child = command(repo, args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    // Dropped at the end of the block, closing stdin; without that, `git apply`
+    // waits for more patch forever.
+    {
+        let mut stdin = child.stdin.take().expect("piped stdin");
+        stdin.write_all(input.as_bytes())?;
+    }
+
+    let output = child.wait_with_output()?;
+    let elapsed = started.elapsed().as_millis() as u64;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        record::push(
+            args,
+            Outcome::Failed {
+                code: output.status.code(),
+                stderr: stderr.clone(),
+            },
+            elapsed,
+        );
+        return Err(Error::Git {
+            command: args.join(" "),
+            stderr,
+        });
+    }
+
+    record::push(args, Outcome::Ok, elapsed);
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// `--` before the paths, always: a path that happens to look like an option,
+/// or like a revision, is still a path.
+fn with_paths<'a>(args: &[&'a str], paths: &'a [String]) -> Vec<&'a str> {
+    let mut all: Vec<&str> = args.to_vec();
+    all.push("--");
+    all.extend(paths.iter().map(String::as_str));
+    all
+}
+
+/// Stage whole paths. Works for a modification, an addition and a deletion
+/// alike, which is why it is `git add` rather than three commands.
+pub fn stage(repo: &Path, paths: &[String]) -> Result<()> {
+    if paths.is_empty() {
+        return Ok(());
+    }
+    run(repo, &with_paths(&["add"], paths))?;
+    Ok(())
+}
+
+/// Unstage whole paths: put the index back to what `HEAD` has.
+///
+/// In a repository with no commits there is no `HEAD` to restore from, and the
+/// only way for a path to be staged is for it to be new — so removing the entry
+/// is the same operation expressed differently, not a special case bolted on.
+///
+/// Neither form touches the working tree. The file on disk is left exactly as
+/// it is; only the index moves.
+pub fn unstage(repo: &Path, paths: &[String]) -> Result<()> {
+    if paths.is_empty() {
+        return Ok(());
+    }
+
+    if run(repo, &["rev-parse", "--verify", "--quiet", "HEAD"]).is_ok() {
+        run(repo, &with_paths(&["restore", "--staged"], paths))?;
+    } else {
+        run(repo, &with_paths(&["rm", "--cached", "--quiet"], paths))?;
+    }
+    Ok(())
+}
+
+/// Apply one hunk's patch to the index, forwards to stage it or in reverse to
+/// unstage it.
+///
+/// `--cached` is what keeps this off the working tree: the file on disk is
+/// never touched, so staging part of a file cannot lose the rest of it.
+pub fn apply_to_index(repo: &Path, patch: &str, reverse: bool) -> Result<()> {
+    let mut args = vec!["apply", "--cached", "--whitespace=nowarn"];
+    if reverse {
+        args.push("--reverse");
+    }
+    args.push("-");
+
+    run_with_stdin(repo, &args, patch)?;
+    Ok(())
+}
+
+/// Apply one hunk's patch to the working tree, in reverse, to discard it.
+///
+/// The mirror of [`apply_to_index`] with the `--cached` taken off: this one
+/// writes the file on disk and nothing else, so a discarded hunk leaves both
+/// the index and the rest of the file exactly as they were.
+pub fn apply_to_worktree(repo: &Path, patch: &str, reverse: bool) -> Result<()> {
+    let mut args = vec!["apply", "--whitespace=nowarn"];
+    if reverse {
+        args.push("--reverse");
+    }
+    args.push("-");
+
+    run_with_stdin(repo, &args, patch)?;
+    Ok(())
+}
+
+/// Throw away working-tree changes to tracked paths, back to the index.
+///
+/// Not `--staged`: what is staged is a decision the user has already made, and
+/// discarding an unstaged change must not quietly undo it as well. A file
+/// staged in part keeps its staged part and loses the rest, which is exactly
+/// what the Unstaged column is showing.
+///
+/// This is the first operation in Spagitty that destroys work with no way back
+/// — there is no reflog for the working tree — so the caller confirms first.
+pub fn discard(repo: &Path, paths: &[String]) -> Result<()> {
+    if paths.is_empty() {
+        return Ok(());
+    }
+    run(repo, &with_paths(&["restore", "--worktree"], paths))?;
+    Ok(())
+}
+
+/// Delete untracked paths.
+///
+/// `git clean` rather than removing the files directly, so that the same rules
+/// the user's own `git clean` follows apply here — in particular no `-x`, so an
+/// ignored file is never deleted by a screen that never showed it. `-d` covers
+/// an untracked directory, which status reports as one entry.
+pub fn remove_untracked(repo: &Path, paths: &[String]) -> Result<()> {
+    if paths.is_empty() {
+        return Ok(());
+    }
+    run(repo, &with_paths(&["clean", "-f", "-d", "-q"], paths))?;
+    Ok(())
+}
+
+/// Commit what is staged.
+///
+/// Through `git` so that `pre-commit` and `commit-msg` hooks run and a
+/// configured signing program is used — a commit made here is the same commit
+/// the command line would have made.
+///
+/// `sign` adds `--gpg-sign`, and only when it is true (FEAT-019). git would
+/// sign anyway when `commit.gpgsign` is set — the flag is what makes the
+/// command say so, both in the log the Settings panel shows and in the gap
+/// between what the Commit screen promised and what ran.
+pub fn commit(repo: &Path, subject: &str, body: &str, amend: bool, sign: bool) -> Result<String> {
+    commit_with(repo, subject, body, amend, sign, false, &mut |_| {})
+}
+
+/// [`commit`], with the hooks' say and their output (FEAT-107).
+///
+/// `skip_hooks` runs no hook at all: `--no-verify` alone still runs
+/// `prepare-commit-msg` and `post-commit`, so `core.hooksPath` is pointed at a
+/// directory that does not exist as well, and git finds nothing to run.
+///
+/// `line` is handed every line git and its hooks print, as they print it — a
+/// lint that takes a minute is a minute of output to watch, not a minute of
+/// nothing followed by all of it.
+pub fn commit_with(
+    repo: &Path,
+    subject: &str,
+    body: &str,
+    amend: bool,
+    sign: bool,
+    skip_hooks: bool,
+    line: &mut dyn FnMut(&str),
+) -> Result<String> {
+    let nowhere = format!(
+        "core.hooksPath={}",
+        std::env::temp_dir()
+            .join(format!("spagitty-no-hooks-{}", std::process::id()))
+            .display()
+    );
+    let mut args = Vec::new();
+    if skip_hooks {
+        args.extend(["-c", nowhere.as_str()]);
+    }
+    args.extend(["commit", "-m", subject]);
+    if !body.trim().is_empty() {
+        args.push("-m");
+        args.push(body);
+    }
+    if amend {
+        args.push("--amend");
+    }
+    if sign {
+        args.push("--gpg-sign");
+    }
+    if skip_hooks {
+        args.push("--no-verify");
+    }
+
+    run_streaming(repo, &args, line)?;
+    Ok(run(repo, &["rev-parse", "HEAD"])?.trim().to_string())
+}
+
+/// Run `git`, handing each line of its stdout and stderr to `line` as it is
+/// written, and fail the way [`run`] does: [`Error::Git`] carrying what it
+/// printed. Both streams together, because a hook writes its progress to
+/// either and the order it wrote them in is the story.
+fn run_streaming(repo: &Path, args: &[&str], line: &mut dyn FnMut(&str)) -> Result<String> {
+    use std::io::{BufRead, BufReader};
+    use std::process::Stdio;
+    use std::sync::mpsc;
+
+    let lock = operation_lock(repo);
+    let _guard = lock.lock().expect("git operation lock");
+
+    let started = Instant::now();
+    let mut command = command(repo, args);
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            record::push(
+                args,
+                Outcome::Failed {
+                    code: None,
+                    stderr: error.to_string(),
+                },
+                0,
+            );
+            return Err(error.into());
+        }
+    };
+
+    let (send, receive) = mpsc::channel::<String>();
+    let mut readers = Vec::new();
+    if let Some(out) = child.stdout.take() {
+        let send = send.clone();
+        readers.push(std::thread::spawn(move || {
+            for text in BufReader::new(out)
+                .lines()
+                .map_while(std::result::Result::ok)
+            {
+                let _ = send.send(text);
+            }
+        }));
+    }
+    if let Some(err) = child.stderr.take() {
+        let send = send.clone();
+        readers.push(std::thread::spawn(move || {
+            for text in BufReader::new(err)
+                .lines()
+                .map_while(std::result::Result::ok)
+            {
+                let _ = send.send(text);
+            }
+        }));
+    }
+    drop(send);
+
+    let mut printed = String::new();
+    for text in receive {
+        line(&text);
+        printed.push_str(&text);
+        printed.push('\n');
+    }
+    for reader in readers {
+        let _ = reader.join();
+    }
+    let status = child.wait()?;
+    let elapsed = started.elapsed().as_millis() as u64;
+
+    if !status.success() {
+        let stderr = printed.trim().to_string();
+        record::push(
+            args,
+            Outcome::Failed {
+                code: status.code(),
+                stderr: stderr.clone(),
+            },
+            elapsed,
+        );
+        return Err(Error::Git {
+            command: args.join(" "),
+            stderr,
+        });
+    }
+    record::push(args, Outcome::Ok, elapsed);
+    Ok(printed)
+}
+
+/// Where this repository's hooks live: `.git/hooks`, or wherever
+/// `core.hooksPath` sends git (Husky's `.husky/_`, for one). Relative to
+/// `repo` when git answers relatively.
+pub fn hooks_dir(repo: &Path) -> Result<PathBuf> {
+    let answer = run(repo, &["rev-parse", "--git-path", "hooks"])?;
+    let path = PathBuf::from(answer.trim());
+    Ok(if path.is_absolute() {
+        path
+    } else {
+        repo.join(path)
+    })
+}
+
+/// Run a generated hook through git, including for a builder's dry run. Git
+/// chooses its shell on Windows exactly as it does for an ordinary commit.
+pub fn hook_run(repo: &Path, dir: &Path, stage: &str, message: Option<&Path>) -> Result<String> {
+    let config = format!("core.hooksPath={}", hook_path(dir));
+    let message = message.map(hook_path);
+    let mut args = vec!["-c", &config, "hook", "run", stage];
+    if let Some(message) = &message {
+        args.extend(["--", message]);
+    }
+    run_streaming(repo, &args, &mut |_| {})
+}
+
+/// Canonical Windows paths carry a verbatim prefix that Git's POSIX hook
+/// runner cannot execute. UNC shares keep their two leading separators.
+pub fn hook_path(path: &Path) -> String {
+    let text = path.to_string_lossy().replace('\\', "/");
+    if let Some(rest) = text.strip_prefix("//?/UNC/") {
+        return format!("//{rest}");
+    }
+    text.strip_prefix("//?/").unwrap_or(&text).to_string()
+}
+
+/// Git's pathspec engine decides which staged files a block would see.
+pub fn hook_matches(repo: &Path, paths: &[String]) -> Result<Vec<String>> {
+    let globs: Vec<_> = paths.iter().map(|p| format!(":(glob){p}")).collect();
+    let args = with_paths(
+        &[
+            "diff",
+            "--cached",
+            "--name-only",
+            "-z",
+            "--diff-filter=ACMR",
+        ],
+        &globs,
+    );
+    Ok(run(repo, &args)?
+        .split('\0')
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
+/// Undo only a formatter's index change, and only while it is still there.
+/// The working file is left alone; a later stage decision is never replaced.
+pub fn hook_restore_index(
+    repo: &Path,
+    path: &str,
+    before: &str,
+    after: &str,
+    mode: &str,
+) -> Result<()> {
+    let lock = operation_lock(repo);
+    let _guard = lock.lock().expect("git operation lock");
+    let args = ["--literal-pathspecs", "ls-files", "-s", "--", path];
+    let entry = finish(command(repo, &args), &args)?;
+    if entry.split_whitespace().nth(1) == Some(before) {
+        return Ok(());
+    }
+    if entry.split_whitespace().nth(1) != Some(after) {
+        return Err(Error::Stale(path.into()));
+    }
+    let args = ["update-index", "--cacheinfo", mode, before, path];
+    finish(command(repo, &args), &args)?;
+    Ok(())
+}
+
+/// Check out a branch.
+///
+/// Through `git` so that checkout filters, LFS smudging and post-checkout hooks
+/// all run, and so that a checkout which would overwrite uncommitted work is
+/// refused by git with its own message.
+/// `git switch`, not `git checkout`: `checkout` is overloaded — with a `--` it
+/// restores paths, without one it guesses between a branch and a revision.
+/// `switch` only ever changes branch, so a branch whose name looks like a path
+/// cannot be misread as one.
+pub fn checkout(repo: &Path, name: &str) -> Result<()> {
+    run(repo, &["switch", name])?;
+    Ok(())
+}
+
+/// Check out `name`, created at `start` or moved there if it exists (FEAT-095).
+///
+/// `git switch -C`: the move and the checkout are one step, and like any
+/// switch it carries uncommitted changes across or refuses when they would be
+/// overwritten. The caller decides the move loses no commit.
+pub fn switch_reset(repo: &Path, name: &str, start: &str) -> Result<()> {
+    run(repo, &["switch", "-C", name, start])?;
+    Ok(())
+}
+
+/// Make `branch` track `upstream`, a remote-tracking branch like `origin/x`.
+pub fn set_upstream(repo: &Path, branch: &str, upstream: &str) -> Result<()> {
+    let flag = format!("--set-upstream-to={upstream}");
+    run(repo, &["branch", &flag, branch])?;
+    Ok(())
+}
+
+/// Create a branch, optionally checking it out.
+///
+/// `start` may be empty, which means `HEAD` — the same default `git branch`
+/// has. Name validation is git's: it already knows every rule
+/// `git check-ref-format` enforces.
+pub fn create_branch(repo: &Path, name: &str, start: &str, checkout_it: bool) -> Result<()> {
+    let mut args: Vec<&str> = if checkout_it {
+        vec!["switch", "--create", name]
+    } else {
+        vec!["branch", name]
+    };
+    if !start.is_empty() {
+        args.push(start);
+    }
+
+    run(repo, &args)?;
+    Ok(())
+}
+
+/// Stash the working copy.
+///
+/// Through `git` because a stash is three writes at once — a commit, a ref and
+/// the working tree — and its on-disk shape is what every other tool reads as
+/// "a stash". An empty message means git writes its own default.
+pub fn stash_push(repo: &Path, message: &str, include_untracked: bool) -> Result<()> {
+    let mut args = vec!["stash", "push"];
+    if include_untracked {
+        args.push("--include-untracked");
+    }
+    if !message.is_empty() {
+        args.push("--message");
+        args.push(message);
+    }
+
+    run(repo, &args)?;
+    Ok(())
+}
+
+/// The message of the commit `HEAD` points at, for pre-filling an amend.
+pub fn head_message(repo: &Path) -> Result<String> {
+    run(repo, &["log", "-1", "--pretty=%B"])
+}
+
+/// Set a config key in one scope.
+///
+/// Config is state the whole git ecosystem reads — the user's own `git`, their
+/// prompt, their editor, their hooks — so it is written by `git config` rather
+/// than by us rewriting an INI file. `scope` is `--global` or `--local`, and it
+/// is always passed explicitly: inferring it is how a repository-local identity
+/// silently becomes a global one.
+pub fn set_config(repo: &Path, scope: &str, key: &str, value: &str) -> Result<()> {
+    run(repo, &["config", scope, key, value])?;
+    Ok(())
+}
+
+/// Remove a config key from one scope.
+///
+/// `--unset`, not an empty value. An empty `user.email` is a *configured* empty
+/// email, which git will commit with; an unset one falls back to the next
+/// scope, which is what clearing a field means.
+///
+/// Unsetting a key that is not there is not an error here: `git config --unset`
+/// exits 5 in that case, and "it is already gone" is the outcome the caller
+/// asked for.
+pub fn unset_config(repo: &Path, scope: &str, key: &str) -> Result<()> {
+    match run(repo, &["config", scope, "--unset", key]) {
+        Ok(_) => Ok(()),
+        Err(Error::Git { stderr, .. }) if stderr.is_empty() => Ok(()),
+        Err(other) => Err(other),
+    }
+}
+
+/// Read a git config key (FEAT-068).
+pub fn get_config(repo: &Path, key: &str) -> Result<Option<String>> {
+    match run(repo, &["config", "--get", key]) {
+        Ok(val) => {
+            let trimmed = val.trim().to_string();
+            if trimmed.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(trimmed))
+            }
+        }
+        Err(Error::Git { .. }) => Ok(None),
+        Err(other) => Err(other),
+    }
+}
+
+/// Launch git difftool for a file or revision without blocking (FEAT-068).
+pub fn launch_difftool(
+    repo: &Path,
+    path: &str,
+    tool: Option<&str>,
+    commit: Option<&str>,
+) -> Result<()> {
+    let mut args = vec!["difftool", "--no-prompt", "-y"];
+    if let Some(t) = tool {
+        if !t.is_empty() {
+            args.push("-t");
+            args.push(t);
+        }
+    }
+    if let Some(c) = commit {
+        if !c.is_empty() {
+            args.push(c);
+        }
+    }
+    args.push("--");
+    args.push(path);
+
+    let mut cmd = command(repo, &args);
+    cmd.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    let _ = cmd.spawn().map_err(|e| Error::Git {
+        command: format!("git {}", args.join(" ")),
+        stderr: e.to_string(),
+    })?;
+    Ok(())
+}
+
+/// Launch git mergetool for a conflicted path without blocking (FEAT-068).
+pub fn launch_mergetool(repo: &Path, path: &str, tool: Option<&str>) -> Result<()> {
+    let mut args = vec!["mergetool", "--no-prompt", "-y"];
+    if let Some(t) = tool {
+        if !t.is_empty() {
+            args.push("-t");
+            args.push(t);
+        }
+    }
+    args.push("--");
+    args.push(path);
+
+    let mut cmd = command(repo, &args);
+    cmd.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    let _ = cmd.spawn().map_err(|e| Error::Git {
+        command: format!("git {}", args.join(" ")),
+        stderr: e.to_string(),
+    })?;
+    Ok(())
+}
+
+/// Start a clone and hand the caller the running process.
+///
+/// The one function here that does not wait for git to finish. A clone can take
+/// minutes, has to be cancellable, and reports progress as it goes — so the
+/// caller owns the child, reads its stderr, and kills it if the user changes
+/// their mind. Everything else in this module is a command that ends.
+///
+/// Through `git` because this is the operation credential helpers exist for:
+/// they are external programs resolved through config, and they are where OS
+/// keychain integration already lives. `GIT_TERMINAL_PROMPT=0` still holds, so
+/// a repository whose credentials no helper can supply fails with git's message
+/// rather than hanging on a prompt there is no terminal for.
+///
+/// `--progress` because git only reports progress when stderr is a terminal,
+/// and here it is a pipe.
+pub fn clone_start(url: &str, destination: &Path) -> Result<std::process::Child> {
+    use std::process::Stdio;
+
+    // The one command with no repository to run in — it is what creates one —
+    // so it is built by hand rather than through `command`, and the working
+    // directory is left as the process's own.
+    let into = destination.to_string_lossy().into_owned();
+    let args = [
+        "clone",
+        "--progress",
+        "--recurse-submodules",
+        "--",
+        url,
+        &into,
+    ];
+
+    let mut command = program("git");
+    sign_in(&mut command);
+    command
+        .args(args)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    record_spawn(command, &args)
+}
+
+/// Who last touched each line, as `--line-porcelain`.
+///
+/// The one **read** in this module, and the exception noted in the header.
+/// `gix::blame` panics — a failed internal assertion, not an error we could
+/// catch and report — when blaming a file at a merge commit whose history has
+/// an intervening commit that left the file alone. That is not an exotic shape;
+/// it is most files in most repositories. Every diff algorithm and both rename
+/// settings do it, and 0.16 is the newest published version.
+///
+/// So blame comes from `git` until that is fixed upstream, and it is worth
+/// being plain about the trade: this call spawns a process for a question the
+/// rest of the crate answers in memory. `--line-porcelain` repeats every header
+/// on every line, which makes the parser a loop rather than a state machine.
+pub fn blame(repo: &Path, revision: &str, path: &str) -> Result<String> {
+    run(repo, &["blame", "--line-porcelain", revision, "--", path])
+}
+
+/// The same blame, with each commit's headers given once (FEAT-131).
+///
+/// `--porcelain` rather than `--line-porcelain`: Files blames whole files of
+/// twenty thousand lines, and repeating a dozen header lines on every one of
+/// them is ten megabytes of text to say what a few hundred commits said. The
+/// exception that sends blame through `git` at all is the one on [`blame`].
+pub fn blame_porcelain(repo: &Path, revision: &str, path: &str) -> Result<String> {
+    run(repo, &["blame", "--porcelain", revision, "--", path])
+}
+
+// --- History rewriting and moving ------------------------------------------
+//
+// Everything below mutates refs, the index or the working tree, which is the
+// rule at the top of this file: it goes through `git`. Two further reasons
+// apply to this group in particular. Every one of them writes `ORIG_HEAD` and a
+// reflog entry, which is the *only* thing that makes these operations
+// recoverable — a reimplementation that forgot either would turn "undo" into
+// "restore from backup". And each of them can stop half-way with conflicts, in
+// which case the repository is left in a documented state (`MERGE_HEAD`,
+// `rebase-merge/`, `CHERRY_PICK_HEAD`) that the user's own `git` and Spagitty's
+// Conflicts screen both already know how to read.
+
+/// How far back a reset takes the index and the working tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ResetMode {
+    /// Move the branch. Index and working tree untouched — the changes become
+    /// staged.
+    Soft,
+    /// Move the branch and reset the index. Working tree untouched.
+    Mixed,
+    /// Move everything. **Uncommitted work is gone.**
+    Hard,
+}
+
+impl ResetMode {
+    fn flag(self) -> &'static str {
+        match self {
+            ResetMode::Soft => "--soft",
+            ResetMode::Mixed => "--mixed",
+            ResetMode::Hard => "--hard",
+        }
+    }
+}
+
+/// Move the current branch to `commit`.
+pub fn reset(repo: &Path, commit: &str, mode: ResetMode) -> Result<()> {
+    run(repo, &["reset", mode.flag(), commit])?;
+    Ok(())
+}
+
+/// Create a commit that undoes `commit`.
+///
+/// `--no-edit` so the message git writes ("Revert \"…\"") is used rather than
+/// an editor being opened against a terminal that does not exist. Reverting a
+/// merge needs `-m 1`, which git otherwise refuses to guess; the first parent is
+/// the mainline in every case Spagitty can show, because that is what the graph's
+/// first parent *is*.
+pub fn revert(repo: &Path, commit: &str, is_merge: bool) -> Result<()> {
+    let mut args = vec!["revert", "--no-edit"];
+    if is_merge {
+        args.push("-m");
+        args.push("1");
+    }
+    args.push(commit);
+
+    run(repo, &args)?;
+    Ok(())
+}
+
+/// Replay `commits` onto the current branch, oldest first.
+///
+/// One `git cherry-pick` with every commit on it rather than a loop: git then
+/// owns the sequencer state, so a conflict half-way through leaves a repository
+/// that `git cherry-pick --continue` can finish. A loop of single picks would
+/// stop with no record that more were meant to follow.
+pub fn cherry_pick(repo: &Path, commits: &[String]) -> Result<()> {
+    if commits.is_empty() {
+        return Ok(());
+    }
+    let mut args = vec!["cherry-pick"];
+    args.extend(commits.iter().map(String::as_str));
+
+    run(repo, &args)?;
+    Ok(())
+}
+
+/// Merge `source` into the current branch.
+///
+/// `--no-edit` for the same reason as [`revert`]. `ff_only` is the graph's
+/// "Fast-forward" action, which is a *different request* from a merge that
+/// happens to fast-forward: it asks git to refuse rather than to create a merge
+/// commit, and that refusal is the answer the user wanted.
+pub fn merge(repo: &Path, source: &str, ff_only: bool, no_ff: bool) -> Result<()> {
+    let mut args = vec!["merge", "--no-edit"];
+    if ff_only {
+        args.push("--ff-only");
+    } else if no_ff {
+        args.push("--no-ff");
+    }
+    args.push(source);
+
+    run(repo, &args)?;
+    Ok(())
+}
+
+/// Merge a pinned commit only while the intended branch remains checked out.
+/// The same lock is used by checkout and other synchronous Git mutations, so
+/// an in-app branch switch cannot slip between validation and the merge.
+pub fn merge_into(repo: &Path, commit: &str, destination: &str) -> Result<()> {
+    let lock = operation_lock(repo);
+    let _guard = lock.lock().expect("git operation lock");
+    let opened = crate::repo::open(repo)?;
+    if crate::repo::head(&opened).branch.as_deref() != Some(destination) {
+        return Err(Error::Stale(format!("destination branch {destination}")));
+    }
+    let args = ["merge", "--no-edit", "--no-ff", commit];
+    finish(command(repo, &args), &args)?;
+    Ok(())
+}
+
+/// Replay commits onto `onto`.
+///
+/// The three-argument form covers every case the graph offers:
+///
+/// - *Rebase this branch onto that one* — `upstream` is the target, `onto` is
+///   empty, `branch` is empty (meaning HEAD).
+/// - *Rebase onto this commit* — the same, with a commit id instead of a name.
+/// - *Rebase these N commits onto that branch* — `onto` is the target,
+///   `upstream` is the parent of the oldest selected commit, and the range
+///   between them is what moves.
+pub fn rebase(repo: &Path, onto: &str, upstream: &str, branch: &str) -> Result<()> {
+    let mut args = vec!["rebase"];
+    if !onto.is_empty() {
+        args.push("--onto");
+        args.push(onto);
+    }
+    args.push(upstream);
+    if !branch.is_empty() {
+        args.push(branch);
+    }
+
+    run(repo, &args)?;
+    Ok(())
+}
+
+/// Execute a planned interactive rebase. The todo list is produced in Rust by
+/// the Rebase screen; `git` performs it.
+///
+/// The todo reaches git through `GIT_SEQUENCE_EDITOR`, which git runs with the
+/// path of the todo file it just wrote. Ours does not edit it — it overwrites
+/// it with the plan the user built on screen. That is the documented way to
+/// drive `rebase -i` without a terminal, and it means git is still the thing
+/// executing the rebase, with its own state directory, reflog and conflict
+/// handling intact.
+///
+/// `GIT_EDITOR` is pointed at an accept-as-is script for the same reason: a
+/// `squash` opens an editor on the combined message, and there is no terminal
+/// for it to open on. Accepting git's prepared message is what the Rebase
+/// screen's preview already shows will happen.
+pub fn rebase_interactive(repo: &Path, upstream: &str, todo: &str) -> Result<()> {
+    let scripts = SequenceScripts::write(repo, todo)?;
+    let args = ["rebase", "--interactive", upstream];
+
+    let mut command = command(repo, &args);
+    command
+        .env("GIT_SEQUENCE_EDITOR", scripts.sequence_editor())
+        .env("GIT_EDITOR", scripts.message_editor());
+
+    finish(command, &args)?;
+    Ok(())
+}
+
+/// Start a planned interactive rebase, without waiting for it.
+///
+/// The same invocation as [`rebase_interactive`], handed back as a child so the
+/// caller can watch it. A rebase of a hundred commits takes long enough that a
+/// blocking call would hold whatever lock the caller has for the duration, and
+/// the progress the screen shows is read from git's own state directory while
+/// this child is running.
+///
+/// The caller owns the child and must reap it. Nothing here kills it: a rebase
+/// stopped by a signal leaves state on disk that only `git rebase --abort`
+/// knows how to unwind.
+pub fn rebase_interactive_spawn(
+    repo: &Path,
+    upstream: &str,
+    todo: &str,
+) -> Result<std::process::Child> {
+    let scripts = SequenceScripts::write(repo, todo)?;
+    let args = ["rebase", "--interactive", upstream];
+
+    let mut command = command(repo, &args);
+    command
+        .env("GIT_SEQUENCE_EDITOR", scripts.sequence_editor())
+        .env("GIT_EDITOR", scripts.message_editor());
+
+    record_spawn(command, &args)
+}
+
+/// Carry on with a rebase that stopped, once its conflicts are resolved.
+///
+/// `GIT_EDITOR` is pointed at the accept-as-is script for the same reason it is
+/// during the rebase itself: continuing past a `squash` or a `reword` opens an
+/// editor, and there is no terminal for it to open on.
+pub fn rebase_continue(repo: &Path) -> Result<()> {
+    let scripts = SequenceScripts::write(repo, "")?;
+    let args = ["rebase", "--continue"];
+
+    let mut command = command(repo, &args);
+    command.env("GIT_EDITOR", scripts.message_editor());
+
+    finish(command, &args)?;
+    Ok(())
+}
+
+/// Drop the commit a rebase stopped on and carry on with the rest.
+pub fn rebase_skip(repo: &Path) -> Result<()> {
+    run(repo, &["rebase", "--skip"])?;
+    Ok(())
+}
+
+/// Unwind a rebase and put the branch back where it started.
+///
+/// git's own undo, and the reason nothing here reimplements the state
+/// directory: `--abort` knows what to unwind because git wrote it.
+pub fn rebase_abort(repo: &Path) -> Result<()> {
+    run(repo, &["rebase", "--abort"])?;
+    Ok(())
+}
+
+/// The two little programs a non-interactive `rebase -i` needs, on disk.
+///
+/// They live under the git directory rather than in the system temp directory
+/// so that they are on the same filesystem as the repository, cannot be swept
+/// by a temp cleaner mid-rebase, and are obvious to anyone looking at why a
+/// rebase behaved the way it did.
+struct SequenceScripts {
+    sequence: PathBuf,
+    message: PathBuf,
+}
+
+impl SequenceScripts {
+    fn write(repo: &Path, todo: &str) -> Result<Self> {
+        // Asked for rather than assumed to be `.git`: in a linked worktree it
+        // is a file pointing elsewhere, and in a submodule it is somewhere else
+        // again. `--absolute-git-dir` because the scripts are invoked with
+        // whatever working directory git happens to have at the time.
+        let git_dir = run(repo, &["rev-parse", "--absolute-git-dir"])?;
+        let dir = PathBuf::from(git_dir.trim()).join("spagitty");
+        std::fs::create_dir_all(&dir)?;
+
+        let plan = dir.join("rebase-todo");
+        std::fs::write(&plan, todo)?;
+
+        // Shell scripts on every platform. git runs an editor through `sh`,
+        // and Git for Windows through the `sh.exe` it ships, which hands the
+        // script the todo's path as `C:/…`. A batch file's `copy` read that
+        // `/Users` as a switch and failed, so no interactive rebase could
+        // start on Windows (BUG-038). `sh` takes the same path with forward
+        // slashes, which is how the plan's own path is written into it.
+        let sequence = dir.join("sequence-editor.sh");
+        std::fs::write(
+            &sequence,
+            format!("#!/bin/sh\ncat '{}' > \"$1\"\n", forward(&plan)),
+        )?;
+        let message = dir.join("message-editor.sh");
+        std::fs::write(&message, "#!/bin/sh\nexit 0\n")?;
+        make_executable(&sequence)?;
+        make_executable(&message)?;
+
+        Ok(Self { sequence, message })
+    }
+
+    fn sequence_editor(&self) -> String {
+        quoted(&self.sequence)
+    }
+
+    fn message_editor(&self) -> String {
+        quoted(&self.message)
+    }
+}
+
+/// git runs the editor through a shell, so a path with a space in it — which is
+/// every path under a Windows user profile, and plenty on macOS — has to arrive
+/// already quoted.
+fn quoted(path: &Path) -> String {
+    format!("\"{}\"", path.display())
+}
+
+/// A path as `sh` reads it: `/` between the parts on every platform. Git for
+/// Windows' `sh` takes `C:/Users/…`; a `\` inside quotes is taken literally
+/// there, but `/` needs no such luck.
+fn forward(path: &Path) -> String {
+    path.display().to_string().replace('\\', "/")
+}
+
+#[cfg(unix)]
+fn make_executable(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut permissions = std::fs::metadata(path)?.permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(path, permissions)?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn make_executable(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+// --- Refs -------------------------------------------------------------------
+
+/// Check out a commit without a branch — a detached HEAD.
+///
+/// `switch --detach`, not `checkout`, and for the reason in [`checkout`]: a
+/// revision that looks like a path cannot be misread as one.
+pub fn checkout_detached(repo: &Path, revision: &str) -> Result<()> {
+    run(repo, &["switch", "--detach", revision])?;
+    Ok(())
+}
+
+/// Take one whole side of a conflicted path into the working tree.
+///
+/// `--ours` and `--theirs` read the index's stage 2 and stage 3, which is why
+/// this is a git call rather than us writing the blob: git's answer is the one
+/// the rest of the ecosystem will see, and a reconstruction could differ.
+pub fn checkout_side(repo: &Path, path: &str, side: crate::conflicts::Side) -> Result<()> {
+    let which = match side {
+        crate::conflicts::Side::Ours => "--ours",
+        crate::conflicts::Side::Theirs => "--theirs",
+    };
+    run(repo, &["checkout", which, "--", path])?;
+    Ok(())
+}
+
+/// `git <command> --continue` or `--abort`, for whatever is in progress.
+///
+/// One function rather than eight, because the difference between continuing a
+/// merge and continuing a cherry-pick is the word, and eight near-identical
+/// wrappers is eight places for that word to be wrong.
+///
+/// `GIT_EDITOR` is the accept-as-is script for the same reason it is during a
+/// rebase: continuing a merge or a cherry-pick opens an editor on the message,
+/// and there is no terminal for it to open on.
+pub fn sequencer(repo: &Path, command: &str, action: &str) -> Result<()> {
+    let scripts = SequenceScripts::write(repo, "")?;
+    let args = [command, action];
+
+    let mut prepared = self::command(repo, &args);
+    prepared.env("GIT_EDITOR", scripts.message_editor());
+
+    finish(prepared, &args)?;
+    Ok(())
+}
+
+/// Rename a branch.
+///
+/// `-m`, never `-M`: forcing would clobber an existing branch of the target
+/// name, which is a destroyed branch presented as a rename.
+pub fn rename_branch(repo: &Path, from: &str, to: &str) -> Result<()> {
+    run(repo, &["branch", "-m", from, to])?;
+    Ok(())
+}
+
+/// Delete a branch.
+///
+/// `force` is `-D`, which deletes a branch whose commits are not merged
+/// anywhere — the one that actually loses work. It is never the default and
+/// never inferred: the caller has to have been told what it means and asked.
+pub fn delete_branch(repo: &Path, name: &str, force: bool) -> Result<()> {
+    run(repo, &["branch", if force { "-D" } else { "-d" }, name])?;
+    Ok(())
+}
+
+/// Create a tag. An empty `message` makes a lightweight tag, a message makes an
+/// annotated one — which is the distinction git itself draws.
+pub fn create_tag(repo: &Path, name: &str, target: &str, message: &str) -> Result<()> {
+    let mut args = vec!["tag"];
+    if !message.is_empty() {
+        args.push("--annotate");
+        args.push("--message");
+        args.push(message);
+    }
+    args.push(name);
+    if !target.is_empty() {
+        args.push(target);
+    }
+
+    run(repo, &args)?;
+    Ok(())
+}
+
+/// Delete a tag, locally.
+pub fn delete_tag(repo: &Path, name: &str) -> Result<()> {
+    run(repo, &["tag", "--delete", name])?;
+    Ok(())
+}
+
+// --- Stash ------------------------------------------------------------------
+
+/// Restore a stash and remove it. Through `git` for the same reason as
+/// [`stash_push`]: a pop is a working-tree write and a ref delete at once.
+pub fn stash_pop(repo: &Path, index: usize) -> Result<()> {
+    run(repo, &["stash", "pop", &format!("stash@{{{index}}}")])?;
+    Ok(())
+}
+
+/// Restore a stash and keep it.
+pub fn stash_apply(repo: &Path, index: usize) -> Result<()> {
+    run(repo, &["stash", "apply", &format!("stash@{{{index}}}")])?;
+    Ok(())
+}
+
+/// Forget a stash.
+///
+/// The one operation here that only removes. The commit survives in the reflog
+/// for git's own expiry window, and the caller is told the id before it goes —
+/// see the Stash screen, which shows it in the confirmation.
+pub fn stash_drop(repo: &Path, index: usize) -> Result<()> {
+    run(repo, &["stash", "drop", &format!("stash@{{{index}}}")])?;
+    Ok(())
+}
+
+// --- Network ----------------------------------------------------------------
+
+/// Fetch. Goes through `git` so credential helpers and the OS keychain work.
+///
+/// `prune` deletes remote-tracking refs the remote no longer has. It used to be
+/// passed unconditionally, which meant a destructive operation ran on every
+/// fetch without anybody choosing it — the opposite of what FEAT-018 asked for
+/// and of a destructive step nobody chose. It is a parameter now, and the choice is the
+/// caller's.
+///
+/// An empty `remote` means every remote.
+pub fn fetch(repo: &Path, remote: &str, prune: bool) -> Result<String> {
+    run(repo, &fetch_args(remote, prune))
+}
+
+/// Start a fetch without waiting for it, so its progress can be watched.
+pub fn fetch_spawn(repo: &Path, remote: &str, prune: bool) -> Result<std::process::Child> {
+    let args = fetch_args(remote, prune);
+    record_spawn(watched(repo, &args), &args)
+}
+
+/// A `git` command whose stderr the caller reads while it runs (BUG-081).
+///
+/// stderr is both git's progress channel and its error channel. Left
+/// inherited, a fetch or a push wrote it to a console the application does not
+/// have: no progress arrived, and a refusal was reported as an exit code with
+/// none of git's words. stdout is closed because nothing reads it, and a pipe
+/// nobody reads is one git can block on.
+fn watched(repo: &Path, args: &[&str]) -> Command {
+    use std::process::Stdio;
+
+    let mut command = command(repo, args);
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    command
+}
+
+/// Fetch particular refs from one remote, and nothing else (FEAT-089): a pull
+/// request's head and its target, for the Review room. No tags — reviewing a
+/// pull request should not bring every tag down with it.
+/// A merge as git would have made it, conflict markers and all, diffed
+/// against what was committed: exactly how its conflicts were resolved
+/// (FEAT-092). Git 2.36 or later. The context is wide, so a side kept whole
+/// is shown whole however long it is.
+pub fn remerge_diff(repo: &Path, merge: &str) -> Result<String> {
+    run(
+        repo,
+        &[
+            "-c",
+            "core.quotePath=false",
+            "show",
+            "--remerge-diff",
+            "--format=",
+            "--no-color",
+            "--no-ext-diff",
+            "--unified=2000",
+            merge,
+        ],
+    )
+}
+
+pub fn fetch_refspecs(repo: &Path, remote: &str, refspecs: &[&str]) -> Result<()> {
+    let mut args = vec!["fetch", "--no-tags", "--no-write-fetch-head", remote];
+    args.extend_from_slice(refspecs);
+    run(repo, &args)?;
+    Ok(())
+}
+
+fn fetch_args(remote: &str, prune: bool) -> Vec<&str> {
+    let mut args = vec!["fetch", "--progress"];
+    if prune {
+        args.push("--prune");
+    }
+    if remote.is_empty() {
+        args.push("--all");
+    } else {
+        args.push(remote);
+    }
+    args
+}
+
+/// How a pull should bring the remote's commits in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PullMode {
+    /// Refuse unless the local branch can simply move forward. The safe one:
+    /// it can never write a merge commit or leave a conflict behind.
+    FastForwardOnly,
+    /// Fast-forward where possible, merge where not.
+    Merge,
+    /// Replay local commits on top of the remote's. Rewrites them, so anything
+    /// already pushed needs a force push afterwards.
+    Rebase,
+}
+
+/// Pull: fetch, then bring the upstream's commits into the current branch.
+///
+/// One `git pull` rather than [`fetch`] followed by [`merge`], because git
+/// resolves which upstream the current branch tracks and that resolution is
+/// exactly the part not worth reimplementing — it reads `branch.<name>.remote`,
+/// `branch.<name>.merge`, and the push/pull defaults, any of which a user may
+/// have configured per branch.
+///
+/// `--no-edit` because a merge commit's default message is the right one here
+/// and there is no editor to open; `GIT_TERMINAL_PROMPT=0` from [`command`]
+/// already stops it blocking on credentials.
+pub fn pull(repo: &Path, remote: &str, mode: PullMode) -> Result<String> {
+    let mut args = vec!["pull", "--progress", "--no-edit"];
+    match mode {
+        PullMode::FastForwardOnly => args.push("--ff-only"),
+        PullMode::Merge => args.push("--no-rebase"),
+        PullMode::Rebase => args.push("--rebase"),
+    }
+    if !remote.is_empty() {
+        args.push(remote);
+    }
+    run(repo, &args)
+}
+
+/// Bring a local branch that is checked out nowhere up to its upstream
+/// (FEAT-126): `git fetch <remote> <merge>:refs/heads/<name>`.
+///
+/// A fetch into a branch only ever moves it forward — git refuses a refspec
+/// without `+` that is not a fast-forward — and it never touches a working
+/// copy, which is what makes it the way to update a branch nobody has checked
+/// out. Git refuses it for a branch that *is* checked out, in any worktree;
+/// that one is [`pull`], run where it is checked out.
+///
+/// The remote and the ref are `branch.<name>.remote` and `branch.<name>.merge`,
+/// the two `git pull` reads.
+pub fn fetch_into(repo: &Path, name: &str) -> Result<String> {
+    let remote = get_config(repo, &format!("branch.{name}.remote"))?;
+    let merge = get_config(repo, &format!("branch.{name}.merge"))?;
+    let (Some(remote), Some(merge)) = (remote, merge) else {
+        return Err(Error::Git {
+            command: "pull".into(),
+            stderr: format!("{name} does not track a branch on a remote"),
+        });
+    };
+    let refspec = format!("{merge}:refs/heads/{name}");
+    run(repo, &["fetch", "--progress", &remote, &refspec])
+}
+
+// --- Remotes (FEAT-049) -----------------------------------------------------
+
+/// Add a remote. Configuration only — nothing is fetched.
+///
+/// Through `git` rather than a config write because `remote add` also writes
+/// the fetch refspec, and a remote without one looks configured and fetches
+/// nothing.
+pub fn remote_add(repo: &Path, name: &str, url: &str) -> Result<()> {
+    run(repo, &["remote", "add", name, url])?;
+    Ok(())
+}
+
+/// Rename a remote, its tracking refs, and every upstream pointing at it.
+///
+/// The three-things-at-once is the reason this is not a config edit: a rename
+/// that moved only the config would leave `refs/remotes/old/` behind and every
+/// branch tracking a remote that no longer exists.
+pub fn remote_rename(repo: &Path, from: &str, to: &str) -> Result<()> {
+    run(repo, &["remote", "rename", from, to])?;
+    Ok(())
+}
+
+/// Remove a remote, its tracking refs, and the upstreams pointing at it.
+pub fn remote_remove(repo: &Path, name: &str) -> Result<()> {
+    run(repo, &["remote", "remove", name])?;
+    Ok(())
+}
+
+/// Change where a remote points, leaving everything else as it is.
+pub fn remote_set_url(repo: &Path, name: &str, url: &str) -> Result<()> {
+    run(repo, &["remote", "set-url", name, url])?;
+    Ok(())
+}
+
+/// Push. Same reason as [`fetch`], plus `pre-push` hooks.
+///
+/// `--force-with-lease` rather than `--force` when a force is asked for: it
+/// refuses if the remote moved since the last fetch, which is the case where a
+/// plain force destroys somebody else's work.
+///
+/// `--set-upstream` whenever a remote is named (FEAT-049). Without it, the
+/// first push of a new branch sends the commits and leaves the branch tracking
+/// nothing — so the Branches screen shows no upstream, the divergence bar has
+/// nothing to compare against, and the next plain `push` or `pull` fails with a
+/// message about upstreams that reads as though something is broken. Setting it
+/// is what the user meant by pushing to that remote, and git does nothing when
+/// the upstream is already what it would set.
+pub fn push(repo: &Path, remote: &str, refspec: &str, force: bool) -> Result<String> {
+    run(repo, &push_args(remote, refspec, force))
+}
+
+/// Start a push without waiting for it, so its progress can be watched.
+pub fn push_spawn(
+    repo: &Path,
+    remote: &str,
+    refspec: &str,
+    force: bool,
+) -> Result<std::process::Child> {
+    let args = push_args(remote, refspec, force);
+    record_spawn(watched(repo, &args), &args)
+}
+
+fn push_args<'a>(remote: &'a str, refspec: &'a str, force: bool) -> Vec<&'a str> {
+    let mut args = vec!["push", "--progress"];
+    if force {
+        args.push("--force-with-lease");
+    }
+    if !remote.is_empty() {
+        args.push("--set-upstream");
+        args.push(remote);
+        if !refspec.is_empty() {
+            args.push(refspec);
+        }
+    }
+    args
+}
+
+/// List linked worktrees in porcelain format (FEAT-062).
+pub fn worktree_list(repo: &Path) -> Result<String> {
+    run(repo, &["worktree", "list", "--porcelain"])
+}
+
+/// Add a worktree pointing to a branch or path (FEAT-062).
+pub fn worktree_add(
+    repo: &Path,
+    target: &Path,
+    branch: Option<&str>,
+    new_branch: Option<&str>,
+    detach: bool,
+) -> Result<()> {
+    let target_str = target.to_str().ok_or_else(|| Error::Git {
+        command: "worktree add".into(),
+        stderr: "target path is not valid utf-8".into(),
+    })?;
+    let mut args = vec!["worktree", "add"];
+    if detach {
+        args.push("--detach");
+    }
+    if let Some(nb) = new_branch {
+        if !nb.is_empty() {
+            args.push("-b");
+            args.push(nb);
+        }
+    }
+    args.push(target_str);
+    if let Some(b) = branch {
+        if !b.is_empty() {
+            args.push(b);
+        }
+    }
+    run(repo, &args)?;
+    Ok(())
+}
+
+/// Remove a worktree (FEAT-062).
+pub fn worktree_remove(repo: &Path, target: &Path, force: bool) -> Result<()> {
+    let target_str = target.to_str().ok_or_else(|| Error::Git {
+        command: "worktree remove".into(),
+        stderr: "target path is not valid utf-8".into(),
+    })?;
+    let mut args = vec!["worktree", "remove"];
+    if force {
+        args.push("--force");
+    }
+    args.push(target_str);
+    run(repo, &args)?;
+    Ok(())
+}
+
+/// Lock a worktree against pruning (FEAT-062).
+pub fn worktree_lock(repo: &Path, target: &Path, reason: Option<&str>) -> Result<()> {
+    let target_str = target.to_str().ok_or_else(|| Error::Git {
+        command: "worktree lock".into(),
+        stderr: "target path is not valid utf-8".into(),
+    })?;
+    let mut args = vec!["worktree", "lock"];
+    if let Some(r) = reason {
+        if !r.is_empty() {
+            args.push("--reason");
+            args.push(r);
+        }
+    }
+    args.push(target_str);
+    run(repo, &args)?;
+    Ok(())
+}
+
+/// Unlock a locked worktree (FEAT-062).
+pub fn worktree_unlock(repo: &Path, target: &Path) -> Result<()> {
+    let target_str = target.to_str().ok_or_else(|| Error::Git {
+        command: "worktree unlock".into(),
+        stderr: "target path is not valid utf-8".into(),
+    })?;
+    run(repo, &["worktree", "unlock", target_str])?;
+    Ok(())
+}
+
+/// A worktree at `branch` with nothing checked out (FEAT-155): its index is
+/// the branch's tree and its folder is empty. A commit can be made on a
+/// branch that is not checked out here without writing its files to disk.
+pub fn worktree_add_unchecked(repo: &Path, target: &Path, branch: &str) -> Result<()> {
+    let target_str = target.to_str().ok_or_else(|| Error::Git {
+        command: "worktree add".into(),
+        stderr: "target path is not valid utf-8".into(),
+    })?;
+    run(
+        repo,
+        &[
+            "worktree",
+            "add",
+            "--no-checkout",
+            "--quiet",
+            target_str,
+            branch,
+        ],
+    )?;
+    run(target, &["read-tree", "HEAD"])?;
+    Ok(())
+}
+
+/// Stop tracking `paths` (FEAT-155): out of the index, and left on disk.
+/// A folder is untracked with everything in it.
+pub fn untrack_paths(repo: &Path, paths: &[String]) -> Result<()> {
+    let mut args = vec!["rm", "-r", "--cached", "--quiet", "--"];
+    args.extend(paths.iter().map(String::as_str));
+    run(repo, &args)?;
+    Ok(())
+}
+
+/// The paths staged for the next commit.
+pub fn staged_names(repo: &Path) -> Result<Vec<String>> {
+    let out = run(repo, &["diff", "--cached", "--name-only", "-z"])?;
+    Ok(out
+        .split('\0')
+        .filter(|name| !name.is_empty())
+        .map(String::from)
+        .collect())
+}
+
+/// Which of `paths` have changes that are not staged.
+pub fn unstaged_names(repo: &Path, paths: &[&str]) -> Result<Vec<String>> {
+    let mut args = vec!["diff", "--name-only", "-z", "--"];
+    args.extend_from_slice(paths);
+    let out = run(repo, &args)?;
+    Ok(out
+        .split('\0')
+        .filter(|name| !name.is_empty())
+        .map(String::from)
+        .collect())
+}
+
+/// Prune stale worktree administrative metadata (FEAT-062).
+pub fn worktree_prune(repo: &Path) -> Result<()> {
+    run(repo, &["worktree", "prune"])?;
+    Ok(())
+}
+
+// --- Investigate (FEAT-132) -------------------------------------------------
+//
+// Three more reads that go through `git`, for the reason blame does: what they
+// ask is not in `gix`. Following a file across renames (`--follow`) and
+// following one line through history (`-L`) are both things git works out
+// commit by commit with its own rename detection, and a second implementation
+// that disagreed with `git log --follow` about where a file came from would be
+// worse than a slower one that agrees. They are reads: nothing below writes.
+
+/// What starts each commit in [`life_log`] and [`line_log`]'s output, and what
+/// separates its fields. Control characters, so no subject can contain them.
+pub const LIFE_RECORD: char = '\u{1e}';
+pub const LIFE_FIELD: char = '\u{1f}';
+/// What separates one `Co-authored-by` value from the next.
+pub const LIFE_TRAILER: char = '\u{1d}';
+
+/// id, short id, author, address, author time, parents, subject, co-authors.
+const LIFE_FORMAT: &str = "--format=%x1e%H%x1f%h%x1f%an%x1f%ae%x1f%at%x1f%P%x1f%s%x1f%(trailers:key=Co-authored-by,valueonly,separator=%x1d)";
+
+/// What to read a life of, for [`life_log`].
+pub struct LifeLog<'a> {
+    /// A revision, or a range such as `fork..branch`.
+    pub revision: &'a str,
+    /// A file or a folder to keep to. `None` reads every commit.
+    pub path: Option<&'a str>,
+    /// Follow one file across renames. Only meaningful with a file's path.
+    pub follow: bool,
+    pub skip: usize,
+    pub limit: usize,
+    /// Nothing older than this, in seconds since the epoch.
+    pub since: Option<i64>,
+}
+
+/// One page of history, with each commit's raw status lines and numstat.
+///
+/// A commit is a record starting with [`LIFE_RECORD`]; after its header line
+/// come `:mode mode id id STATUS\tpath[\tpath]` lines and `added\tremoved\tpath`
+/// lines. Paths are not quoted, so they are read as they are.
+pub fn life_log(repo: &Path, ask: &LifeLog<'_>) -> Result<String> {
+    let skip = format!("--skip={}", ask.skip);
+    let limit = format!("-n{}", ask.limit.max(1));
+    let since = ask.since.map(|at| format!("--since=@{at}"));
+
+    let mut args = vec![
+        "-c",
+        "core.quotepath=off",
+        "log",
+        LIFE_FORMAT,
+        "--raw",
+        "--numstat",
+        "-M",
+        "--no-color",
+        "--no-abbrev",
+        skip.as_str(),
+        limit.as_str(),
+    ];
+    if ask.follow {
+        args.push("--follow");
+    }
+    if let Some(since) = since.as_deref() {
+        args.push(since);
+    }
+    args.push(ask.revision);
+    args.push("--");
+    if let Some(path) = ask.path {
+        args.push(path);
+    }
+    run(repo, &args)
+}
+
+/// Every commit that changed line `line` of `path` as it is at `revision`,
+/// each with the patch for that line (`git log -L`).
+pub fn line_log(
+    repo: &Path,
+    revision: &str,
+    path: &str,
+    line: u32,
+    limit: usize,
+) -> Result<String> {
+    let range = format!("-L{line},{line}:{path}");
+    let limit = format!("-n{}", limit.max(1));
+    run(
+        repo,
+        &[
+            "-c",
+            "core.quotepath=off",
+            "log",
+            LIFE_FORMAT,
+            "--no-color",
+            limit.as_str(),
+            range.as_str(),
+            revision,
+        ],
+    )
+}
+
+/// How many commits `b` has that `a` lacks, and `a` that `b` lacks: ahead and
+/// behind, as `(ahead, behind)` of `b` against `a`.
+pub fn ahead_behind(repo: &Path, a: &str, b: &str) -> Result<(u32, u32)> {
+    let range = format!("{a}...{b}");
+    let out = run(repo, &["rev-list", "--left-right", "--count", &range, "--"])?;
+    let mut counts = out
+        .split_whitespace()
+        .map(|n| n.parse::<u32>().unwrap_or(0));
+    let behind = counts.next().unwrap_or(0);
+    let ahead = counts.next().unwrap_or(0);
+    Ok((ahead, behind))
+}
+
+/// The commits `tip` has on its own first-parent line that `base` lacks,
+/// newest first: a branch's own commits, without what was merged into it.
+pub fn own_commits(repo: &Path, base: &str, tip: &str) -> Result<Vec<String>> {
+    let range = format!("{base}..{tip}");
+    let out = run(repo, &["rev-list", "--first-parent", &range, "--"])?;
+    Ok(out.lines().map(|id| id.trim().to_string()).collect())
+}
+
+/// The commit on `onto`'s first-parent line that first contained `tip`: where
+/// a merged branch landed. `None` when `tip` is not in `onto`, or is its tip.
+pub fn landing(repo: &Path, tip: &str, onto: &str) -> Result<Option<String>> {
+    let range = format!("{tip}..{onto}");
+    let out = run(
+        repo,
+        &[
+            "rev-list",
+            "--ancestry-path",
+            "--first-parent",
+            &range,
+            "--",
+        ],
+    )?;
+    Ok(out.lines().last().map(|id| id.trim().to_string()))
+}
+
+/// Read commit history touching a single path, following renames (FEAT-063).
+pub fn file_history(repo: &Path, path: &str, limit: usize) -> Result<String> {
+    let limit_str = format!("-{}", limit.max(1));
+    run(
+        repo,
+        &[
+            "log",
+            "--follow",
+            &limit_str,
+            "--format=%H%x00%h%x00%an%x00%ae%x00%at%x00%s",
+            "--",
+            path,
+        ],
+    )
+}
+
+/// Read submodule status (FEAT-067).
+pub fn submodule_status(repo: &Path) -> Result<String> {
+    run(repo, &["submodule", "status"])
+}
+
+/// Update submodules recursively (FEAT-067).
+pub fn submodule_update(
+    repo: &Path,
+    paths: &[String],
+    init: bool,
+    recursive: bool,
+) -> Result<String> {
+    let mut args = vec!["submodule", "update"];
+    if init {
+        args.push("--init");
+    }
+    if recursive {
+        args.push("--recursive");
+    }
+    for p in paths {
+        args.push(p.as_str());
+    }
+    run(repo, &args)
+}
+
+/// Sync submodule URLs from .gitmodules (FEAT-067).
+pub fn submodule_sync(repo: &Path, recursive: bool) -> Result<String> {
+    let mut args = vec!["submodule", "sync"];
+    if recursive {
+        args.push("--recursive");
+    }
+    run(repo, &args)
+}
+
+/// De-initialize a submodule (FEAT-067).
+pub fn submodule_deinit(repo: &Path, path: &str, force: bool) -> Result<String> {
+    let mut args = vec!["submodule", "deinit"];
+    if force {
+        args.push("-f");
+    }
+    args.push("--");
+    args.push(path);
+    run(repo, &args)
+}
+
+// --- Merger (FEAT-100) -------------------------------------------------------
+//
+// Merger works out a merge before anything is written, and writes the result
+// without checking anything out. Both halves are plumbing: `merge-tree` for the
+// dry run, a private index and `commit-tree` for the result, and a ref update
+// to land it. Several of these exit 1 to answer "no" rather than to fail, so
+// they run through `run_extra`, which is told which exit codes are answers.
+
+/// What a Merger command needs beyond its arguments.
+#[derive(Default)]
+struct Extra<'a> {
+    env: &'a [(&'a str, &'a OsStr)],
+    stdin: Option<&'a [u8]>,
+    /// Exit codes besides 0 that are an answer rather than a failure.
+    ok: &'a [i32],
+}
+
+/// Run `git` with `extra`, returning its exit code and stdout.
+fn run_extra(repo: &Path, args: &[&str], extra: Extra<'_>) -> Result<(i32, String)> {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let lock = operation_lock(repo);
+    let _guard = lock.lock().expect("git operation lock");
+    let started = Instant::now();
+    let mut command = command(repo, args);
+    command.envs(extra.env.iter().copied());
+    command
+        .stdin(if extra.stdin.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let output = command.spawn().and_then(|mut child| {
+        if let Some(input) = extra.stdin {
+            // Dropped at the end of the block, closing stdin.
+            let mut stdin = child.stdin.take().expect("piped stdin");
+            stdin.write_all(input)?;
+        }
+        child.wait_with_output()
+    });
+    let elapsed = started.elapsed().as_millis() as u64;
+
+    let output = match output {
+        Ok(output) => output,
+        Err(error) => {
+            record::push(
+                args,
+                Outcome::Failed {
+                    code: None,
+                    stderr: error.to_string(),
+                },
+                elapsed,
+            );
+            return Err(error.into());
+        }
+    };
+
+    let code = output.status.code().unwrap_or(-1);
+    if !output.status.success() && !extra.ok.contains(&code) {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        record::push(
+            args,
+            Outcome::Failed {
+                code: output.status.code(),
+                stderr: stderr.clone(),
+            },
+            elapsed,
+        );
+        return Err(Error::Git {
+            command: args.join(" "),
+            stderr,
+        });
+    }
+
+    record::push(args, Outcome::Ok, elapsed);
+    Ok((code, String::from_utf8_lossy(&output.stdout).into_owned()))
+}
+
+/// The installed git's major and minor version, when it says.
+pub fn version_number(repo: &Path) -> Option<(u32, u32)> {
+    parse_version(&version(repo).ok()?)
+}
+
+/// `git version 2.55.0.windows.3` → `(2, 55)`.
+pub(crate) fn parse_version(text: &str) -> Option<(u32, u32)> {
+    let number = text
+        .split_whitespace()
+        .find(|word| word.starts_with(|c: char| c.is_ascii_digit()))?;
+    let mut parts = number.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    Some((major, minor))
+}
+
+/// Where two commits' histories meet. `None` when they share none.
+pub fn merge_base(repo: &Path, a: &str, b: &str) -> Result<Option<String>> {
+    let (code, out) = run_extra(
+        repo,
+        &["merge-base", a, b],
+        Extra {
+            ok: &[1],
+            ..Extra::default()
+        },
+    )?;
+    Ok((code == 0).then(|| out.trim().to_string()))
+}
+
+/// Whether `ancestor` is in `of`'s history (a commit is its own ancestor).
+pub fn is_ancestor(repo: &Path, ancestor: &str, of: &str) -> Result<bool> {
+    let (code, _) = run_extra(
+        repo,
+        &["merge-base", "--is-ancestor", ancestor, of],
+        Extra {
+            ok: &[1],
+            ..Extra::default()
+        },
+    )?;
+    Ok(code == 0)
+}
+
+/// The commit `revision` names, in full. A name that is not a commit is
+/// [`Error::UnknownCommit`], so a screen can say which one.
+pub fn commit_id(repo: &Path, revision: &str) -> Result<String> {
+    let spec = format!("{revision}^{{commit}}");
+    let (code, out) = run_extra(
+        repo,
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--end-of-options",
+            &spec,
+        ],
+        Extra {
+            ok: &[1],
+            ..Extra::default()
+        },
+    )?;
+    if code != 0 {
+        return Err(Error::UnknownCommit(revision.to_string()));
+    }
+    Ok(out.trim().to_string())
+}
+
+/// How many commits `range` (`base..tip`) holds.
+pub fn count_commits(repo: &Path, range: &str) -> Result<usize> {
+    let out = run(repo, &["rev-list", "--count", range, "--"])?;
+    Ok(out.trim().parse().unwrap_or(0))
+}
+
+/// How many commits of `range` touch any of `paths`.
+pub fn count_commits_touching(repo: &Path, range: &str, paths: &[String]) -> Result<usize> {
+    let args = with_paths(&["rev-list", "--count", range], paths);
+    let out = run(repo, &args)?;
+    Ok(out.trim().parse().unwrap_or(0))
+}
+
+/// The newest `limit` commits of `range`, one per record: id, short id,
+/// subject and commit time, separated by unit separators.
+pub fn commit_records(repo: &Path, range: &str, limit: usize) -> Result<String> {
+    let limit = format!("-n{limit}");
+    run(
+        repo,
+        &[
+            "log",
+            "--format=%H%x1f%h%x1f%s%x1f%ct%x1e",
+            &limit,
+            range,
+            "--",
+        ],
+    )
+}
+
+/// Every path that differs between two commits, NUL-separated status and
+/// path pairs. Renames are not followed: a renamed file is a delete and an add,
+/// which is what it is on each side of a merge base.
+pub fn changed_names(repo: &Path, from: &str, to: &str) -> Result<String> {
+    run(
+        repo,
+        &[
+            "diff",
+            "--name-status",
+            "-z",
+            "--no-renames",
+            from,
+            to,
+            "--",
+        ],
+    )
+}
+
+/// Merge two commits without touching the index, the working tree or a ref
+/// (git 2.38). Conflicts are written into the result with diff3 markers, so
+/// each region carries what the merge base had there.
+///
+/// Returns whether it merged cleanly, and git's `-z` output: the tree, the
+/// conflicted stages, and the messages.
+pub fn merge_tree(repo: &Path, ours: &str, theirs: &str) -> Result<(bool, String)> {
+    let (code, out) = run_extra(
+        repo,
+        &[
+            "-c",
+            "merge.conflictStyle=diff3",
+            "merge-tree",
+            "--write-tree",
+            "-z",
+            "--messages",
+            ours,
+            theirs,
+        ],
+        Extra {
+            ok: &[1],
+            ..Extra::default()
+        },
+    )?;
+    Ok((code == 0, out))
+}
+
+/// Store `bytes` as a blob, filtered as a file at `path` would be.
+pub fn hash_blob(repo: &Path, path: &str, bytes: &[u8]) -> Result<String> {
+    let flag = format!("--path={path}");
+    let (_, out) = run_extra(
+        repo,
+        &["hash-object", "-w", "--stdin", &flag],
+        Extra {
+            stdin: Some(bytes),
+            ..Extra::default()
+        },
+    )?;
+    Ok(out.trim().to_string())
+}
+
+/// `tree` with some entries replaced, as a new tree.
+///
+/// Built in an index of its own (`index`, a file nobody else reads), so the
+/// repository's index is never read or written. `entries` is
+/// `update-index --index-info` input: `<mode> <blob>\t<path>` per line, and a
+/// mode of 0 removes the path.
+pub fn tree_with(repo: &Path, index: &Path, tree: &str, entries: &str) -> Result<String> {
+    let env: [(&str, &OsStr); 1] = [("GIT_INDEX_FILE", index.as_os_str())];
+    run_extra(
+        repo,
+        &["read-tree", tree],
+        Extra {
+            env: &env,
+            ..Extra::default()
+        },
+    )?;
+    run_extra(
+        repo,
+        &["update-index", "--index-info"],
+        Extra {
+            env: &env,
+            stdin: Some(entries.as_bytes()),
+            ..Extra::default()
+        },
+    )?;
+    let (_, out) = run_extra(
+        repo,
+        &["write-tree"],
+        Extra {
+            env: &env,
+            ..Extra::default()
+        },
+    )?;
+    Ok(out.trim().to_string())
+}
+
+/// A commit of `tree` with `parents`, and `message` read from stdin.
+///
+/// `commit-tree` reads `commit.gpgSign` itself, so a signed repository gets a
+/// signed merge the same as from `git merge`.
+pub fn commit_tree(repo: &Path, tree: &str, parents: &[&str], message: &str) -> Result<String> {
+    let mut args = vec!["commit-tree", tree];
+    for parent in parents {
+        args.push("-p");
+        args.push(parent);
+    }
+    args.push("-F");
+    args.push("-");
+    let (_, out) = run_extra(
+        repo,
+        &args,
+        Extra {
+            stdin: Some(message.as_bytes()),
+            ..Extra::default()
+        },
+    )?;
+    Ok(out.trim().to_string())
+}
+
+/// Move a branch that is not checked out from `old` to `new`, and refuse if
+/// it is no longer at `old` — somebody else moved it since it was read.
+pub fn move_branch(repo: &Path, branch: &str, new: &str, old: &str, reason: &str) -> Result<()> {
+    let name = format!("refs/heads/{branch}");
+    run(repo, &["update-ref", "-m", reason, &name, new, old])?;
+    Ok(())
+}
+
+/// Create `name` at `commit`, tracking nothing. Refused if it exists.
+pub fn branch_at(repo: &Path, name: &str, commit: &str) -> Result<()> {
+    run(repo, &["branch", "--no-track", name, commit])?;
+    Ok(())
+}
+
+/// Bring the branch checked out in `worktree` forward to `commit`, or refuse.
+/// git refuses rather than overwrite uncommitted changes.
+pub fn fast_forward(worktree: &Path, commit: &str) -> Result<()> {
+    run(worktree, &["merge", "--ff-only", commit])?;
+    Ok(())
+}
+
+/// Whether `name` is a name a branch can have. git's rule, so the two never
+/// disagree.
+pub fn valid_branch_name(repo: &Path, name: &str) -> Result<bool> {
+    let (code, _) = run_extra(
+        repo,
+        &["check-ref-format", "--branch", name],
+        Extra {
+            ok: &[1, 128],
+            ..Extra::default()
+        },
+    )?;
+    Ok(code == 0)
+}
+
+/// Replay `upstream..HEAD` onto `onto` in a scratch worktree, with diff3
+/// markers where it stops (FEAT-103). True when it ran to the end; false when
+/// it stopped — the caller reads the rebase state to tell a stop from a
+/// failure.
+pub fn rebase_replay(scratch: &Path, onto: &str, upstream: &str) -> Result<bool> {
+    let (code, _) = run_extra(
+        scratch,
+        &[
+            "-c",
+            "merge.conflictStyle=diff3",
+            "rebase",
+            "--onto",
+            onto,
+            upstream,
+        ],
+        Extra {
+            ok: &[1],
+            ..Extra::default()
+        },
+    )?;
+    Ok(code == 0)
+}
+
+/// Carry a stopped replay on: `--continue` keeping each commit's message, or
+/// `--skip`. True when it ran to the end, false when it stopped again.
+pub fn rebase_step(scratch: &Path, skip: bool) -> Result<bool> {
+    let scripts = SequenceScripts::write(scratch, "")?;
+    let editor = scripts.message_editor();
+    let env: [(&str, &OsStr); 1] = [("GIT_EDITOR", OsStr::new(&editor))];
+    let (code, _) = run_extra(
+        scratch,
+        &[
+            "-c",
+            "merge.conflictStyle=diff3",
+            "rebase",
+            if skip { "--skip" } else { "--continue" },
+        ],
+        Extra {
+            env: &env,
+            ok: &[1],
+            ..Extra::default()
+        },
+    )?;
+    Ok(code == 0)
+}
+
+/// The git directory of a repository or worktree, absolute.
+pub fn absolute_git_dir(repo: &Path) -> Result<PathBuf> {
+    Ok(PathBuf::from(
+        run(repo, &["rev-parse", "--absolute-git-dir"])?.trim(),
+    ))
+}
+
+/// Whether anything is staged that `HEAD` does not have.
+pub fn has_staged(repo: &Path) -> Result<bool> {
+    let (code, _) = run_extra(
+        repo,
+        &["diff", "--cached", "--quiet"],
+        Extra {
+            ok: &[1],
+            ..Extra::default()
+        },
+    )?;
+    Ok(code == 1)
+}
+
+/// Remove `path` from the working tree and the index: how a conflict is
+/// resolved as a deletion.
+pub fn remove_path(repo: &Path, path: &str) -> Result<()> {
+    run(repo, &["rm", "-q", "--ignore-unmatch", "--", path])?;
+    Ok(())
+}
+
+/// Merge `source` into what is checked out in a scratch worktree, stopping
+/// before the commit. The dry run for a git older than 2.38, which has no
+/// `merge-tree --write-tree`. Returns whether it merged cleanly.
+pub fn scratch_merge(scratch: &Path, source: &str) -> Result<bool> {
+    let (code, _) = run_extra(
+        scratch,
+        &[
+            "-c",
+            "merge.conflictStyle=diff3",
+            "merge",
+            "--no-commit",
+            "--no-ff",
+            "--no-edit",
+            source,
+        ],
+        Extra {
+            ok: &[1],
+            ..Extra::default()
+        },
+    )?;
+    Ok(code == 0)
+}
+
+/// What `git status` reports in a scratch worktree: each changed, added or
+/// untracked path with its two-letter code. How an assignment sees what an
+/// agent wrote where it was only meant to read (2.0, agents).
+pub fn changed_paths(dir: &Path) -> Result<Vec<(String, String)>> {
+    let raw = run(
+        dir,
+        &["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+    )?;
+    Ok(parse_status_z(&raw))
+}
+
+/// Parse `status --porcelain=v1 -z`. A rename or copy, in either column,
+/// carries its old path as the next field. A rename's old path is gone, so it
+/// is listed too, as deleted (`D `), for whatever puts the tree back; a copy's
+/// is untouched and is skipped.
+pub(crate) fn parse_status_z(raw: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut fields = raw.split('\0').filter(|field| !field.is_empty());
+    while let Some(field) = fields.next() {
+        if field.len() < 4 {
+            continue;
+        }
+        let (code, path) = field.split_at(2);
+        out.push((code.to_string(), path[1..].to_string()));
+        if code.contains(['R', 'C']) {
+            let old = fields.next();
+            if let (true, Some(old)) = (code.contains('R'), old) {
+                out.push(("D ".to_string(), old.to_string()));
+            }
+        }
+    }
+    out
+}
+
+/// A file's text at `revision`, for an agent's read tool. `None` when the
+/// file is not there at that revision.
+pub fn show_text(repo: &Path, revision: &str, path: &str) -> Result<Option<String>> {
+    let spec = format!("{revision}:{path}");
+    let (code, out) = run_extra(
+        repo,
+        &["show", "--no-color", "--no-ext-diff", &spec],
+        Extra {
+            ok: &[128],
+            ..Extra::default()
+        },
+    )?;
+    Ok((code == 0).then_some(out))
+}
+
+/// Lines matching `pattern` in the files checked out in `dir`: `path:line:
+/// text`, fixed strings, text files only. For an agent's search tool. No
+/// match is an empty answer, not a failure.
+pub fn grep_tree(dir: &Path, pattern: &str) -> Result<String> {
+    let (_, out) = run_extra(
+        dir,
+        &["grep", "-n", "-I", "-F", "--no-color", "-e", pattern],
+        Extra {
+            ok: &[1],
+            ..Extra::default()
+        },
+    )?;
+    Ok(out)
+}
+
+/// Every commit message in `from..to`, whole, separated by NUL. How an agent
+/// is found to have written commits in what it is asked to review.
+pub fn messages_between(repo: &Path, from: &str, to: &str) -> Result<String> {
+    let range = format!("{from}..{to}");
+    run(repo, &["log", "--format=%B%x00", &range])
+}
+
+/// Put `paths` back as `HEAD` has them, in a scratch worktree.
+pub fn restore_paths(dir: &Path, paths: &[String]) -> Result<()> {
+    if paths.is_empty() {
+        return Ok(());
+    }
+    // Unstage first, and check out only what `HEAD` has: a path added to the
+    // index is not in `HEAD`, and naming it to `checkout` would fail the call
+    // for every other path in it. What `HEAD` does not have is removed. Every
+    // path is literal: a file named `*.txt` names that file, not a pattern.
+    let mut reset = vec!["--literal-pathspecs", "reset", "-q", "HEAD", "--"];
+    reset.extend(paths.iter().map(String::as_str));
+    run(dir, &reset)?;
+    let mut listed = vec![
+        "--literal-pathspecs",
+        "ls-tree",
+        "-z",
+        "--name-only",
+        "HEAD",
+        "--",
+    ];
+    listed.extend(paths.iter().map(String::as_str));
+    let in_head: std::collections::HashSet<String> = run(dir, &listed)?
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(str::to_string)
+        .collect();
+    let (back, gone): (Vec<&String>, Vec<&String>) =
+        paths.iter().partition(|path| in_head.contains(*path));
+    if !back.is_empty() {
+        let mut checkout = vec!["--literal-pathspecs", "checkout", "HEAD", "--"];
+        checkout.extend(back.iter().map(|path| path.as_str()));
+        run(dir, &checkout)?;
+    }
+    for path in gone {
+        match std::fs::remove_file(dir.join(path)) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// The working tree's files as git sees them, `-z`: tracked ones and
+/// untracked ones that are not ignored. What Calls' Import reads
+/// (FEAT-162), so a `.gitignore`d build folder is never scanned.
+pub fn working_files(repo: &Path) -> Result<String> {
+    run(
+        repo,
+        &[
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+        ],
+    )
+}
+
+/// The index's unmerged entries, `-z`: `<mode> <blob> <stage>\t<path>`.
+pub fn unmerged_entries(repo: &Path) -> Result<String> {
+    run(repo, &["ls-files", "-u", "-z"])
+}
+
+/// Stage everything in a scratch worktree and write its index as a tree.
+pub fn write_all_as_tree(scratch: &Path) -> Result<String> {
+    run(scratch, &["add", "-A"])?;
+    Ok(run(scratch, &["write-tree"])?.trim().to_string())
+}
+
+/// Who last changed lines `start..=end` of `path` in `range` (`base..tip`),
+/// `--porcelain`. Lines nobody in the range changed belong to the boundary.
+pub fn blame_lines(
+    repo: &Path,
+    range: &str,
+    path: &str,
+    start: usize,
+    end: usize,
+) -> Result<String> {
+    let lines = format!("-L{start},{end}");
+    run(repo, &["blame", "--porcelain", &lines, range, "--", path])
+}
+
+/// The newest commit in `range` that touched `path`: id, short id and
+/// subject, separated by unit separators. Empty when none did.
+pub fn last_touch(repo: &Path, range: &str, path: &str) -> Result<String> {
+    run(
+        repo,
+        &["log", "-1", "--format=%H%x1f%h%x1f%s", range, "--", path],
+    )
+}
+
+/// What a command printed and how it ended, whichever way that was.
+///
+/// Every other function here turns a non-zero exit into an error, because its
+/// caller asked for one thing and either has it or does not. A recipe's step
+/// (FEAT-133) is different: the exit is what the run decides on, and the
+/// output is shown to the person as it was, on success as on failure.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ran {
+    /// `None` when a signal ended it.
+    pub code: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+impl Ran {
+    pub fn ok(&self) -> bool {
+        self.code == Some(0)
+    }
+
+    /// Both streams, the way a terminal would have shown them.
+    pub fn output(&self) -> String {
+        let mut all = self.stdout.trim_end().to_string();
+        let err = self.stderr.trim_end();
+        if !err.is_empty() {
+            if !all.is_empty() {
+                all.push('\n');
+            }
+            all.push_str(err);
+        }
+        all
+    }
+}
+
+/// Run `git` in `repo` and say how it ended, without making an error of a
+/// non-zero exit (FEAT-133). Recorded like every other spawn.
+///
+/// `env` is added to the command's environment and `input` is written to its
+/// stdin. The only error is git not starting at all.
+pub fn ran_with(
+    repo: &Path,
+    args: &[&str],
+    env: &[(&str, &OsStr)],
+    input: Option<&str>,
+) -> Result<Ran> {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let lock = operation_lock(repo);
+    let _guard = lock.lock().expect("git operation lock");
+    let started = Instant::now();
+    let mut command = command(repo, args);
+    // No editor ever opens: a rebase or a merge that wants a message takes
+    // the one git wrote.
+    command
+        .env("GIT_EDITOR", "true")
+        .env("GIT_SEQUENCE_EDITOR", "true")
+        .envs(env.iter().copied())
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let spawned = command.spawn().and_then(|mut child| {
+        if let Some(input) = input {
+            // Dropped at the end of the block, closing stdin.
+            let mut stdin = child.stdin.take().expect("piped stdin");
+            stdin.write_all(input.as_bytes())?;
+        }
+        child.wait_with_output()
+    });
+    let elapsed = started.elapsed().as_millis() as u64;
+    let output = match spawned {
+        Ok(output) => output,
+        Err(error) => {
+            record::push(
+                args,
+                Outcome::Failed {
+                    code: None,
+                    stderr: error.to_string(),
+                },
+                elapsed,
+            );
+            return Err(error.into());
+        }
+    };
+    let ran = Ran {
+        code: output.status.code(),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    };
+    record::push(
+        args,
+        if ran.ok() {
+            Outcome::Ok
+        } else {
+            Outcome::Failed {
+                code: ran.code,
+                stderr: ran.stderr.trim().to_string(),
+            }
+        },
+        elapsed,
+    );
+    Ok(ran)
+}
+
+/// [`ran_with`] and nothing added.
+pub fn ran(repo: &Path, args: &[&str]) -> Result<Ran> {
+    ran_with(repo, args, &[], None)
+}
+
+/// [`ran`], with a non-zero exit made the error it is everywhere else here.
+pub fn ran_ok(repo: &Path, args: &[&str]) -> Result<String> {
+    let ran = ran(repo, args)?;
+    if ran.ok() {
+        Ok(ran.stdout)
+    } else {
+        Err(Error::Git {
+            command: args.join(" "),
+            stderr: ran.stderr.trim().to_string(),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What git's credential machinery answers for `host`, with `command`'s
+    /// configuration. A helper configured before ours stands in for the
+    /// system's, which must not be asked for a host with an account.
+    fn filled(host: &str, accounts: &[(String, String, String)]) -> String {
+        use std::io::Write;
+        use std::process::Stdio;
+
+        let mut command = program("git");
+        command
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env(
+                "GIT_CONFIG_GLOBAL",
+                if cfg!(windows) { "NUL" } else { "/dev/null" },
+            )
+            .args([
+                "-c",
+                "credential.helper=!f() { echo username=system; echo password=system-secret; }; f",
+            ]);
+        sign_in_as(&mut command, accounts);
+        let mut child = command
+            .args(["credential", "fill"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("git credential fill");
+        child
+            .stdin
+            .take()
+            .expect("stdin")
+            .write_all(format!("protocol=https\nhost={host}\n\n").as_bytes())
+            .expect("ask");
+        String::from_utf8_lossy(&child.wait_with_output().expect("answer").stdout).into_owned()
+    }
+
+    #[test]
+    fn git_signs_in_to_a_host_with_its_account_and_asks_nothing_else() {
+        let accounts = vec![(
+            "gitlab.example.test".to_string(),
+            "mahmoud".to_string(),
+            "glpat-secret".to_string(),
+        )];
+        let answer = filled("gitlab.example.test", &accounts);
+        assert!(answer.contains("username=mahmoud\n"), "{answer}");
+        assert!(answer.contains("password=glpat-secret\n"), "{answer}");
+        assert!(!answer.contains("system"), "{answer}");
+
+        // Another host is left to the helpers git was configured with.
+        let elsewhere = filled("github.com", &accounts);
+        assert!(elsewhere.contains("password=system-secret"), "{elsewhere}");
+    }
+
+    #[test]
+    fn only_commands_that_reach_a_remote_sign_in() {
+        for args in [
+            ["push", "origin"],
+            ["fetch", "--all"],
+            ["clone", "x"],
+            ["pull", "origin"],
+        ] {
+            assert!(reaches_a_remote(&args), "{args:?}");
+        }
+        for args in [["status", "-z"], ["commit", "-m"], ["rm", "--cached"]] {
+            assert!(!reaches_a_remote(&args), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn status_z_reads_each_path_with_its_code() {
+        let raw = " M src/a.rs\0?? notes.txt\0R  new.rs\0old.rs\0UU both.rs\0";
+        assert_eq!(
+            parse_status_z(raw),
+            vec![
+                (" M".to_string(), "src/a.rs".to_string()),
+                ("??".to_string(), "notes.txt".to_string()),
+                ("R ".to_string(), "new.rs".to_string()),
+                ("D ".to_string(), "old.rs".to_string()),
+                ("UU".to_string(), "both.rs".to_string()),
+            ]
+        );
+        // An unstaged rename (after `git add -N`) carries its old path too.
+        assert_eq!(
+            parse_status_z(" R b.rs\0a.rs\0 M c.rs\0"),
+            vec![
+                (" R".to_string(), "b.rs".to_string()),
+                ("D ".to_string(), "a.rs".to_string()),
+                (" M".to_string(), "c.rs".to_string()),
+            ]
+        );
+    }
+
+    /// BUG-046. Only [`program`] keeps a console window from opening on
+    /// Windows, so nothing else in the crate may build a process. Test modules
+    /// and the fixtures are left out: `cargo test` has a console of its own.
+    #[test]
+    fn every_process_is_built_by_program() {
+        fn sources(dir: &Path, found: &mut Vec<PathBuf>) {
+            for entry in std::fs::read_dir(dir).expect("the source directory") {
+                let path = entry.expect("a source entry").path();
+                if path.is_dir() {
+                    sources(&path, found);
+                } else if path.extension().is_some_and(|ext| ext == "rs") {
+                    found.push(path);
+                }
+            }
+        }
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = Vec::new();
+        sources(&root, &mut files);
+        let mut builders = Vec::new();
+        for file in files {
+            let name = file
+                .strip_prefix(&root)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/");
+            if name == "fixture.rs" {
+                continue;
+            }
+            let text = std::fs::read_to_string(&file).expect("a source file");
+            let lines: Vec<&str> = text.lines().collect();
+            for (at, line) in lines.iter().enumerate() {
+                let next = lines.get(at + 1).copied().unwrap_or_default();
+                if line.trim_end() == "#[cfg(test)]" && next.starts_with("mod ") {
+                    break;
+                }
+                if !line.trim_start().starts_with("//") && line.contains("Command::new(") {
+                    builders.push(format!("{name}:{}", at + 1));
+                }
+            }
+        }
+
+        assert_eq!(
+            builders.len(),
+            1,
+            "processes built outside `program`: {builders:?}"
+        );
+        assert!(builders[0].starts_with("shell.rs:"), "{builders:?}");
+    }
+    use crate::fixture::Fixture;
+
+    #[test]
+    fn the_rebase_editors_are_shell_scripts_that_name_the_plan_with_forward_slashes() {
+        // BUG-038. git runs the editor through `sh` everywhere, Git for
+        // Windows included, and hands it a `C:/…` path; a batch file's `copy`
+        // took that for a switch. The scripts are `sh` on every platform, and
+        // the plan's path inside them is written the way `sh` reads it.
+        let fixture = Fixture::empty();
+        let scripts =
+            SequenceScripts::write(fixture.path(), "pick 1234567 one\n").expect("the scripts");
+
+        let sequence = std::fs::read_to_string(&scripts.sequence).expect("sequence editor");
+        assert!(sequence.starts_with("#!/bin/sh\n"), "{sequence}");
+        assert!(!sequence.contains('\\'), "a backslash in {sequence}");
+        assert!(
+            sequence.contains("/spagitty/rebase-todo' > \"$1\""),
+            "{sequence}"
+        );
+
+        let message = std::fs::read_to_string(&scripts.message).expect("message editor");
+        assert_eq!(message, "#!/bin/sh\nexit 0\n");
+
+        assert!(scripts.sequence_editor().ends_with("sequence-editor.sh\""));
+        assert!(scripts.message_editor().ends_with("message-editor.sh\""));
+    }
+
+    #[test]
+    fn a_windows_path_reaches_sh_with_forward_slashes() {
+        assert_eq!(
+            forward(Path::new(
+                r"C:\Users\Ada Lovelace\repo\.git\spagitty\rebase-todo"
+            )),
+            "C:/Users/Ada Lovelace/repo/.git/spagitty/rebase-todo"
+        );
+        assert_eq!(forward(Path::new("/home/ada/repo")), "/home/ada/repo");
+    }
+
+    #[test]
+    fn the_git_version_is_reported_from_the_binary_on_path() {
+        let fixture = Fixture::empty();
+        let version = version(fixture.path()).expect("a git version");
+
+        assert!(version.starts_with("git version"), "unexpected: {version}");
+        assert_eq!(version.trim(), version, "the caller gets a clean string");
+    }
+
+    #[test]
+    fn a_clone_produces_the_same_repository_git_clone_would() {
+        // Criterion 1, over a local path so the test needs no network. The
+        // clone is a real `git clone`, which is the whole point of the boundary.
+        //
+        // The gate is taken because this writes to the process-wide record, and
+        // a test that reads the record must not have another test's clone
+        // appear in the middle of it (BUG-023).
+        let _gate = crate::record::test_gate();
+        let source = Fixture::woven();
+        let into = tempfile::tempdir().expect("temp dir");
+        let destination = into.path().join("project");
+
+        let status = clone_start(&source.path().to_string_lossy(), &destination)
+            .expect("starting the clone")
+            .wait()
+            .expect("waiting for the clone");
+
+        assert!(status.success(), "the clone failed");
+        assert!(
+            destination.join(".git").is_dir(),
+            "a repository was created"
+        );
+
+        let cloned = crate::repo::open(&destination).expect("opening the clone");
+        assert_eq!(
+            crate::repo::head(&cloned).id.as_deref(),
+            Some(source.head().as_str()),
+            "the clone is at the same commit"
+        );
+    }
+
+    #[test]
+    fn a_clone_reports_progress_on_stderr_rather_than_running_silently() {
+        // Criterion 4's data half: without `--progress`, git writes nothing to
+        // a pipe and the screen would sit frozen for the whole clone.
+        use std::io::Read;
+
+        // Writes to the record; see the note in the test above (BUG-023).
+        let _gate = crate::record::test_gate();
+
+        let source = Fixture::woven();
+        let into = tempfile::tempdir().expect("temp dir");
+
+        let mut child = clone_start(
+            &source.path().to_string_lossy(),
+            &into.path().join("project"),
+        )
+        .expect("starting the clone");
+
+        let mut noise = String::new();
+        child
+            .stderr
+            .take()
+            .expect("piped stderr")
+            .read_to_string(&mut noise)
+            .expect("reading stderr");
+        child.wait().expect("waiting for the clone");
+
+        assert!(
+            crate::clone::progress(noise.lines().next().unwrap_or_default()).is_some(),
+            "git said nothing: {noise:?}"
+        );
+    }
+
+    #[test]
+    fn a_watched_push_creates_a_new_branch_sets_its_upstream_and_can_push_again() {
+        use std::io::Read;
+        let _gate = crate::record::test_gate();
+        let fixture = Fixture::empty();
+        fixture.write("notes.txt", "Base\n");
+        fixture.git(&["add", "notes.txt"]);
+        fixture.commit("Base");
+        fixture.git(&["switch", "-c", "feature/new"]);
+        let remote = tempfile::tempdir().expect("remote");
+        run(remote.path(), &["init", "--bare"]).expect("bare remote");
+        fixture.git(&[
+            "remote",
+            "add",
+            "origin",
+            remote.path().to_str().expect("remote path"),
+        ]);
+
+        for message in ["First push", "Second push"] {
+            fixture.write("notes.txt", message);
+            let head = fixture.commit_all(message);
+            let mut child = push_spawn(fixture.path(), "origin", "feature/new", false)
+                .expect("starting the push");
+            assert!(child.stdin.is_none());
+            assert!(child.stdout.is_none());
+            let mut noise = String::new();
+            child
+                .stderr
+                .take()
+                .expect("piped stderr")
+                .read_to_string(&mut noise)
+                .expect("reading stderr");
+            assert!(
+                child.wait().expect("waiting for the push").success(),
+                "{noise}"
+            );
+            assert!(
+                !noise.trim().is_empty(),
+                "git reported no progress or summary"
+            );
+            assert_eq!(
+                fixture
+                    .git(&["rev-parse", "--abbrev-ref", "@{upstream}"])
+                    .trim(),
+                "origin/feature/new"
+            );
+            assert_eq!(
+                run(remote.path(), &["rev-parse", "refs/heads/feature/new"])
+                    .unwrap()
+                    .trim(),
+                head
+            );
+        }
+    }
+
+    #[test]
+    fn a_watched_fetch_pipes_progress_and_updates_remote_refs() {
+        use std::io::Read;
+        let _gate = crate::record::test_gate();
+        let remote = Fixture::woven();
+        let local = Fixture::empty();
+        local.git(&[
+            "remote",
+            "add",
+            "origin",
+            remote.path().to_str().expect("remote path"),
+        ]);
+        let mut child = fetch_spawn(local.path(), "origin", false).expect("starting fetch");
+        let mut noise = String::new();
+        child
+            .stderr
+            .take()
+            .expect("piped stderr")
+            .read_to_string(&mut noise)
+            .expect("reading stderr");
+        assert!(
+            child.wait().expect("waiting for fetch").success(),
+            "{noise}"
+        );
+        assert!(
+            noise
+                .split(['\r', '\n'])
+                .filter_map(crate::clone::progress)
+                .any(|step| step.percent.is_some()),
+            "no transfer progress: {noise}"
+        );
+        assert_eq!(
+            local.git(&["rev-parse", "origin/main"]).trim(),
+            remote.head()
+        );
+    }
+
+    #[test]
+    fn failed_watched_pushes_and_fetches_pipe_gits_own_error() {
+        use std::io::Read;
+        let _gate = crate::record::test_gate();
+        let fixture = Fixture::empty();
+        fixture.git(&["commit", "--allow-empty", "-m", "Base"]);
+        for mut child in [
+            push_spawn(fixture.path(), "missing", "main", false).expect("starting push"),
+            fetch_spawn(fixture.path(), "missing", false).expect("starting fetch"),
+        ] {
+            let mut noise = String::new();
+            child
+                .stderr
+                .take()
+                .expect("piped stderr")
+                .read_to_string(&mut noise)
+                .expect("reading stderr");
+            assert!(!child.wait().expect("waiting for git").success());
+            assert!(noise.contains("fatal:"), "{noise}");
+            assert!(noise.contains("missing"), "{noise}");
+        }
+    }
+
+    #[test]
+    fn every_execution_reaches_the_record_with_the_flags_this_module_added() {
+        let _gate = crate::record::test_gate();
+        // The point of recording here rather than in a screen: `--prune` and
+        // `--all` are added on the way down, and a screen reporting "git fetch"
+        // would be describing a command nobody ran.
+        let fixture = Fixture::woven();
+        let before = crate::record::recent(0).last().map_or(0, |entry| entry.seq);
+
+        let _ = fetch(fixture.path(), "", true);
+
+        let entry = crate::record::recent(before)
+            .into_iter()
+            .find(|entry| entry.argv.get(1).map(String::as_str) == Some("fetch"))
+            .expect("the fetch was recorded");
+
+        assert_eq!(entry.line(), "git fetch --progress --prune --all");
+    }
+
+    #[test]
+    fn a_fetch_that_is_not_pruning_says_so_by_omission() {
+        // FEAT-018. `--prune` used to be unconditional, so the log could not
+        // tell a fetch that deleted refs from one that did not. Now it can.
+        let _gate = crate::record::test_gate();
+        let fixture = Fixture::woven();
+        let before = crate::record::recent(0).last().map_or(0, |entry| entry.seq);
+
+        let _ = fetch(fixture.path(), "origin", false);
+
+        let entry = crate::record::recent(before)
+            .into_iter()
+            .find(|entry| entry.argv.get(1).map(String::as_str) == Some("fetch"))
+            .expect("the fetch was recorded");
+
+        assert_eq!(entry.line(), "git fetch --progress origin");
+    }
+
+    #[test]
+    fn a_failing_command_is_recorded_with_its_exit_code_and_gits_words() {
+        let _gate = crate::record::test_gate();
+        let fixture = Fixture::empty();
+        let before = crate::record::recent(0).last().map_or(0, |entry| entry.seq);
+
+        let _ = run(
+            fixture.path(),
+            &["rev-parse", "--verify", "refs/heads/nope"],
+        );
+
+        let entry = crate::record::recent(before)
+            .into_iter()
+            .find(|entry| entry.argv.contains(&"refs/heads/nope".to_string()))
+            .expect("the failure was recorded");
+
+        match entry.outcome {
+            crate::record::Outcome::Failed { code, stderr } => {
+                assert_eq!(code, Some(128), "git's own exit code is kept");
+                assert!(!stderr.is_empty(), "git's message is kept");
+            }
+            other => panic!("expected a failure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_clone_is_recorded_at_spawn_with_its_credentials_removed() {
+        let _gate = crate::record::test_gate();
+        // Nothing waits for a clone, so the record cannot wait either — and the
+        // URL is the one argument in Spagitty that can carry a live secret.
+        let source = Fixture::woven();
+        let into = tempfile::tempdir().expect("temp dir");
+        let before = crate::record::recent(0).last().map_or(0, |entry| entry.seq);
+
+        // A URL git will fail on, which is fine: the record is written at spawn
+        // and the failure arrives later, on the child nobody is waiting for.
+        let url = format!(
+            "https://maxmya:ghp_secret@example.invalid{}",
+            source.path().display()
+        );
+        let mut child = clone_start(&url, &into.path().join("project")).expect("git was spawned");
+
+        // *This* clone, not whichever clone happened to be recorded next: the
+        // record is process-wide and two other tests in this module clone as
+        // well. Matching on the host is what makes the assertion about the
+        // entry this test produced (BUG-023).
+        let entry = crate::record::recent(before)
+            .into_iter()
+            .find(|entry| {
+                entry.argv.get(1).map(String::as_str) == Some("clone")
+                    && entry.line().contains("example.invalid")
+            })
+            .expect("the clone was recorded");
+
+        assert_eq!(entry.outcome, crate::record::Outcome::Started);
+        assert!(
+            !entry.line().contains("ghp_secret"),
+            "a credential reached the log: {}",
+            entry.line()
+        );
+        assert!(
+            entry.line().contains("maxmya:***@example.invalid"),
+            "the URL stopped being recognisable: {}",
+            entry.line()
+        );
+
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn a_failing_command_carries_gits_own_stderr() {
+        // git's message is almost always more useful than anything we would
+        // write in its place, so it is what the error holds.
+        let fixture = Fixture::empty();
+
+        let error = run(
+            fixture.path(),
+            &["rev-parse", "--verify", "refs/heads/nope"],
+        )
+        .unwrap_err();
+
+        match error {
+            Error::Git { command, stderr } => {
+                assert_eq!(command, "rev-parse --verify refs/heads/nope");
+                assert!(
+                    !stderr.is_empty(),
+                    "git said nothing, which cannot be right"
+                );
+            }
+            other => panic!("expected a Git error, got {other:?}"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod farm_merge_tests {
+    use super::*;
+    use crate::fixture::Fixture;
+
+    #[test]
+    fn a_destination_change_is_rejected_before_merge() {
+        let fixture = Fixture::woven();
+        let before = fixture.git(&["rev-parse", "HEAD"]);
+        let source = fixture.git(&["rev-parse", "HEAD~1"]);
+        assert!(merge_into(fixture.path(), source.trim(), "unrelated").is_err());
+        assert_eq!(fixture.git(&["rev-parse", "HEAD"]), before);
+    }
+
+    #[test]
+    fn concurrent_merges_into_one_checkout_preserve_both_changes() {
+        let fixture = Arc::new(Fixture::woven());
+        let mut commits = Vec::new();
+        for name in ["merge-one", "merge-two"] {
+            fixture.git(&["switch", "-c", name, "main"]);
+            std::fs::write(fixture.path().join(name), name).unwrap();
+            fixture.git(&["add", name]);
+            fixture.git(&["commit", "-qm", name]);
+            commits.push(fixture.git(&["rev-parse", "HEAD"]).trim().to_string());
+        }
+        fixture.git(&["switch", "main"]);
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let workers: Vec<_> = commits
+            .into_iter()
+            .map(|commit| {
+                let fixture = fixture.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    merge_into(fixture.path(), &commit, "main")
+                })
+            })
+            .collect();
+        for worker in workers {
+            worker.join().unwrap().unwrap();
+        }
+        assert!(fixture.path().join("merge-one").exists());
+        assert!(fixture.path().join("merge-two").exists());
+        assert_eq!(fixture.git(&["branch", "--show-current"]).trim(), "main");
+    }
+}

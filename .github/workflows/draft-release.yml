@@ -1,0 +1,331 @@
+# SPDX-License-Identifier: MIT
+#
+# A draft release, built on demand from whatever branch it is run on.
+#
+# This is not the release lane. Gate 6 in gates.yml publishes `main` and
+# prerelease.yml publishes an alpha from `dev`; both tag, and a tag is
+# never moved. This one **creates no tag at all** and leaves the
+# release as a draft — nothing is published to anyone until a person opens it
+# and presses the button. That is what makes it safe to run from a feature
+# branch.
+#
+# Two artefacts, which is the whole point:
+#
+#   Linux    a self-contained AppImage, and the `.zsync` that lets an installed
+#            copy be patched in place. Tauri's AppImage bundles webkit2gtk and
+#            its dependencies, so it runs on a machine that has never installed
+#            them. Built on the oldest runner we support so the glibc it links
+#            against is old enough for the distributions people actually run —
+#            an AppImage built against a newer glibc refuses to start on an
+#            older host, which is the one way this format still fails.
+#
+#   Windows  the NSIS installer .exe, plus the bare cib-workbench.exe for anyone who
+#            would rather not run an installer.
+#
+#   macOS    a .dmg, built for Apple silicon and Intel as separate runners
+#            rather than a universal binary, so each download is the size of one
+#            architecture.
+#
+# **The macOS build is ad-hoc signed and not notarized, and the notes say so.**
+# This workflow used to skip macOS entirely on the reasoning that an unsigned
+# .app Gatekeeper refuses to open is worse than no download at all. The author's
+# decision is that all three platforms are built: a Mac user with no build is
+# stuck, where a Mac user with a signed build has one documented step.
+#
+# It used to be *unsigned*, which is not the same thing and does not fail the
+# same way (TASK-040): an app with no signature at all is reported as **damaged**
+# and offered a Move to Bin button, where an app whose signature is valid but
+# whose developer is unknown gets the *unidentified developer* dialog and a
+# documented Open Anyway path. `./.github/actions/macos-signing` decides the
+# policy for the lane and `./.github/actions/macos-verify` opens the finished
+# .dmg and checks it. Notarisation still needs an Apple Developer account and
+# secrets in this repository; when they exist, this lane picks them up without
+# an edit and gates.yml refuses to publish without them.
+
+# Two ways in, because `workflow_dispatch` alone is not enough here. GitHub
+# only offers a dispatchable workflow that exists on the **default branch**,
+# and putting this on `main` means a push to `main`, which fires gate 6 — the
+# real, tagged, published release. So there is also a push trigger scoped to
+# `draft/**`: pushing `draft/0.1.0-alpha` builds and drafts, and nothing
+# else in the repository reacts to a branch under that prefix.
+#
+# The tag is **computed, never typed**. It is the release version in
+# `package.json` with its own pre-release suffix stripped, carrying the next
+# alpha number after the highest one already released — so two runs
+# never collide, and nobody has to remember what the last one was. A pushed
+# build leaves a draft; a dispatch can publish outright. Releases stay alpha
+# until a deliberate choice is made to cut a beta or a public release.
+# A `release-alpha/**` push is the non-interactive equivalent of dispatching
+# with `publish: true`. It exists so a release can still be cut when a local
+# GitHub CLI session is unavailable, without making ordinary branch pushes
+# publish anything.
+
+name: draft release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish it, rather than leaving a draft to review
+        type: boolean
+        default: false
+  push:
+    branches:
+      - 'draft/**'
+      - 'release-alpha/**'
+
+concurrency:
+  group: draft-release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  SEGMENT_DOWNLOAD_TIMEOUT_MINS: 2
+
+jobs:
+  # Before the build, not after it. The binary is stamped with the tag it is
+  # being cut as, and that is the only thing that tells a running Spagitty which
+  # release it is: `Cargo.toml` says 0.1.0 across every alpha, so a version
+  # number cannot answer it.
+  tag:
+    name: work out the tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.next.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - id: next
+        run: |
+          set -euo pipefail
+          base=$(bun -e "console.log(require('./package.json').version)")
+
+          # The manifest carries its own pre-release suffix from 0.4.0-alpha
+          # onwards, and the alpha *number* is appended here. Strip the suffix
+          # or the two compose into `v0.4.0-alpha-alpha.1`.
+          base=${base%%-*}
+
+          # The highest alpha already cut for this version, or nothing.
+          # `sort -n` rather than lexical, or alpha.10 would sort under
+          # alpha.9 and the next release would try to reuse a tag.
+          last=$(git tag -l "v$base-alpha.*" \
+            | sed "s/^v$base-alpha\.//" \
+            | grep -E '^[0-9]+$' \
+            | sort -n \
+            | tail -1 || true)
+
+          next=$(( ${last:-0} + 1 ))
+          echo "tag=v$base-alpha.$next" >> "$GITHUB_OUTPUT"
+          echo "Next tag: v$base-alpha.$next (last was ${last:-none})"
+
+      # A tag that exists is a release that happened, and moving
+      # one is forbidden. The count above should make this unreachable; if it is
+      # ever reached, something else created the tag and stopping is right.
+      - name: Refuse to move an existing tag
+        run: |
+          if git rev-parse "${{ steps.next.outputs.tag }}" >/dev/null 2>&1; then
+            echo "::error::${{ steps.next.outputs.tag }} already exists"
+            exit 1
+          fi
+
+  build:
+    name: build ${{ matrix.name }}
+    needs: tag
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            # Not `ubuntu-latest`: see the header. The AppImage's glibc floor is
+            # whatever this runner has, and it decides who can run the result.
+            os: ubuntu-22.04
+            bundles: appimage
+          - name: windows
+            os: windows-latest
+            bundles: nsis
+          # Apple silicon. `macos-latest` is arm64, and a build made on it does
+          # not run on an Intel Mac — hence the second entry rather than one
+          # runner and a hope.
+          - name: macos-arm64
+            os: macos-latest
+            bundles: dmg
+            target: aarch64-apple-darwin
+            arch: arm64
+          # Intel. `macos-13` was here and GitHub closed that image down, so
+          # this lane had a runner that no longer exists — a build defect on
+          # its own, and not the reason any already-downloaded app is called
+          # damaged. `macos-15-intel` is the supported x86_64 label.
+          - name: macos-x86_64
+            os: macos-15-intel
+            bundles: dmg
+            target: x86_64-apple-darwin
+            arch: x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # Empty on Linux and Windows, where the runner's own triple is the
+          # one wanted; named on macOS so each runner builds for the
+          # architecture it is being published as.
+          targets: ${{ matrix.target || '' }}
+      # prefix-key bumps when a restored target tree lies about having built
+      # `tauri` (E0463 on the app crate). Do not reuse a key that already
+      # poisoned a runner.
+      - uses: Swatinem/rust-cache@v2
+        timeout-minutes: 5
+        continue-on-error: true
+        with:
+          prefix-key: draft-v1
+          shared-key: ${{ matrix.name }}
+      - uses: ./.github/actions/linux-deps
+        if: runner.os == 'Linux'
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+
+      # Sets `$UPDATE_INFORMATION`, which the AppImage bundler forwards to
+      # `appimagetool -u`. Linux only — see the action.
+      - uses: ./.github/actions/appimage-update-info
+        if: runner.os == 'Linux'
+
+      # What signs the macOS bundle, decided before it is built. `interim`, so
+      # a repository with no Apple certificate falls back to an ad-hoc
+      # signature rather than failing — a draft is exactly the lane that may.
+      - id: signing
+        uses: ./.github/actions/macos-signing
+        if: runner.os == 'macOS'
+        with:
+          lane: interim
+          certificate: ${{ secrets.APPLE_CERTIFICATE }}
+          certificate-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          apple-id: ${{ secrets.APPLE_ID }}
+          apple-password: ${{ secrets.APPLE_PASSWORD }}
+          apple-team-id: ${{ secrets.APPLE_TEAM_ID }}
+          signing-identity: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+
+      # The bundler runs `appimagetool`, which wants FUSE. GitHub's runners do
+      # not have it, and this variable is how AppImage tooling is told to
+      # unpack itself instead of mounting.
+      # `bun run tauri build -- --bundles …` puts a bare `--` in front of
+      # `--bundles`, so Tauri forwards it to cargo and cargo dies on an
+      # unknown flag. Args after the script name need one `--` for bun, and
+      # none for cargo: `tauri -- build --bundles …`.
+      - name: Build
+        run: bun run tauri -- build --bundles ${{ matrix.bundles }} ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: 1
+          # A release ships the terminal's multiplexer or does not ship (FEAT-130):
+          # without this, a download that failed would be a warning.
+          SPAGITTY_MULTIPLEXER_REQUIRED: 1
+          # What the update check compares against. Absent from every build
+          # that is not this one, which is how a locally compiled Spagitty
+          # knows it has no release to be behind.
+          SPAGITTY_RELEASE: ${{ needs.tag.outputs.tag }}
+
+      # Before the upload, never after: the point of checking is that a broken
+      # container or an unsigned app stops here instead of reaching somebody's
+      # Downloads folder.
+      - uses: ./.github/actions/macos-verify
+        if: runner.os == 'macOS'
+        with:
+          policy: ${{ steps.signing.outputs.policy }}
+          notarized: ${{ steps.signing.outputs.notarized }}
+          architecture: ${{ matrix.arch }}
+
+      # This lane always collected only the installers, which is why it never
+      # hit the clash that killed v0.2.0. That collection now lives in a shared
+      # action so gates.yml and prerelease.yml cannot drift away from it again.
+      # It brings the `.AppImage.zsync` with the AppImage and refuses one that
+      # came out without its update information.
+      #
+      # The suffix is what stops the two Mac runners colliding: a .dmg is named
+      # from the product name and version, which is identical on both.
+      - uses: ./.github/actions/release-assets
+        with:
+          suffix: ${{ runner.os == 'macOS' && matrix.name || '' }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: draft-${{ matrix.name }}
+          path: out/**
+          if-no-files-found: error
+
+  draft:
+    name: cut the release
+    needs: [tag, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # Only for the notes' sake — the tag was worked out in its own job before
+      # anything was built, so nothing here counts tags.
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Cut it
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.tag.outputs.tag }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          set -euo pipefail
+          files=$(find artifacts -type f | tr '\n' ' ')
+          echo "attaching: $files"
+
+          # A pushed build is a draft somebody looks at before it is anybody
+          # else's problem. Publishing is a deliberate dispatch.
+          draft=--draft
+          if [ "${PUBLISH:-false}" = "true" ] || [[ "$GITHUB_REF" == refs/heads/release-alpha/* ]]; then
+            draft=""
+          fi
+
+          gh release create "$TAG" \
+            $draft \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Workbench $TAG" \
+            --notes "Built from \`${GITHUB_REF_NAME}\` at \`${GITHUB_SHA}\`.
+
+          - **Linux** — the \`.AppImage\` is self-contained. \`chmod +x\` it and run it.
+            The \`.AppImage.zsync\` beside it is not a download: it is what
+            \`AppImageUpdate\` reads to patch an installed copy in place.
+          - **Windows** — \`*-setup.exe\` installs; \`cib-workbench-windows-x86_64.exe\` is the bare binary.
+          - **macOS** — \`*-macos-arm64.dmg\` for Apple silicon, \`*-macos-x86_64.dmg\` for Intel.
+            Check you have the right one: an Intel download on Apple silicon, or the
+            reverse, fails in a way that looks like every other macOS failure.
+          - **\`SHA256SUMS-*.txt\`** covers the downloads from each build machine. If a
+            download misbehaves, compare it against these **first** — a truncated
+            transfer and a packaging defect produce the same dialogs.
+
+          **macOS: this build is ad-hoc signed, not notarized.** It carries a real code
+          signature over its own bytes, and no identity behind it, so macOS will not
+          recognise the developer. Expect the *unidentified developer* dialog on first
+          open: open it once from the right-click **Open** menu, or allow it under
+          **System Settings → Privacy & Security → Open Anyway**, and macOS remembers
+          the choice.
+
+          If instead macOS says the app is **damaged**, that is a different message and
+          it means the copy you are holding failed an integrity check — check the
+          SHA-256 above before anything else, and please report the mismatch. Do not
+          reach for \`xattr\`: stripping quarantine only silences the check, it does not
+          repair a file, and a build that needs it is a build worth reporting.
+
+          Windows SmartScreen will also warn; those builds are unsigned. Notarized macOS
+          and signed Windows releases need certificates this repository does not have yet.
+
+          INTERNAL USE ONLY. Workbench is based on Spagitty and released under the MIT licence." \
+            $files
+
+          echo "::notice::$TAG cut${draft:+ as a draft}"

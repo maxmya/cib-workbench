@@ -1,0 +1,993 @@
+<!-- SPDX-License-Identifier: MIT -->
+<script lang="ts">
+	import type { DiffView } from '$lib/diff/store.svelte';
+	import { relativeTime } from '$lib/format';
+	import PRDiffPane from '$lib/requests/PRDiffPane.svelte';
+	import PRMarkdown from '$lib/requests/PRMarkdown.svelte';
+	import {
+		CHECK_LABELS,
+		REVIEW_LABELS,
+		requests
+	} from '$lib/requests/store.svelte';
+	import { goto } from '$app/navigation';
+	import { merger } from '$lib/merger/store.svelte';
+	import { notice } from '$lib/ui/notice.svelte';
+	import Btn from '$lib/ui/Btn.svelte';
+	import Chip from '$lib/ui/Chip.svelte';
+	import Icon from '$lib/ui/Icon.svelte';
+	import ContributedActions from '$lib/extensions/ContributedActions.svelte';
+	import ExtensionPanels from '$lib/extensions/ExtensionPanels.svelte';
+	import { extensions } from '$lib/extensions/store.svelte';
+	import { fileAttrs, revOfChange } from '$lib/files/open';
+
+	const request = $derived(requests.open);
+	const files = $derived(requests.files);
+	const commits = $derived(requests.commits);
+	const comments = $derived(requests.comments);
+	/** Not every host has a draft pull request, so it gets no toggle there (FEAT-071). */
+	const canDraft = $derived(requests.canDraft);
+	const openPath = $derived(requests.openPath);
+	const openFile = $derived(requests.openFile);
+
+	/** Accordion state for left pane. */
+	let filesExpanded = $state(true);
+	let commitsExpanded = $state(true);
+	let expandedCommitShas = $state<Record<string, boolean>>({});
+
+	/** Diff view preference: unified vs split. */
+	let diffView = $state<DiffView>('unified');
+
+	const unresolvedCount = $derived(comments.filter((c) => !c.resolved).length);
+	const resolvedCount = $derived(comments.filter((c) => c.resolved).length);
+
+	function toggleCommit(sha: string) {
+		expandedCommitShas[sha] = !expandedCommitShas[sha];
+		if (expandedCommitShas[sha]) {
+			requests.selectCommit(sha);
+		}
+	}
+
+	/**
+	 * A file of the pull request opens in Files at its head, or at the commit
+	 * it is listed under. Files reads this repository, so the head has to
+	 * have been fetched.
+	 */
+	function inFiles(path: string, status: string, commitSha: string | null) {
+		const gone = status === 'removed' || status === 'deleted';
+		if (commitSha) return fileAttrs(path, revOfChange(commitSha, gone ? 'deleted' : status));
+		const head = request?.headSha || null;
+		return fileAttrs(path, head, gone ? 'Deleted by this pull request' : undefined);
+	}
+
+	function handleFileClick(path: string, commitSha: string | null = null) {
+		requests.selectCommit(commitSha);
+		requests.selectPath(path);
+	}
+
+/**
+	 * Every merge is made in Merger (FEAT-117): this opens it on the pull
+	 * request, which it merges through the host with the host's methods.
+	 */
+	function openInMerger() {
+		if (!request) return;
+		merger.presentPullRequest(request);
+		void goto('/merge');
+	}
+
+		/** Close confirmation state (FEAT-071). */
+	let closeConfirmOpen = $state(false);
+
+	async function handleClose() {
+		const closed = requests.open;
+		const ok = await requests.close();
+		if (ok) {
+			if (closed) notice.ok(`#${closed.number} closed`, closed.title);
+			closeConfirmOpen = false;
+		}
+	}
+
+	async function handleToggleDraft() {
+		await requests.toggleDraft();
+	}
+
+	// The pull request extension actions and panels are about (FEAT-096).
+	$effect(() => {
+		const open = request;
+		extensions.setContext(
+			'pullRequest',
+			open ? { pullRequest: { number: open.number }, forgeConnected: requests.connected } : null
+		);
+		return () => extensions.setContext('pullRequest', null);
+	});
+</script>
+
+{#if request}
+	<div class="pr-workspace">
+		<!-- Workspace Header -->
+		<header class="workspace-head">
+			<div class="head-left">
+				<Btn onclick={() => requests.closeWorkspace()}>
+					<Icon name="chevron-left" size="0.9em" />
+					<span>Back</span>
+				</Btn>
+
+				<div class="pr-title-group">
+					<span class="pr-number mono">#{request.number}</span>
+					<div class="pr-title-wrapper" title={request.title}>
+						<span class="pr-title">{request.title}</span>
+					</div>
+				</div>
+
+				<div class="head-meta">
+					<span class="meta-author note">by <strong>{request.authorName}</strong></span>
+					<span class="meta-time note">{relativeTime(request.updated)}</span>
+
+					{#if request.checks}
+						<Chip active={request.checks === 'failing'}>{CHECK_LABELS[request.checks]}</Chip>
+					{/if}
+
+					<Chip active={request.review === 'changesRequested'}>
+						{REVIEW_LABELS[request.review]}
+					</Chip>
+
+					{#if request.draft}
+						<Chip>draft</Chip>
+					{/if}
+
+					{#if request.mergeable === false}
+						<Chip active title="The host cannot merge it into {request.targetBranch} as it stands. Open it in Merger to resolve the conflicts.">conflicts</Chip>
+					{/if}
+				</div>
+			</div>
+
+		<div class="head-right">
+			<div class="pr-actions">
+				<ContributedActions context="pullRequest" />
+				{#if canDraft}
+					<Btn
+						onclick={handleToggleDraft}
+						disabled={requests.togglingDraft}
+						title={request.draft
+							? 'Mark this PR as ready for review'
+							: 'Convert this PR to draft'}
+					>
+						{#if requests.togglingDraft}
+							…
+						{:else}
+							{request.draft ? 'Mark Ready' : 'Draft'}
+						{/if}
+					</Btn>
+				{/if}
+
+<Btn onclick={openInMerger} title="Merge this pull request in Merger">Open in Merger</Btn>
+
+								<Btn
+					onclick={() => (closeConfirmOpen = true)}
+					disabled={requests.closing}
+					title="Close this pull request without merging"
+				>
+					Close
+				</Btn>
+			</div>
+
+		</div>
+		</header>
+
+		<!-- Workspace Body: Left Accordion Pane + Center Diff Pane -->
+		<div class="workspace-body">
+			<!-- Left Navigation Pane -->
+			<aside class="left-pane">
+				<!-- CHANGELOG entry -->
+				<div class="changelog-entry-section">
+					<button
+						class="changelog-btn"
+						class:selected={openPath === '__changelog__'}
+						onclick={() => requests.selectPath('__changelog__')}
+						title="View pull request description and changelog"
+					>
+						<span class="changelog-badge mono">DOC</span>
+						<span class="changelog-label">CHANGELOG</span>
+					</button>
+				</div>
+
+				<!-- Section 1: All Changed Files -->
+				<div class="accordion-section">
+					<button
+						class="accordion-header"
+						onclick={() => (filesExpanded = !filesExpanded)}
+						aria-expanded={filesExpanded}
+					>
+						<span class="chevron" class:open={filesExpanded}>▸</span>
+						<span class="section-title">All Changed Files</span>
+						<span class="count-badge mono">({files.length})</span>
+					</button>
+
+					{#if filesExpanded}
+						<ul class="file-list">
+							{#if requests.filesLoading}
+								<li class="empty-note note">Loading files…</li>
+							{:else if files.length === 0}
+								<li class="empty-note note">No files changed.</li>
+							{:else}
+								{#each files as f (f.path)}
+									{@const selected = requests.selectedCommitSha === null && openPath === f.path}
+									<li class="file-item" class:selected>
+										<button
+											class="file-btn"
+											onclick={() => handleFileClick(f.path, null)}
+											title={f.path}
+											{...inFiles(f.path, f.status, null)}
+										>
+											<span class="status-tag status-{f.status}">
+												{f.status[0].toUpperCase()}
+											</span>
+											<span class="file-path">{f.path}</span>
+											<span class="diff-stat mono">
+												{#if f.added > 0}<span class="added">+{f.added}</span>{/if}
+												{#if f.removed > 0}<span class="removed">−{f.removed}</span>{/if}
+											</span>
+										</button>
+									</li>
+								{/each}
+							{/if}
+						</ul>
+					{/if}
+				</div>
+
+				<!-- Section 2: List Of Commits -->
+				<div class="accordion-section">
+					<button
+						class="accordion-header"
+						onclick={() => (commitsExpanded = !commitsExpanded)}
+						aria-expanded={commitsExpanded}
+					>
+						<span class="chevron" class:open={commitsExpanded}>▸</span>
+						<span class="section-title">List Of Commits</span>
+						<span class="count-badge mono">({commits.length})</span>
+					</button>
+
+					{#if commitsExpanded}
+						<ul class="commit-list">
+							{#if requests.commitsLoading}
+								<li class="empty-note note">Loading commits…</li>
+							{:else if commits.length === 0}
+								<li class="empty-note note">No commits found.</li>
+							{:else}
+								{#each commits as commit (commit.sha)}
+									{@const isCommitExpanded = expandedCommitShas[commit.sha] ?? false}
+									{@const commitFiles = requests.commitFilesCache[commit.sha] ?? []}
+
+									<li class="commit-item">
+										<button
+											class="commit-row-btn"
+											onclick={() => toggleCommit(commit.sha)}
+											title={`Toggle ${commit.short}: ${commit.summary}`}
+										>
+											<span class="chevron" class:open={isCommitExpanded}>▸</span>
+											<span class="commit-sha mono">{commit.short}</span>
+
+											<!-- Fixed width with marquee auto-scroll on hover -->
+											<div class="marquee-wrapper" title={commit.summary}>
+												<span class="marquee-content">{commit.summary}</span>
+											</div>
+										</button>
+
+										<!-- Nested files under commit -->
+										{#if isCommitExpanded}
+											<ul class="nested-files">
+												{#if requests.commitFilesLoading && commitFiles.length === 0}
+													<li class="empty-note note">Reading commit files…</li>
+												{:else if commitFiles.length === 0}
+													<li class="empty-note note">No files modified in this commit.</li>
+												{:else}
+													{#each commitFiles as cf (cf.path)}
+														{@const selected =
+															requests.selectedCommitSha === commit.sha && openPath === cf.path}
+														<li class="file-item nested" class:selected>
+															<button
+																class="file-btn"
+																onclick={() => handleFileClick(cf.path, commit.sha)}
+																title={cf.path}
+																{...inFiles(cf.path, cf.status, commit.sha)}
+															>
+																<span class="status-tag status-{cf.status}">
+																	{cf.status[0].toUpperCase()}
+																</span>
+																<span class="file-path">{cf.path}</span>
+																<span class="diff-stat mono">
+																	{#if cf.added > 0}<span class="added">+{cf.added}</span>{/if}
+																	{#if cf.removed > 0}<span class="removed">−{cf.removed}</span>{/if}
+																</span>
+															</button>
+														</li>
+													{/each}
+												{/if}
+											</ul>
+										{/if}
+									</li>
+								{/each}
+							{/if}
+						</ul>
+					{/if}
+				</div>
+				<div class="extension-panels">
+					<ExtensionPanels location="pullRequest" revision={request} />
+				</div>
+			</aside>
+
+			<!-- Center Pane: Diff & Inline Comments or Changelog -->
+			<main class="center-pane">
+				{#if openPath === '__changelog__'}
+					<div class="diff-header">
+						<div class="diff-file-info">
+							<span class="diff-path mono">CHANGELOG</span>
+							<span class="diff-file-stat note">Pull Request Description</span>
+						</div>
+					</div>
+					<PRMarkdown markdown={request.body ?? ''} />
+				{:else}
+					<div class="diff-header">
+						<div class="diff-file-info">
+							<span class="diff-path mono">{openPath ?? 'No file selected'}</span>
+							{#if openFile}
+								<span class="diff-file-stat mono">
+									<span class="added">+{openFile.added}</span>
+									<span class="removed">−{openFile.removed}</span>
+								</span>
+							{/if}
+						</div>
+
+						<div class="diff-controls">
+							<div class="view-switch">
+								<button
+									class="switch-btn"
+									class:active={diffView === 'unified'}
+									onclick={() => (diffView = 'unified')}
+								>
+									Unified
+								</button>
+								<button
+									class="switch-btn"
+									class:active={diffView === 'split'}
+									onclick={() => (diffView = 'split')}
+								>
+									Split
+								</button>
+							</div>
+						</div>
+					</div>
+
+					<PRDiffPane
+						file={openFile}
+						path={openPath}
+						error={requests.filesError}
+						loading={requests.filesLoading}
+						view={diffView}
+					/>
+				{/if}
+			</main>
+		</div>
+
+		<!-- What is said about it, read here and answered in Review (FEAT-116). -->
+		<footer class="workspace-footer">
+			<div class="footer-left">
+				<span class="footer-stat" class:attention={unresolvedCount > 0}>
+					<strong>{unresolvedCount}</strong> unresolved comments
+				</span>
+				<span class="footer-separator">·</span>
+				<span class="footer-stat">
+					<strong>{resolvedCount}</strong> resolved
+				</span>
+			</div>
+		</footer>
+
+	<!-- Close Confirmation Modal (FEAT-071) -->
+	{#if closeConfirmOpen}
+		<div
+			class="modal-backdrop"
+			onclick={() => (closeConfirmOpen = false)}
+			onkeydown={(e) => {
+				if (e.key === 'Escape') closeConfirmOpen = false;
+			}}
+			role="presentation"
+		>
+			<div
+				class="review-modal"
+				onclick={(e) => e.stopPropagation()}
+				onkeydown={(e) => e.stopPropagation()}
+				role="dialog"
+				aria-modal="true"
+				tabindex="-1"
+			>
+				<h2 class="modal-title">Close Pull Request #{request.number}?</h2>
+				<p class="close-warning">
+					This will close the pull request without merging. The branch will not be deleted.
+				</p>
+
+				{#if requests.closeError}
+					<div class="modal-error note error">
+						{requests.closeError}
+					</div>
+				{/if}
+
+				<div class="modal-actions">
+					<Btn onclick={() => (closeConfirmOpen = false)}>Cancel</Btn>
+					<Btn primary disabled={requests.closing} onclick={handleClose}>
+						{requests.closing ? 'Closing…' : 'Close Pull Request'}
+					</Btn>
+				</div>
+			</div>
+		</div>
+	{/if}
+	</div>
+{/if}
+
+<style>
+	.extension-panels {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		padding: 8px;
+	}
+	.extension-panels:empty {
+		display: none;
+	}
+
+	.pr-workspace {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+		background: var(--bg);
+	}
+
+	/* Top Header */
+	.workspace-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		padding: 8px 12px;
+		background: var(--surface);
+		border-bottom: 1px solid var(--line);
+		flex: none;
+		z-index: 10;
+	}
+
+	.head-left {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		min-width: 0;
+		flex: 1;
+	}
+
+	.pr-title-group {
+		display: flex;
+		align-items: baseline;
+		gap: 6px;
+		min-width: 0;
+		max-width: 480px;
+	}
+
+	.pr-number {
+		color: var(--muted);
+		font-size: var(--fs-ui);
+		font-weight: 600;
+		flex: none;
+	}
+
+	.pr-title-wrapper {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		white-space: nowrap;
+		position: relative;
+	}
+
+	.pr-title {
+		margin: 0;
+		font-size: var(--fs-ui);
+		font-weight: 600;
+		display: inline-block;
+		color: var(--ink);
+		transition: transform 5s linear;
+		white-space: nowrap;
+	}
+
+	.pr-title-wrapper:hover .pr-title {
+		transform: translateX(min(0px, calc(320px - 100%)));
+	}
+
+	.head-meta {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		flex: none;
+	}
+
+	.meta-author,
+	.meta-time {
+		white-space: nowrap;
+	}
+
+	/* Workspace Body */
+	.workspace-body {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		min-width: 0;
+	}
+
+	/* Left Pane */
+	.left-pane {
+		width: 320px;
+		flex: none;
+		border-right: 1px solid var(--line);
+		background: var(--surface);
+		display: flex;
+		flex-direction: column;
+		overflow-y: auto;
+	}
+
+	.changelog-entry-section {
+		padding: 4px 6px;
+		border-bottom: 1px solid var(--line);
+		background: var(--surface);
+	}
+
+	.changelog-btn {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 7px 10px;
+		background: transparent;
+		border: 1px solid transparent;
+		border-radius: var(--r-panel);
+		color: var(--ink);
+		cursor: pointer;
+		text-align: left;
+		transition: background var(--t-fast) var(--ease);
+	}
+
+	.changelog-btn:hover {
+		background: var(--hover);
+	}
+
+	.changelog-btn.selected {
+		background: var(--selection);
+		border-color: var(--accent);
+	}
+
+	.changelog-badge {
+		font-size: var(--fs-mono);
+		font-weight: 700;
+		padding: 2px 5px;
+		background: color-mix(in srgb, var(--accent) 15%, var(--panel));
+		color: var(--accent);
+		border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+		border-radius: var(--r-button);
+		flex: none;
+	}
+
+	.changelog-label {
+		font-size: var(--fs-secondary);
+		font-weight: 700;
+		letter-spacing: 0.5px;
+	}
+
+	.accordion-section {
+		border-bottom: 1px solid var(--line);
+	}
+
+	.accordion-header {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 8px 10px;
+		background: var(--panel);
+		border: none;
+		font: inherit;
+		font-size: var(--fs-secondary);
+		font-weight: 600;
+		color: var(--ink);
+		cursor: pointer;
+		text-align: left;
+	}
+
+	.accordion-header:hover {
+		background: var(--hover);
+	}
+
+	.chevron {
+		display: inline-block;
+		transition: transform var(--t-fast) var(--ease);
+		font-size: 0.85em;
+		color: var(--muted);
+	}
+
+	.chevron.open {
+		transform: rotate(90deg);
+	}
+
+	.section-title {
+		flex: 1;
+	}
+
+	.count-badge {
+		color: var(--muted);
+		font-weight: normal;
+	}
+
+	.file-list,
+	.commit-list,
+	.nested-files {
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	.empty-note {
+		padding: 8px 12px;
+		font-size: var(--fs-secondary);
+	}
+
+	.file-item {
+		display: flex;
+		border-bottom: 1px solid color-mix(in srgb, var(--line) 40%, transparent);
+	}
+
+	.file-item.nested {
+		padding-left: 18px;
+		background: color-mix(in srgb, var(--panel) 40%, transparent);
+	}
+
+	.file-item.selected {
+		background: var(--selection);
+		border-left: 2px solid var(--accent);
+	}
+
+	.file-btn {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 6px 10px;
+		background: transparent;
+		border: none;
+		color: inherit;
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.status-tag {
+		flex: none;
+		width: 16px;
+		height: 16px;
+		font-size: var(--fs-mono);
+		font-weight: 600;
+		display: grid;
+		place-items: center;
+		border-radius: 2px;
+		border: 1px solid var(--line);
+	}
+
+	.status-added {
+		color: var(--ok);
+		border-color: var(--ok);
+	}
+
+	.status-deleted {
+		color: var(--danger);
+		border-color: var(--danger);
+	}
+
+	.status-modified {
+		color: var(--accent);
+		border-color: var(--accent);
+	}
+
+	.file-path {
+		flex: 1;
+		min-width: 0;
+		font-family: var(--font-mono);
+		font-size: var(--fs-secondary);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.diff-stat {
+		flex: none;
+		font-size: var(--fs-mono);
+		display: flex;
+		gap: 4px;
+	}
+
+	.added {
+		color: var(--ok);
+	}
+
+	.removed {
+		color: var(--danger);
+	}
+
+	/* Commit Item & Marquee Hover */
+	.commit-item {
+		border-bottom: 1px solid color-mix(in srgb, var(--line) 40%, transparent);
+	}
+
+	.commit-row-btn {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 6px 8px;
+		background: var(--surface);
+		border: none;
+		font: inherit;
+		color: inherit;
+		text-align: left;
+		cursor: pointer;
+		transition: background var(--t-fast) var(--ease);
+	}
+
+	.commit-row-btn:hover {
+		background: var(--hover);
+	}
+
+	.commit-sha {
+		font-size: var(--fs-mono);
+		color: var(--accent);
+		background: var(--panel);
+		padding: 1px 4px;
+		border-radius: 2px;
+		border: 1px solid var(--line);
+		flex: none;
+	}
+
+	/* Fixed-width marquee container */
+	.marquee-wrapper {
+		flex: 1;
+		width: 180px;
+		max-width: 180px;
+		overflow: hidden;
+		white-space: nowrap;
+		position: relative;
+	}
+
+	.marquee-content {
+		display: inline-block;
+		font-size: var(--fs-secondary);
+		color: var(--ink);
+		transition: transform 4s ease-in-out;
+		white-space: nowrap;
+	}
+
+	.commit-row-btn:hover .marquee-content {
+		transform: translateX(min(0px, calc(180px - 100%)));
+	}
+
+	/* Center Pane */
+	.center-pane {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		background: var(--bg);
+	}
+
+	.diff-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		padding: 6px 12px;
+		background: var(--panel);
+		border-bottom: 1px solid var(--line);
+		flex: none;
+	}
+
+	.diff-file-info {
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+		min-width: 0;
+	}
+
+	.diff-path {
+		font-weight: 600;
+		font-size: var(--fs-secondary);
+		color: var(--ink);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.diff-file-stat {
+		font-size: var(--fs-secondary);
+		display: flex;
+		gap: 4px;
+	}
+
+	.view-switch {
+		display: flex;
+		border: 1px solid var(--line);
+		border-radius: var(--r-button);
+		overflow: hidden;
+	}
+
+	.switch-btn {
+		background: var(--surface);
+		border: none;
+		padding: 3px 8px;
+		font: inherit;
+		font-size: var(--fs-secondary);
+		color: var(--muted);
+		cursor: pointer;
+	}
+
+	.switch-btn.active {
+		background: var(--selection);
+		color: var(--accent);
+		font-weight: 500;
+	}
+
+	/* Workspace Footer */
+	.workspace-footer {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		padding: 8px 12px;
+		background: var(--surface);
+		border-top: 1px solid var(--line);
+		flex: none;
+		font-size: var(--fs-ui);
+	}
+
+	.footer-left {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.footer-stat.attention {
+		color: var(--danger);
+	}
+
+	.footer-separator {
+		color: var(--muted);
+	}
+
+	/* Modal Dialog */
+	.modal-backdrop {
+		position: fixed;
+		inset: 0;
+		background: color-mix(in srgb, var(--umbra) 40%, transparent);
+		display: grid;
+		place-items: center;
+		z-index: 100;
+	}
+
+	.review-modal {
+		background: var(--surface);
+		border: 1px solid var(--line);
+		border-radius: var(--r-panel);
+		width: 480px;
+		max-width: 90vw;
+		padding: 16px;
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		box-shadow: none;
+	}
+
+	.modal-title {
+		margin: 0;
+		font-size: var(--fs-title);
+		font-weight: 600;
+	}
+
+	.verdict-options {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+
+	.verdict-option {
+		display: flex;
+		align-items: flex-start;
+		gap: 10px;
+		padding: 8px 10px;
+		border: 1px solid var(--line);
+		border-radius: var(--r-panel);
+		cursor: pointer;
+		background: var(--bg);
+	}
+
+	.verdict-option.selected {
+		border-color: var(--accent);
+		background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+	}
+
+	.verdict-info {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.modal-field {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.field-label {
+		font-size: var(--fs-secondary);
+		color: var(--muted);
+	}
+
+	.summary-textarea {
+		width: 100%;
+		padding: 8px;
+		font: inherit;
+		font-size: var(--fs-ui);
+		background: var(--bg);
+		border: 1px solid var(--line);
+		border-radius: var(--r-field);
+		color: var(--ink);
+		box-sizing: border-box;
+		resize: vertical;
+	}
+
+	.modal-error {
+		padding: 8px 10px;
+		background: color-mix(in srgb, var(--danger) 10%, var(--bg));
+		border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+		border-radius: var(--r-panel);
+		font-size: var(--fs-secondary);
+		word-break: break-word;
+	}
+
+	.modal-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 8px;
+		margin-top: 4px;
+	}
+
+	.pr-actions {
+		display: flex;
+		gap: 6px;
+		align-items: center;
+	}
+
+	.summary-input {
+		width: 100%;
+		padding: 6px 8px;
+		font: inherit;
+		font-size: var(--fs-ui);
+		background: var(--bg);
+		color: var(--ink);
+		border: 1px solid var(--line);
+		border-radius: var(--r-panel);
+		outline: none;
+	}
+
+	.summary-input:focus {
+		border-color: var(--accent);
+	}
+
+	.close-warning {
+		margin: 0;
+		font-size: var(--fs-ui);
+		color: var(--muted);
+		line-height: 1.5;
+	}
+</style>

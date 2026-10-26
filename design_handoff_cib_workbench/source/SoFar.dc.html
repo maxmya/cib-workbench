@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Workbench — your farm so far</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<aside aria-labelledby="sofar" style="box-sizing: border-box; width: 100%; background: #11233F; border: 1px solid rgba(231,237,246,0.09); border-radius: 18px; padding: 20px 22px; display: flex; flex-direction: column; gap: 4px; color: #E7EDF6; font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; font-size: 14px">
+  <h2 id="sofar" style="margin: 0 0 8px; font-size: 15px; font-weight: 600">Your farm</h2>
+  <sc-for list="{{ rows }}" as="r" hint-placeholder-count="5">
+    <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px 0; border-top: 1px solid rgba(231,237,246,0.07)">
+      <div style="display: flex; align-items: center; justify-content: space-between">
+        <span style="font-size: 12px; color: rgba(231,237,246,0.62)">{{ r.label }}</span>
+        <sc-if value="{{ r.remembered }}" hint-placeholder-val="{{ false }}"><span style="font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(91,191,181,0.14); color: #8FD3CB">last time</span></sc-if>
+      </div>
+      <span style="{{ r.valueStyle }}">{{ r.value }}</span>
+      <sc-if value="{{ r.badges }}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; margin-top: 2px">
+          <span style="width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 10px; font-weight: 600; color: #6CB4F0; background: #16304F; box-shadow: 0 0 0 2px #11233F">CC</span>
+          <span style="margin-left: -5px; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 10px; font-weight: 600; color: #5BBFB5; background: #16312F; box-shadow: 0 0 0 2px #11233F">CX</span>
+          <span style="margin-left: -5px; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 10px; font-weight: 600; color: #A99CDB; background: #232542; box-shadow: 0 0 0 2px #11233F">CU</span>
+          <span style="margin-left: -5px; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 10px; font-weight: 600; color: #D8B25E; background: #2E2A1C; box-shadow: 0 0 0 2px #11233F">PI</span>
+        </div>
+      </sc-if>
+    </div>
+  </sc-for>
+  <p style="margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: rgba(231,237,246,0.62)">Crew and rules are remembered for this repository.</p>
+</aside>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"step":{"editor":"int","min":1,"max":4,"default":1},"$preview":{"width":320,"height":520}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const step = this.props.step ?? 1;
+    const on = 'font-size: 14px; line-height: 1.4; color: #E7EDF6';
+    const dim = 'font-size: 14px; line-height: 1.4; color: rgba(231,237,246,0.45)';
+    const rows = [
+      { label: 'Goal', value: 'IBAN check-digit validation on outgoing transfers', valueStyle: on },
+      { label: 'Start from', value: step >= 2 ? '3 Jira tickets · 1 brief' : 'Nothing yet · optional', valueStyle: step >= 2 ? on : dim },
+      { label: 'Crew', value: '4 agents', valueStyle: step >= 3 ? on : dim, remembered: step < 3, badges: true },
+      { label: 'Rules', value: 'Semi-automatic · 3 at once · 2 checks', valueStyle: step >= 3 ? on : dim, remembered: step < 3 },
+      { label: 'Tasks', value: step >= 4 ? 'Planned by Claude Code' : '—', valueStyle: step >= 4 ? on : dim }
+    ];
+    return { rows };
+  }
+}
+</script>
+</body>
+</html>

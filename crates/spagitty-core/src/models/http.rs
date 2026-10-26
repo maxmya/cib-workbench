@@ -1,0 +1,271 @@
+// SPDX-License-Identifier: MIT
+
+//! The second place Spagitty makes a network request: to a model provider,
+//! with the person's own key (2.0, agents).
+//!
+//! [`crate::forge::http`] is the first, and the reasons it is one place hold
+//! here: "what does this send, and where" has an answer somebody can read in
+//! an afternoon. `src/lib/requests/requests.test.ts` names the two files and
+//! nothing else may reach the client.
+//!
+//! # What it will not do
+//!
+//! - **No plaintext off this machine.** `https` only — except to an endpoint
+//!   on this machine, `localhost` or a loopback address, where a local model
+//!   server such as Ollama answers in plain `http` and nothing leaves the
+//!   computer to be read on the way.
+//! - **No redirects.** A redirect would carry the key to wherever it pointed.
+//! - **No key in an error.** What a provider answered is reported by status and
+//!   by its own error sentence; headers are never quoted, and the key is cut
+//!   out of anything that is.
+
+use std::time::Duration;
+
+use crate::{Error, Result};
+
+/// A model can take minutes on a long step. Long enough for that, short enough
+/// that a provider that stopped answering is reported rather than waited on.
+const TIMEOUT: Duration = Duration::from_secs(300);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// How much of an answer is read. A model's reply is text; anything bigger
+/// than this is not one.
+const LIMIT: u64 = 8 * 1024 * 1024;
+
+/// What a provider answered.
+pub struct Answered {
+    pub status: u16,
+    pub body: String,
+}
+
+impl std::fmt::Debug for Answered {
+    /// Never prints the body, which can echo what was sent.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Answered")
+            .field("status", &self.status)
+            .field("body_bytes", &self.body.len())
+            .finish()
+    }
+}
+
+/// Is `url` on this machine?
+///
+/// The host is read the way a client connects to it: an authority with
+/// userinfo (`localhost@api.example.com`) is refused outright, since it is the
+/// part after `@` that is reached, and only `localhost` or an address that
+/// parses as loopback counts. A name that merely starts with `127.` does not.
+pub fn is_local(url: &str) -> bool {
+    let rest = url
+        .strip_prefix("http://")
+        .or_else(|| url.strip_prefix("https://"))
+        .unwrap_or(url);
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if authority.contains('@') {
+        return false;
+    }
+    let host = if let Some(bracketed) = authority.strip_prefix('[') {
+        bracketed.split(']').next().unwrap_or("")
+    } else {
+        authority.split(':').next().unwrap_or("")
+    };
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
+}
+
+fn allowed(url: &str, provider: &str) -> Result<()> {
+    if url.starts_with("https://") || (url.starts_with("http://") && is_local(url)) {
+        return Ok(());
+    }
+    Err(Error::Model {
+        provider: provider.to_string(),
+        detail: "refusing to send a key over an unencrypted connection; use https, or an \
+                 endpoint on this machine"
+            .into(),
+    })
+}
+
+/// `GET url` with `headers`.
+pub fn get(url: &str, headers: &[(&str, &str)], provider: &str) -> Result<Answered> {
+    allowed(url, provider)?;
+    let mut request = agent().get(url);
+    for (name, value) in headers {
+        request = request.header(*name, *value);
+    }
+    finish(request.call(), provider, headers)
+}
+
+/// `POST url` with `headers` and a JSON body.
+pub fn post(url: &str, headers: &[(&str, &str)], body: &str, provider: &str) -> Result<Answered> {
+    allowed(url, provider)?;
+    let mut request = agent().post(url).header("Content-Type", "application/json");
+    for (name, value) in headers {
+        request = request.header(*name, *value);
+    }
+    finish(request.send(body), provider, headers)
+}
+
+fn finish(
+    sent: std::result::Result<ureq::http::Response<ureq::Body>, ureq::Error>,
+    provider: &str,
+    headers: &[(&str, &str)],
+) -> Result<Answered> {
+    match sent {
+        Ok(mut response) => {
+            let status = response.status().as_u16();
+            match read_body(response.body_mut().as_reader(), LIMIT) {
+                Ok(body) => Ok(Answered { status, body }),
+                // A refusal is reported by its status even when its body is lost.
+                Err(_) if !(200..300).contains(&status) => Ok(Answered {
+                    status,
+                    body: String::new(),
+                }),
+                Err(unread) => Err(Error::Model {
+                    provider: provider.to_string(),
+                    detail: redact(&unread, headers),
+                }),
+            }
+        }
+        Err(ureq::Error::StatusCode(status)) => Ok(Answered {
+            status,
+            body: String::new(),
+        }),
+        Err(error) => Err(Error::Model {
+            provider: provider.to_string(),
+            detail: redact(&error.to_string(), headers),
+        }),
+    }
+}
+
+/// Read a reply whole, or say why it could not be. A reply that is too large,
+/// cut off or not text is not an empty answer (BUG-075).
+fn read_body(reader: impl std::io::Read, limit: u64) -> std::result::Result<String, String> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    reader
+        .take(limit + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("the reply was cut off before it ended ({error})"))?;
+    if bytes.len() as u64 > limit {
+        return Err(format!(
+            "the reply was larger than {} bytes, so it was not read",
+            limit
+        ));
+    }
+    String::from_utf8(bytes).map_err(|_| "the reply was not text".to_string())
+}
+
+/// Cut every header value out of `text`. A transport error should never
+/// quote one, and this makes sure.
+pub fn redact(text: &str, headers: &[(&str, &str)]) -> String {
+    let mut out = text.to_string();
+    for (_, value) in headers {
+        let secret = value.trim_start_matches("Bearer ").trim();
+        if secret.len() >= 8 {
+            out = out.replace(secret, "••••");
+        }
+    }
+    out
+}
+
+fn agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_global(Some(TIMEOUT))
+        .timeout_connect(Some(CONNECT_TIMEOUT))
+        .max_redirects(0)
+        .http_status_as_error(false)
+        .user_agent(crate::brand::USER_AGENT)
+        // Chosen, as in `forge::http`: the platform's TLS and its own roots,
+        // so a corporate CA the machine trusts is trusted here too.
+        .tls_config(
+            ureq::tls::TlsConfig::builder()
+                .provider(ureq::tls::TlsProvider::NativeTls)
+                .root_certs(ureq::tls::RootCerts::PlatformVerifier)
+                .build(),
+        )
+        .build()
+        .new_agent()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_this_machine_counts_as_local() {
+        assert!(is_local("http://localhost:11434/v1"));
+        assert!(is_local("http://127.0.0.1:1234/v1"));
+        assert!(is_local("http://[::1]:8080"));
+        assert!(!is_local("http://localhost.example.com/v1"));
+        assert!(!is_local("http://127.0.0.1.example.com"));
+        assert!(!is_local("https://api.anthropic.com"));
+        assert!(is_local("http://127.8.9.10/v1"));
+        assert!(is_local("http://LOCALHOST:8080"));
+        // The client connects to what follows `@`, not to what precedes it.
+        assert!(!is_local("http://localhost:80@api.example.com/v1"));
+        assert!(!is_local("http://127.0.0.1@api.example.com/v1"));
+        // A name that starts like a loopback address is a name.
+        assert!(!is_local("http://127.foo.example.com/v1"));
+        assert!(!is_local("http://127.0.0.256/v1"));
+    }
+
+    #[test]
+    fn plain_http_is_refused_off_this_machine() {
+        assert!(allowed("http://example.com/v1", "OpenAI-compatible").is_err());
+        assert!(allowed("http://localhost:11434/v1", "Ollama").is_ok());
+        assert!(allowed("https://api.openai.com/v1", "OpenAI").is_ok());
+        assert!(allowed("ftp://example.com", "x").is_err());
+    }
+
+    #[test]
+    fn a_key_is_cut_out_of_an_error() {
+        let headers = [
+            ("x-api-key", "sk-ant-secret-1234"),
+            ("Authorization", "Bearer sk-openai-5678"),
+        ];
+        let text = "failed sending sk-ant-secret-1234 and sk-openai-5678";
+        assert_eq!(redact(text, &headers), "failed sending •••• and ••••");
+    }
+
+    /// Gives `first`, then fails, as a connection cut mid-reply does.
+    struct CutOff {
+        first: Option<Vec<u8>>,
+    }
+
+    impl std::io::Read for CutOff {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            match self.first.take() {
+                Some(bytes) => {
+                    buf[..bytes.len()].copy_from_slice(&bytes);
+                    Ok(bytes.len())
+                }
+                None => Err(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionReset,
+                    "connection reset",
+                )),
+            }
+        }
+    }
+
+    #[test]
+    fn a_reply_cut_off_part_way_is_an_error_not_an_empty_answer() {
+        let reader = CutOff {
+            first: Some(b"{\"content\":".to_vec()),
+        };
+        let unread = read_body(reader, LIMIT).unwrap_err();
+        assert!(unread.contains("cut off"), "{unread}");
+    }
+
+    #[test]
+    fn a_reply_over_the_limit_is_an_error_not_an_empty_answer() {
+        let unread = read_body(&[b'a'; 11][..], 10).unwrap_err();
+        assert!(unread.contains("larger than 10 bytes"), "{unread}");
+        assert_eq!(read_body(&[b'a'; 10][..], 10).unwrap(), "a".repeat(10));
+    }
+
+    #[test]
+    fn a_reply_that_is_not_text_is_an_error_not_an_empty_answer() {
+        let unread = read_body(&[0xff, 0xfe, 0x00][..], LIMIT).unwrap_err();
+        assert_eq!(unread, "the reply was not text");
+    }
+}

@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: MIT
+
+[package]
+name = "spagitty-farm"
+description = "Agent farm orchestration for Spagitty"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+# The Git side of the farm — worktrees, branches, merges — is not reimplemented
+# here. `spagitty-core::shell` already owns every mutating git operation in the
+# product, and a second implementation would be a second thing to keep honest.
+spagitty-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+# Process groups and job objects (FEAT-096 moved them out of this crate so the
+# extension host contains its workers with the same code).
+spagitty-process = { workspace = true }
+
+[features]
+# Fixture repositories for the tests of the crates above this one, mirroring
+# `spagitty-core`'s own switch. The Tauri layer's farm tests want a real
+# repository to cut worktrees from.
+fixture = ["spagitty-core/fixture"]
+
+[dev-dependencies]
+# The crate's own tests cut real worktrees from real repositories.
+# Real repositories to cut worktrees from, rather than a mock git.
+spagitty-core = { workspace = true, features = ["fixture"] }
+tempfile = "3"

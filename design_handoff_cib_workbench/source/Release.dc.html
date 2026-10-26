@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CIB Buddy — Release and CAB</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F4F6FA}
+a{color:#0F5FC2}a:hover{color:#0A4A99}
+</style>
+</helmet>
+<div style="min-height: 100vh; display: flex; flex-wrap: wrap; background: #F4F6FA; color: #0B1A2E; font-family: 'Sora', system-ui, sans-serif; font-size: 14px; line-height: 1.45">
+
+  <nav aria-label="Main" style="flex: 0 0 236px; background: #062B5C; color: #D5E0EE; display: flex; flex-direction: column; padding: 18px 14px; box-sizing: border-box; gap: 2px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px 18px">
+      <svg width="34" height="34" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="{{accent}}"></rect><circle cx="12.5" cy="16" r="5.5" fill="#FFFFFF"></circle><circle cx="19.5" cy="16" r="5.5" fill="none" stroke="#FFFFFF" stroke-width="2"></circle></svg>
+      <div style="font-size: 18px; color: #FFFFFF; letter-spacing: -0.01em"><span style="font-weight: 700">CIB</span> <span style="font-weight: 400">Buddy</span></div>
+    </div>
+    <sc-for list="{{nav}}" as="n" hint-placeholder-count="13">
+      <sc-if value="{{n.isLabel}}" hint-placeholder-val="{{false}}">
+        <div style="padding: 16px 12px 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #9FB3CF">{{n.label}}</div>
+      </sc-if>
+      <sc-if value="{{n.isItem}}" hint-placeholder-val="{{true}}">
+        <a href="{{n.href}}" aria-current="{{n.current}}" style="display: flex; align-items: center; gap: 12px; min-height: 40px; padding: 0 12px; border-radius: 8px; text-decoration: none; font-size: 14px; color: {{n.fg}}; background: {{n.bg}}">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.d}}"></path></svg>
+          <span style="flex: 1">{{n.label}}</span>
+          <sc-if value="{{n.badge}}" hint-placeholder-val="{{false}}"><span style="min-width: 20px; height: 20px; border-radius: 10px; background: #FFFFFF; color: #062B5C; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; padding: 0 6px; box-sizing: border-box">{{n.badge}}</span></sc-if>
+        </a>
+      </sc-if>
+    </sc-for>
+    <div style="flex: 1; min-height: 24px"></div>
+    <div style="display: flex; gap: 10px; align-items: flex-start; padding: 12px; border-radius: 10px; background: rgba(255,255,255,0.07); font-size: 12px; color: #C9D6E8">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 1px"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z M9 12l2 2 4-4"></path></svg>
+      <span>Runs on your machine. Code and data stay inside the CIB network.</span>
+    </div>
+  </nav>
+
+  <div style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+    <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 32px; background: #FFFFFF; border-bottom: 1px solid #DDE3EC">
+      <button type="button" style="display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; border: 1px solid #DDE3EC; border-radius: 8px; background: #FFFFFF; font: inherit; color: #0B1A2E; cursor: pointer">
+        <span style="width: 8px; height: 8px; border-radius: 4px; background: #1F7A3E"></span>Digital Channels
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+      </button>
+      <label style="flex: 1 1 260px; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 12px; border-radius: 8px; background: #F4F6FA; border: 1px solid #DDE3EC; color: #4A5A70">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11a7 7 0 1 0 14 0a7 7 0 1 0-14 0 M16.5 16.5L21 21"></path></svg>
+        <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search</span>
+        <input type="search" placeholder="Repos, services, tickets, releases…" style="flex: 1; min-width: 0; border: 0; background: transparent; font: inherit; color: #0B1A2E; outline: none">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 2px 6px; border: 1px solid #C7D0DC; border-radius: 4px">Ctrl K</span>
+      </label>
+      <button type="button" aria-label="Notifications, 6 new" style="position: relative; width: 44px; height: 44px; border: 0; border-radius: 8px; background: transparent; color: #0B1A2E; cursor: pointer; display: inline-flex; align-items: center; justify-content: center">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z M10 20.5a2 2 0 0 0 4 0"></path></svg>
+        <span style="position: absolute; top: 8px; right: 9px; width: 8px; height: 8px; border-radius: 4px; background: #B3123E"></span>
+      </button>
+      <div aria-label="Mahmoud Aref" style="width: 36px; height: 36px; border-radius: 18px; background: #062B5C; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600">MA</div>
+    </header>
+
+    <main style="padding: 24px 32px 40px; display: flex; flex-direction: column; gap: 24px; max-width: 1320px; box-sizing: border-box; width: 100%">
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <div style="font-size: 13px; color: #4A5A70"><a href="#" style="text-decoration: none">Releases &amp; CAB</a> / R-2026.11</div>
+        <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px">
+          <div style="flex: 1 1 360px">
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+              <h1 style="margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -0.02em">Bill payments on CRX</h1>
+              <span style="font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 6px; background: #DCE6F3; color: #062B5C">Awaiting CAB</span>
+            </div>
+            <p style="margin: 6px 0 0; color: #4A5A70">PROD window Thu 29 Oct, 22:00 – 01:00 · <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px">R-2026.11</span> · Change <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px">[CHG ID]</span></p>
+          </div>
+          <button type="button" style="min-height: 40px; padding: 0 16px; border: 1px solid #C7D0DC; border-radius: 8px; background: #FFFFFF; font: inherit; font-weight: 500; color: #0B1A2E; cursor: pointer">Export CAB pack</button>
+          <button type="button" style="display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: {{accent}}; color: #FFFFFF; font: inherit; font-weight: 500; cursor: pointer">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>Sign off as tech owner
+          </button>
+        </div>
+      </div>
+
+      <ol aria-label="Release stages" style="list-style: none; margin: 0; padding: 18px 20px; display: flex; flex-wrap: wrap; gap: 8px; background: #FFFFFF; border: 1px solid #DDE3EC; border-radius: 12px">
+        <sc-for list="{{stages}}" as="s" hint-placeholder-count="6">
+          <li style="flex: 1 1 140px; display: flex; align-items: center; gap: 10px">
+            <span style="flex: none; width: 30px; height: 30px; border-radius: 15px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; background: {{s.bg}}; color: {{s.fg}}; border: 2px solid {{s.ring}}; box-sizing: border-box">
+              <sc-if value="{{s.done}}" hint-placeholder-val="{{true}}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></sc-if>
+              <sc-if value="{{s.notDone}}" hint-placeholder-val="{{false}}">{{s.n}}</sc-if>
+            </span>
+            <span style="display: flex; flex-direction: column; min-width: 0">
+              <span style="font-weight: 600; font-size: 13px">{{s.name}}</span>
+              <span style="font-size: 12px; color: {{s.subFg}}">{{s.sub}}</span>
+            </span>
+            <span aria-hidden="true" style="flex: 1; min-width: 12px; height: 2px; border-radius: 1px; background: {{s.line}}"></span>
+          </li>
+        </sc-for>
+      </ol>
+
+      <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+        <div style="flex: 3 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 24px">
+          <section aria-labelledby="gates" style="background: #FFFFFF; border: 1px solid #DDE3EC; border-radius: 12px; padding: 20px 20px 8px">
+            <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px">
+              <h2 id="gates" style="margin: 0; font-size: 17px; font-weight: 600; flex: 1">Gates</h2>
+              <span style="font-size: 13px; color: #4A5A70">6 of 8 passed</span>
+            </div>
+            <sc-for list="{{gates}}" as="g" hint-placeholder-count="8">
+              <div style="display: flex; align-items: center; gap: 14px; padding: 12px 0; border-top: 1px solid #EDF0F5">
+                <span style="flex: none; width: 28px; height: 28px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; background: {{g.bg}}; color: {{g.fg}}">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{g.d}}"></path></svg>
+                </span>
+                <div style="flex: 1; min-width: 0">
+                  <div style="font-weight: 500">{{g.name}}</div>
+                  <div style="font-size: 12px; color: #4A5A70">{{g.detail}}</div>
+                </div>
+                <span style="font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 6px; white-space: nowrap; background: {{g.bg}}; color: {{g.fg}}">{{g.state}}</span>
+              </div>
+            </sc-for>
+          </section>
+
+          <section aria-labelledby="ships" style="background: #FFFFFF; border: 1px solid #DDE3EC; border-radius: 12px; padding: 20px">
+            <h2 id="ships" style="margin: 0 0 12px; font-size: 17px; font-weight: 600">What ships</h2>
+            <div style="overflow-x: auto">
+              <div style="min-width: 520px">
+                <div style="display: grid; grid-template-columns: 1.4fr 1.4fr repeat(2, minmax(0, 0.6fr)); gap: 8px; padding-bottom: 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #4A5A70">
+                  <span>Repository</span><span>Version</span><span>PRs</span><span>Tickets</span>
+                </div>
+                <sc-for list="{{ships}}" as="r" hint-placeholder-count="3">
+                  <div style="display: grid; grid-template-columns: 1.4fr 1.4fr repeat(2, minmax(0, 0.6fr)); gap: 8px; align-items: center; padding: 10px 0; border-top: 1px solid #EDF0F5">
+                    <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 500">{{r.repo}}</span>
+                    <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #4A5A70">{{r.from}} <span aria-label="to">→</span> <span style="color: #0B1A2E; font-weight: 500">{{r.to}}</span></span>
+                    <a href="#" style="font-size: 13px; font-weight: 500">{{r.prs}}</a>
+                    <a href="#" style="font-size: 13px; font-weight: 500">{{r.tickets}}</a>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div style="flex: 2 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 24px">
+          <section aria-labelledby="appr" style="background: #FFFFFF; border: 1px solid #DDE3EC; border-radius: 12px; padding: 20px">
+            <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px">
+              <h2 id="appr" style="margin: 0; font-size: 17px; font-weight: 600; flex: 1">CAB approvals</h2>
+              <span style="font-size: 13px; color: #4A5A70">2 of 4</span>
+            </div>
+            <sc-for list="{{approvers}}" as="a" hint-placeholder-count="4">
+              <div style="display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid #EDF0F5">
+                <span style="flex: none; width: 34px; height: 34px; border-radius: 17px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; background: {{a.avBg}}; color: {{a.avFg}}">{{a.ini}}</span>
+                <div style="flex: 1; min-width: 0">
+                  <div style="font-weight: 500">{{a.role}}</div>
+                  <div style="font-size: 12px; color: #4A5A70">{{a.who}}</div>
+                </div>
+                <span style="font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 6px; background: {{a.bg}}; color: {{a.fg}}">{{a.state}}</span>
+              </div>
+            </sc-for>
+          </section>
+
+          <section aria-labelledby="touch" style="background: #FFFFFF; border: 1px solid #DDE3EC; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
+            <h2 id="touch" style="margin: 0; font-size: 17px; font-weight: 600">Touches</h2>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px">
+              <sc-for list="{{touches}}" as="t" hint-placeholder-count="5">
+                <span style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 8px; border: 1px solid #DDE3EC; font-size: 13px"><span style="font-weight: 600">{{t.sys}}</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #4A5A70">{{t.what}}</span></span>
+              </sc-for>
+            </div>
+            <div style="font-size: 13px; color: #4A5A70">Channels affected: Mobile banking, Internet banking. Branch: none.</div>
+            <div style="display: flex; gap: 10px; align-items: flex-start; padding: 12px; border-radius: 10px; background: #FDF1DC; color: #8A5300; font-size: 13px">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 2px"><path d="M12 4l9 16H3z M12 10v4 M12 17v.01"></path></svg>
+              <span>core-banking-api 4.18.0-rc2 failed on SIT today. This release pins 4.18.0.</span>
+            </div>
+          </section>
+
+          <section aria-labelledby="notes" style="background: #FFFFFF; border: 1px solid #DDE3EC; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 10px">
+            <div style="display: flex; align-items: baseline; gap: 8px">
+              <h2 id="notes" style="margin: 0; font-size: 17px; font-weight: 600; flex: 1">Release notes</h2>
+              <a href="#" style="font-size: 13px; font-weight: 500">Edit</a>
+            </div>
+            <ul style="margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; color: #23344D">
+              <li>Saved billers can be paid in one step</li>
+              <li>Bill inquiry retries once on an ESB timeout</li>
+              <li>Receipts show the biller reference</li>
+            </ul>
+            <div style="font-size: 12px; color: #4A5A70">Generated from 14 merged pull requests</div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#0F5FC2","options":["#0F5FC2","#1C6DD0","#0A4A99","#2B7DE9"]},"$preview":{"width":1440,"height":1120}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#0F5FC2';
+    const I = {
+      home: 'M3.5 10.5 12 3.5l8.5 7V20a1 1 0 0 1-1 1H15v-6H9v6H4.5a1 1 0 0 1-1-1z',
+      farm: 'M12 21v-8 M12 13c0-4 3-7 7-7 0 4-3 7-7 7z M12 15.5c0-3.2-2.6-5.8-6-5.8 0 3.4 2.6 5.8 6 5.8z',
+      repo: 'M6 3v12 M15 6a3 3 0 1 0 6 0a3 3 0 1 0-6 0 M3 18a3 3 0 1 0 6 0a3 3 0 1 0-6 0 M18 9a9 9 0 0 1-9 9',
+      review: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0',
+      pipe: 'M3 5h7v5H3z M14 14h7v5h-7z M10 7.5h4a2 2 0 0 1 2 2V14',
+      term: 'M4 5h16v14H4z M7.5 9.5l3 2.5-3 2.5 M12.5 15h4',
+      release: 'M12 3l8 4.5v9L12 21l-8-4.5v-9z M4 7.5l8 4.5 8-4.5 M12 12v9',
+      env: 'M12 3l9 5-9 5-9-5z M3 13l9 5 9-5',
+      esb: 'M10 5a2 2 0 1 0 4 0a2 2 0 1 0-4 0 M3 19a2 2 0 1 0 4 0a2 2 0 1 0-4 0 M17 19a2 2 0 1 0 4 0a2 2 0 1 0-4 0 M12 7v5 M12 12l-6.5 5.2 M12 12l6.5 5.2',
+      ticket: 'M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0 M11 12a1 1 0 1 0 2 0a1 1 0 1 0-2 0',
+      settings: 'M4 7h16 M4 17h16 M9 4.5v5 M15 14.5v5',
+      check: 'M5 12.5l4.5 4.5L19 7.5',
+      clock: 'M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0 M12 7v5l3 2',
+      file: 'M6 3h8l4 4v14H6z M14 3v4h4'
+    };
+    const active = 'release';
+    const raw = [
+      { k: 'home', label: 'Home', d: I.home, href: 'Main.dc.html' },
+      { k: 'farm', label: 'Buddy Farm', d: I.farm, href: 'Farm.dc.html', badge: '1' },
+      { label: 'Code' },
+      { k: 'repo', label: 'Repositories', d: I.repo, href: '#' },
+      { k: 'review', label: 'Reviews', d: I.review, href: '#', badge: '2' },
+      { k: 'pipe', label: 'Pipelines', d: I.pipe, href: '#' },
+      { k: 'term', label: 'Terminal', d: I.term, href: '#' },
+      { label: 'Delivery' },
+      { k: 'release', label: 'Releases & CAB', d: I.release, href: 'Release.dc.html', badge: '1' },
+      { k: 'env', label: 'Environments', d: I.env, href: '#' },
+      { k: 'esb', label: 'ESB services', d: I.esb, href: '#' },
+      { k: 'ticket', label: 'Tickets', d: I.ticket, href: '#' },
+      { label: 'You' },
+      { k: 'settings', label: 'Settings', d: I.settings, href: '#' }
+    ];
+    const nav = raw.map((n) => ({
+      ...n,
+      isLabel: !n.k,
+      isItem: !!n.k,
+      badge: n.badge || false,
+      current: n.k === active ? 'page' : 'false',
+      bg: n.k === active ? accent : 'transparent',
+      fg: n.k === active ? '#FFFFFF' : '#D5E0EE'
+    }));
+    const stageDefs = [
+      ['Build', '21 Oct', 'done'], ['DEV', '21 Oct', 'done'], ['SIT', '22 Oct', 'done'],
+      ['UAT', 'Signed 24 Oct', 'done'], ['CAB', '2 of 4 signed', 'now'], ['PROD', 'Thu 29 Oct', 'todo']
+    ];
+    const stages = stageDefs.map(([name, sub, s], i) => ({
+      name, sub, n: String(i + 1),
+      done: s === 'done', notDone: s !== 'done',
+      bg: s === 'done' ? '#1F7A3E' : s === 'now' ? accent : '#FFFFFF',
+      fg: s === 'todo' ? '#4A5A70' : '#FFFFFF',
+      ring: s === 'done' ? '#1F7A3E' : s === 'now' ? accent : '#C7D0DC',
+      subFg: s === 'now' ? '#0B1A2E' : '#4A5A70',
+      line: i === stageDefs.length - 1 ? 'transparent' : s === 'done' ? '#1F7A3E' : '#DDE3EC'
+    }));
+    const ok = { fg: '#1F7A3E', bg: '#E3F3E8', d: I.check };
+    const wait = { fg: '#8A5300', bg: '#FDF1DC', d: I.clock };
+    const run = { fg: '#0F5FC2', bg: '#E6EEFA', d: I.clock };
+    const gates = [
+      { ...ok, name: 'Code review', detail: '14 of 14 pull requests approved by two reviewers', state: 'Passed' },
+      { ...ok, name: 'SAST scan', detail: '0 high · 2 medium accepted with notes', state: 'Passed' },
+      { ...ok, name: 'Dependency scan', detail: 'No critical or high findings', state: 'Passed' },
+      { ...ok, name: 'ESB contract tests', detail: 'BillPay.Inquiry v2, BillPay.Pay v2', state: 'Passed' },
+      { ...ok, name: 'UAT sign-off', detail: 'Business owner, 24 Oct', state: 'Passed' },
+      { ...ok, d: I.file, name: 'Rollback plan', detail: 'Feature flag off, then redeploy crx-billpay 2.5.4', state: 'Attached' },
+      { ...wait, name: 'DB migration review', detail: '2 scripts on the CRX schema', state: 'Waiting on DBA' },
+      { ...run, name: 'Performance test', detail: 'SIT, target [TPS]', state: 'Running' }
+    ];
+    const ships = [
+      { repo: 'crx-billpay', from: '2.5.4', to: '2.6.0', prs: '9', tickets: '6' },
+      { repo: 'core-banking-api', from: '4.17.1', to: '4.18.0', prs: '4', tickets: '3' },
+      { repo: 'esb-contracts', from: '1.40', to: '1.42', prs: '1', tickets: '1' }
+    ];
+    const signed = { fg: '#1F7A3E', bg: '#E3F3E8', state: 'Signed', avBg: '#E3F3E8', avFg: '#1F7A3E' };
+    const pending = { fg: '#8A5300', bg: '#FDF1DC', state: 'Waiting', avBg: '#EDF0F5', avFg: '#4A5A70' };
+    const approvers = [
+      { ...signed, role: 'Business owner', who: 'Bill payments product · 24 Oct', ini: 'BO' },
+      { ...signed, role: 'Information security', who: 'InfoSec · 25 Oct', ini: 'IS' },
+      { ...pending, role: 'Tech owner', who: 'You', ini: 'MA', avBg: '#062B5C', avFg: '#FFFFFF' },
+      { ...pending, role: 'IT operations', who: 'Deploys in the window', ini: 'OP' }
+    ];
+    const touches = [
+      { sys: 'ESB', what: 'BillPay.*' },
+      { sys: 'T24', what: 'posting' },
+      { sys: 'CRX', what: 'billpay' },
+      { sys: 'Biller', what: 'aggregator' }
+    ];
+    return { accent, nav, stages, gates, ships, approvers, touches };
+  }
+}
+</script>
+</body>
+</html>

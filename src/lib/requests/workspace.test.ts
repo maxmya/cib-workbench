@@ -1,0 +1,442 @@
+// SPDX-License-Identifier: MIT
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { click, render } from '../../testing/mount';
+import type {
+	FileDiff,
+	ForgeRepo,
+	PullRequest,
+	PullRequestComment,
+	PullRequestCommit
+} from '$lib/types';
+
+vi.mock('$app/navigation', () => ({ goto: vi.fn(() => Promise.resolve()) }));
+vi.mock('$lib/api', () => ({
+	inTauri: vi.fn(() => true),
+	forgeRepo: vi.fn(),
+	forgeAccounts: vi.fn(() => Promise.resolve([{ kind: 'gitHub', host: 'github.com', user: 'ada' }])),
+	pullRequests: vi.fn(),
+	pullRequestFiles: vi.fn(),
+	pullRequestCommits: vi.fn(),
+	pullRequestComments: vi.fn(),
+	commitFiles: vi.fn(),
+	submitReview: vi.fn(),
+	replyComment: vi.fn(),
+	mergePullRequest: vi.fn(),
+	closePullRequest: vi.fn(),
+	setPrDraft: vi.fn()
+}));
+
+
+import * as api from '$lib/api';
+import PRDiffPane from './PRDiffPane.svelte';
+import PRMarkdown from './PRMarkdown.svelte';
+import PRWorkspace from './PRWorkspace.svelte';
+import { requests } from './store.svelte';
+import { notice } from '$lib/ui/notice.svelte';
+import { goto } from '$app/navigation';
+import { merger } from '$lib/merger/store.svelte';
+
+const forgeRepo = vi.mocked(api.forgeRepo);
+const pullRequests = vi.mocked(api.pullRequests);
+const pullRequestFiles = vi.mocked(api.pullRequestFiles);
+const pullRequestCommits = vi.mocked(api.pullRequestCommits);
+const pullRequestComments = vi.mocked(api.pullRequestComments);
+const commitFiles = vi.mocked(api.commitFiles);
+const submitReview = vi.mocked(api.submitReview);
+const replyComment = vi.mocked(api.replyComment);
+const mergePullRequest = vi.mocked(api.mergePullRequest);
+const closePullRequest = vi.mocked(api.closePullRequest);
+const setPrDraft = vi.mocked(api.setPrDraft);
+
+const REPO: ForgeRepo = {
+	kind: 'gitHub',
+	host: 'github.com',
+	owner: 'spagitty',
+	name: 'spagitty'
+};
+
+function request(overrides: Partial<PullRequest> = {}): PullRequest {
+	return {
+		id: 'PR_1',
+		number: 412,
+		title: 'Workspace review overhaul',
+		body: '## Overview\n\nThis PR overhauls the review workspace.',
+		authorName: 'ada',
+		updated: 1_787_650_200,
+		sourceBranch: 'feature/workspace',
+		targetBranch: 'main',
+		draft: false,
+		review: 'awaitingReview',
+		checks: 'passing',
+		needsYou: false,
+		needsYouBecause: null,
+		changedFiles: 2,
+		added: 25,
+		removed: 5,
+		mergeable: true,
+
+		headSha: 'a1b2c3d4e5f6',
+
+		reviewRequested: false,
+
+		openThreads: 0,
+
+		resolvedThreads: 0,
+
+		repliesToYou: 0,
+
+		repository: null,
+		...overrides
+	};
+}
+
+function file(path = 'src/main.rs'): FileDiff {
+	return {
+		path,
+		status: 'modified',
+		binary: false,
+		tooLarge: false,
+		added: 10,
+		removed: 2,
+		hunks: [
+			{
+				oldStart: 1,
+				oldLines: 3,
+				newStart: 1,
+				newLines: 4,
+				header: '@@ -1,3 +1,4 @@',
+				lines: [
+					{ origin: 'context', old: 1, new: 1, text: 'fn main() {' },
+					{ origin: 'removed', old: 2, new: null, text: '    old();' },
+					{ origin: 'added', old: null, new: 2, text: '    new_one();' },
+					{ origin: 'added', old: null, new: 3, text: '    new_two();' },
+					{ origin: 'context', old: 3, new: 4, text: '}' }
+				]
+			}
+		]
+	};
+}
+
+function commit(sha = 'abc123456789'): PullRequestCommit {
+	return {
+		sha,
+		short: sha.slice(0, 7),
+		summary: 'Refactor diff and workspace components',
+		authorName: 'Ada Lovelace',
+		authorEmail: 'ada@example.com',
+		time: 1_787_650_200
+	};
+}
+
+function comment(id = 101): PullRequestComment {
+	return {
+		id,
+		inReplyTo: null,
+		path: 'src/main.rs',
+		line: 2,
+		side: 'RIGHT',
+		body: 'Please rename new_one()',
+		author: 'grace',
+		createdAt: 1_787_650_200,
+		resolved: false
+	};
+}
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+beforeEach(() => {
+	vi.clearAllMocks();
+	requests.clear();
+	vi.mocked(api.inTauri).mockReturnValue(true);
+	forgeRepo.mockResolvedValue(REPO);
+	pullRequests.mockResolvedValue([request()]);
+	pullRequestFiles.mockResolvedValue([file()]);
+	pullRequestCommits.mockResolvedValue([commit()]);
+	pullRequestComments.mockResolvedValue([comment()]);
+	commitFiles.mockResolvedValue([file('src/commit-specific.rs')]);
+});
+
+describe('PR workspace store flow', () => {
+	it('opens workspace and loads PR data', async () => {
+		requests.present([request()]);
+		requests.openWorkspace('PR_1');
+
+		expect(requests.viewMode).toBe('workspace');
+		expect(requests.openId).toBe('PR_1');
+
+		await requests.loadWorkspaceData();
+
+		expect(pullRequestFiles).toHaveBeenCalledWith(412);
+		expect(pullRequestCommits).toHaveBeenCalledWith(412);
+		expect(pullRequestComments).toHaveBeenCalledWith(412);
+		expect(requests.files).toHaveLength(1);
+		expect(requests.commits).toHaveLength(1);
+		expect(requests.comments).toHaveLength(1);
+	});
+
+	it('closes workspace back to list view', () => {
+		requests.present([request()]);
+		requests.openWorkspace('PR_1');
+		expect(requests.viewMode).toBe('workspace');
+
+		requests.closeWorkspace();
+		expect(requests.viewMode).toBe('list');
+	});
+
+	it('selects commit and loads commit files into cache', async () => {
+		requests.present([request()]);
+		requests.presentFiles([file('src/main.rs')], 412);
+
+		await requests.selectCommit('abc123456789');
+
+		expect(requests.selectedCommitSha).toBe('abc123456789');
+		expect(commitFiles).toHaveBeenCalledWith('abc123456789');
+		expect(requests.currentFiles[0].path).toBe('src/commit-specific.rs');
+
+		await requests.selectCommit(null);
+		expect(requests.selectedCommitSha).toBeNull();
+		expect(requests.currentFiles[0].path).toBe('src/main.rs');
+	});
+
+	it('closes a pull request via store (FEAT-071)', async () => {
+		requests.present([request()]);
+		closePullRequest.mockResolvedValueOnce(undefined);
+		pullRequests.mockResolvedValue([]);
+
+		const ok = await requests.close();
+		expect(ok).toBe(true);
+		expect(closePullRequest).toHaveBeenCalledWith(412);
+	});
+
+	it('goes back to the list when the open one is merged in Merger, not to another (BUG-062, FEAT-117)', async () => {
+		pullRequests.mockResolvedValue([request(), request({ id: 'PR_2', number: 2 })]);
+		await requests.load();
+		requests.openWorkspace('PR_1');
+		mergePullRequest.mockResolvedValueOnce(undefined);
+		pullRequests.mockResolvedValue([request({ id: 'PR_2', number: 2 })]);
+
+		merger.presentPullRequest(request());
+		expect(await merger.mergePullRequest()).toBe(true);
+		await vi.waitFor(() => expect(requests.viewMode).toBe('list'));
+
+		expect(requests.openId).toBe('PR_2');
+	});
+
+	it('goes back to the list when the open one is closed (BUG-062)', async () => {
+		pullRequests.mockResolvedValue([request(), request({ id: 'PR_2', number: 2 })]);
+		await requests.load();
+		requests.openWorkspace('PR_1');
+		closePullRequest.mockResolvedValueOnce(undefined);
+		pullRequests.mockResolvedValue([request({ id: 'PR_2', number: 2 })]);
+
+		expect(await requests.close()).toBe(true);
+
+		expect(requests.viewMode).toBe('list');
+	});
+
+	it('reads what another pull request opened in the workspace holds (BUG-062)', async () => {
+		requests.present([request()]);
+		requests.openWorkspace('PR_1');
+		await requests.loadWorkspaceData();
+		vi.clearAllMocks();
+
+		// Nothing was open, then the list arrives: the one it lands on is read.
+		requests.clear();
+		requests.openWorkspace();
+		requests.present([request({ id: 'PR_2', number: 2 })]);
+		await settle();
+
+		expect(requests.viewMode).toBe('workspace');
+		expect(pullRequestFiles).toHaveBeenCalledWith(2);
+		expect(pullRequestCommits).toHaveBeenCalledWith(2);
+		expect(requests.files).toHaveLength(1);
+		expect(requests.commits).toHaveLength(1);
+	});
+
+	it('toggles draft status via store (FEAT-071)', async () => {
+		await requests.load();
+		requests.present([request({ draft: false })]);
+		setPrDraft.mockResolvedValueOnce(undefined);
+		pullRequests.mockResolvedValue([request({ draft: true })]);
+
+		const ok = await requests.toggleDraft();
+		expect(ok).toBe(true);
+		// The node id travels with the number: GitHub converts draft state over
+		// GraphQL and cannot address a pull request by its number.
+		expect(setPrDraft).toHaveBeenCalledWith(412, 'PR_1', 'Workspace review overhaul', true);
+	});
+
+	it('offers no draft toggle on Bitbucket (FEAT-071)', async () => {
+		// Bitbucket Cloud has no draft pull request. Writing `Draft:` into the
+		// title would leave a state the host does not know it is in.
+		forgeRepo.mockResolvedValue({ ...REPO, kind: 'bitbucket', host: 'bitbucket.org' });
+		await requests.load();
+
+		expect(requests.canDraft).toBe(false);
+		expect(await requests.toggleDraft()).toBe(false);
+		expect(setPrDraft).not.toHaveBeenCalled();
+
+		requests.select('PR_1');
+		const view = render(PRWorkspace, {});
+		const draftBtn = view
+			.all('button')
+			.find((b) => b.textContent?.trim() === 'Draft' || b.textContent?.trim() === 'Mark Ready');
+		expect(draftBtn).toBeUndefined();
+	});
+
+	it('offers the draft toggle on GitHub (FEAT-071)', async () => {
+		// The other half of the check above: the control disappears because the
+		// host has no draft, not because the markup stopped rendering it.
+		await requests.load();
+		requests.select('PR_1');
+
+		const view = render(PRWorkspace, {});
+		const draftBtn = view.all('button').find((b) => b.textContent?.trim() === 'Draft');
+		expect(draftBtn).toBeDefined();
+	});
+
+});
+
+describe('PRWorkspace component UI', () => {
+	it('mounts and renders PR header, accordion panes, and controls', () => {
+		vi.mocked(api.inTauri).mockReturnValue(false);
+		requests.present([request()]);
+		requests.select('PR_1');
+		requests.presentFiles([file('src/main.rs')], 412);
+		requests.presentCommits([commit()], 412);
+		requests.presentComments([comment()], 412);
+
+		const view = render(PRWorkspace, {});
+
+		expect(view.text()).toContain('#412');
+		expect(view.text()).toContain('Workspace review overhaul');
+		expect(view.text()).toContain('ada');
+		expect(view.text()).toContain('CHANGELOG');
+		expect(view.text()).toContain('All Changed Files');
+		expect(view.text()).toContain('List Of Commits');
+		expect(view.text()).toContain('src/main.rs');
+		expect(view.text()).toContain('Refactor diff and workspace components');
+
+		// Click changelog tab to view PR markdown description
+		const changelogBtn = view.get('.changelog-btn');
+		click(changelogBtn);
+		expect(requests.openPath).toBe('__changelog__');
+		expect(view.text()).toContain('Pull Request Description');
+
+		// Toggle accordion
+		const headers = view.all('.accordion-header');
+		click(headers[0]); // collapse all files
+		click(headers[1]); // collapse commits
+
+		// Toggle commit expansion via full commit row button
+		click(headers[1]); // expand commits again
+		const commitRowBtn = view.get('.commit-row-btn');
+		click(commitRowBtn);
+
+		view.destroy();
+	});
+
+it('marks a pull request the host cannot merge in its header, and only that (BUG-063)', () => {
+	vi.mocked(api.inTauri).mockReturnValue(false);
+	requests.present([request({ mergeable: false })]);
+	requests.select('PR_1');
+	const view = render(PRWorkspace, {});
+	expect(view.get('.head-meta').textContent).toContain('conflicts');
+	view.destroy();
+
+	requests.present([request({ mergeable: null })]);
+	const other = render(PRWorkspace, {});
+	expect(other.get('.head-meta').textContent).not.toContain('conflicts');
+	other.destroy();
+});
+
+it('merges only by opening Merger on the pull request (FEAT-117)', () => {
+		vi.mocked(api.inTauri).mockReturnValue(false);
+		requests.present([request()]);
+		requests.select('PR_1');
+		requests.presentFiles([file('src/main.rs')], 412);
+
+		const view = render(PRWorkspace, {});
+		const labels = view.all('button').map((b) => b.textContent?.trim() ?? '');
+
+		expect(labels).toContain('Open in Merger');
+		expect(labels).not.toContain('Merge');
+		expect(labels).not.toContain('Confirm Merge');
+		expect(view.text()).not.toContain('Merge Pull Request');
+
+		click(view.all('button').find((b) => b.textContent?.trim() === 'Open in Merger')!);
+		expect(merger.origin).toMatchObject({ kind: 'pullRequest', pr: { number: 412 } });
+		expect(goto).toHaveBeenCalledWith('/merge');
+		view.destroy();
+	});
+
+	it('offers nothing to review with: no Review button, no verdicts, no role switch (FEAT-116)', () => {
+		vi.mocked(api.inTauri).mockReturnValue(false);
+		requests.present([request({ authorName: 'grace' })]);
+		requests.select('PR_1');
+		requests.presentFiles([file('src/main.rs')], 412);
+
+		const view = render(PRWorkspace, {});
+		const labels = view.all('button').map((b) => b.textContent?.trim() ?? '');
+
+		for (const gone of ['Review', 'Reply in Review', 'Approve', 'Request Changes', 'Submit Review']) {
+			expect(labels, gone).not.toContain(gone);
+		}
+		expect(labels.some((label) => label.includes('Publish Review'))).toBe(false);
+		expect(view.text()).not.toContain('Reviewer View');
+		expect(view.text()).not.toContain('Developer View');
+		expect(view.text()).not.toContain('pending review drafts');
+		view.destroy();
+	});
+});
+
+describe('PRDiffPane component UI', () => {
+it('renders diff lines and the comments already on them, and offers no way to add one (FEAT-116)', () => {
+		vi.mocked(api.inTauri).mockReturnValue(false);
+		requests.presentComments([comment(101)], 412);
+
+		const view = render(PRDiffPane, {
+			file: file('src/main.rs'),
+			path: 'src/main.rs',
+			error: null,
+			loading: false,
+			view: 'unified' as const
+		});
+
+		expect(view.text()).toContain('fn main()');
+		expect(view.text()).toContain('new_one()');
+		expect(view.text()).toContain('Please rename new_one()');
+		expect(view.all('.comment-trigger')).toHaveLength(0);
+		expect(view.all('textarea')).toHaveLength(0);
+		expect(view.all('input')).toHaveLength(0);
+		expect(view.text()).not.toContain('Reply');
+		expect(view.text()).not.toContain('Mark as resolved');
+
+		view.destroy();
+	});
+});
+
+describe('PRMarkdown component', () => {
+	it('renders empty message when markdown is empty', () => {
+		const view = render(PRMarkdown, { markdown: '' });
+		expect(view.text()).toContain('No description or changelog provided');
+		view.destroy();
+	});
+
+	it('renders headings, code blocks, lists, and formatted text', () => {
+		const sample = `# Title\n\n## Subheading\n\nSome **bold** and \`inline_code\` and a [link](https://example.com).\n\n\`\`\`rust\nfn hello() {}\n\`\`\`\n\n- [x] Done task\n- [ ] Todo task\n\n> Important quote`;
+		const view = render(PRMarkdown, { markdown: sample });
+
+		expect(view.text()).toContain('Title');
+		expect(view.text()).toContain('Subheading');
+		expect(view.text()).toContain('bold');
+		expect(view.text()).toContain('inline_code');
+		expect(view.text()).toContain('fn hello() {}');
+		expect(view.text()).toContain('Done task');
+		expect(view.text()).toContain('Todo task');
+		expect(view.text()).toContain('Important quote');
+
+		view.destroy();
+	});
+});

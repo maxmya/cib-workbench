@@ -1,0 +1,1930 @@
+// SPDX-License-Identifier: MIT
+
+/**
+ * Wire types shared with the Rust core.
+ *
+ * These mirror the `serde` shapes in `crates/spagitty-core` and
+ * `src-tauri/src/commands.rs`, which all carry
+ * `#[serde(rename_all = "camelCase")]`. Keep the two in step.
+ */
+
+// --- Refs -----------------------------------------------------------------
+
+export type RefKind = 'branch' | 'remote' | 'tag';
+
+/** Which forge a remote points at, decided from its URL. Picks a glyph, nothing more. */
+export type Host = 'gitHub' | 'gitLab' | 'bitbucket' | 'azureDevOps' | 'generic';
+
+/** A remote carrying a branch at a commit. */
+export interface RemoteMark {
+	/** `origin`, `upstream`. Not drawn on the chip; carried for the tooltip. */
+	name: string;
+	host: Host;
+}
+
+export interface RefChip {
+	/**
+	 * The branch's own short name — `master`, never `origin/master` — or the
+	 * tag's name. Where a branch lives is `local` and `remotes` (FEAT-036).
+	 */
+	name: string;
+	/**
+	 * `branch` when a local ref exists, `remote` when it lives only on a remote,
+	 * `tag` for tags. What the gutter sorts and styles by.
+	 */
+	kind: RefKind;
+	/** True for the branch HEAD points at. Renders with accent border and a check. */
+	current: boolean;
+	/** A local `refs/heads/` ref of this name is at this commit. */
+	local: boolean;
+	/** The remotes carrying this branch **at this commit**, in name order. */
+	remotes: RemoteMark[];
+	/**
+	 * How far the local branch has drifted from its upstream (FEAT-033).
+	 *
+	 * Null for a tag, for a branch with no upstream, and for a chip with no
+	 * local ref — none of them has anything to have drifted from. It comes from
+	 * the same read the Branches screen uses, so the two cannot disagree.
+	 */
+	divergence: BranchDivergence | null;
+}
+
+// --- Graph ----------------------------------------------------------------
+
+/**
+ * How the graph sequences the same DAG.
+ *
+ * `date` is `git log` (newest first, parallel histories interleaved). `branch`
+ * is `git log --topo-order` (a line of history stays together).
+ */
+export type GraphOrder = 'date' | 'branch';
+
+/**
+ * A lane segment in the band *above* a row, running from the previous row's
+ * center to this row's. `from === to` is a straight vertical; otherwise it is a
+ * cubic elbow spanning exactly one row.
+ */
+export interface LaneEdge {
+	from: number;
+	to: number;
+	/** Index into the lane color cycle. Stable for a lane's whole lifetime. */
+	color: number;
+}
+
+/** One commit row. Everything needed to paint it, with no global state. */
+export interface GraphRow {
+	/** Absolute index in the walk. Row `i` is at `y = i * ROW_PITCH`. */
+	index: number;
+	id: string;
+	short: string;
+	/** First line of the commit message. */
+	summary: string;
+	authorName: string;
+	/**
+	 * The author's email, lower-cased, or empty where the signature has none.
+	 *
+	 * What the node's portrait is generated from: one person commits under
+	 * several spellings of their name over a career, and the address is what
+	 * makes those one face.
+	 */
+	authorEmail: string;
+	/** Up to two uppercase letters. The fallback where no portrait can be drawn. */
+	initials: string;
+	/** Author time, unix seconds. */
+	time: number;
+	/** Lane this commit's node sits in. */
+	lane: number;
+	color: number;
+	/**
+	 * The commit carries a signature (FEAT-019).
+	 *
+	 * Read off the object's `gpgsig` header as the walk passes it. It says the
+	 * commit **was signed**, not that the signature is valid — verifying means a
+	 * subprocess and a keyring per row, and the screens say "signed" rather than
+	 * "verified" for exactly that reason.
+	 */
+	signed: boolean;
+	parents: string[];
+	refs: RefChip[];
+	edges: LaneEdge[];
+}
+
+// --- Commit detail --------------------------------------------------------
+
+export type FileStatus = 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked';
+
+export interface ChangedFile {
+	path: string;
+	status: FileStatus;
+}
+
+export interface CommitDetail {
+	id: string;
+	short: string;
+	summary: string;
+	/** Everything after the first line, trimmed. May be empty. */
+	body: string;
+	authorName: string;
+	authorEmail: string;
+	authorTime: number;
+	committerName: string;
+	committerEmail: string;
+	commitTime: number;
+	/** The commit carries a signature. Present, not verified — see `GraphRow`. */
+	signed: boolean;
+	parents: string[];
+	files: ChangedFile[];
+}
+
+// --- Diff -----------------------------------------------------------------
+
+export type LineOrigin = 'context' | 'added' | 'removed';
+
+export interface DiffLine {
+	origin: LineOrigin;
+	/** 1-based line number in the old version. Null on an added line. */
+	old: number | null;
+	/** 1-based line number in the new version. Null on a removed line. */
+	new: number | null;
+	/** The line's text, without its terminator. */
+	text: string;
+}
+
+/** One run of changes plus its context — a `@@` block. */
+export interface Hunk {
+	oldStart: number;
+	oldLines: number;
+	newStart: number;
+	newLines: number;
+	header: string;
+	lines: DiffLine[];
+}
+
+/** A row in the Diff screen's file list. */
+export interface FileChange {
+	path: string;
+	/** Where a renamed file was before. Null for every other status (FEAT-089). */
+	oldPath?: string | null;
+	status: FileStatus;
+	/**
+	 * No line diff exists: the file is binary, or one side was too large. In
+	 * both cases `added` and `removed` are 0 rather than a guess.
+	 */
+	binary: boolean;
+	tooLarge: boolean;
+	added: number;
+	removed: number;
+	/** The blob on each side, null where the file does not exist (FEAT-091). */
+	oldBlob?: string | null;
+	newBlob?: string | null;
+}
+
+export interface CommitDiff {
+	id: string;
+	short: string;
+	summary: string;
+	files: FileChange[];
+	/** Totals across every file, for the header. */
+	added: number;
+	removed: number;
+}
+
+export interface FileDiff {
+	path: string;
+	status: FileStatus;
+	binary: boolean;
+	tooLarge: boolean;
+	added: number;
+	removed: number;
+	hunks: Hunk[];
+}
+
+/** Detailed binary / image diff inspection payload (FEAT-065). */
+export interface BinaryDiff {
+	path: string;
+	isImage: boolean;
+	mime: string;
+	oldSize: number | null;
+	newSize: number | null;
+	oldBase64: string | null;
+	newBase64: string | null;
+}
+
+// --- Working copy ---------------------------------------------------------
+
+/** Which two sides of the working copy a diff compares. */
+export type DiffSide = 'staged' | 'unstaged';
+
+/** One path in the working copy, on the side it was found. */
+export interface StatusEntry {
+	path: string;
+	status: FileStatus;
+}
+
+/**
+ * The working copy, split the way the Commit screen shows it.
+ *
+ * A path can be in `staged` and `unstaged` at once — staged in part, or
+ * changed again afterwards — so these are three lists rather than one list of
+ * rows carrying flags.
+ */
+export interface WorkingCopy {
+	/** HEAD against the index: what a commit right now would contain. */
+	staged: StatusEntry[];
+	/** The index against the working tree, plus untracked files. */
+	unstaged: StatusEntry[];
+	/** Paths the index holds at stages 1 to 3. Nothing can be committed yet. */
+	conflicted: StatusEntry[];
+}
+
+// --- Branches -------------------------------------------------------------
+
+/** One row of the Branches screen. */
+export interface BranchRow {
+	/** Short name for display: `main`, `origin/main`. */
+	name: string;
+	/** The full ref, for anything that has to be unambiguous. */
+	fullName: string;
+	kind: RefKind;
+	current: boolean;
+	id: string;
+	short: string;
+	/** First line of the tip's message. */
+	summary: string;
+	authorName: string;
+	/** Author time of the tip, unix seconds. */
+	time: number;
+	/** Short name of the configured upstream, when there is one. */
+	upstream: string | null;
+	/**
+	 * Commits this branch has that its upstream does not, and the other way
+	 * round. Null when there is no upstream to compare against. As old as the
+	 * last fetch: nothing here talks to a network.
+	 */
+	ahead: number | null;
+	behind: number | null;
+	/** Fully contained in HEAD — the branch that is safe to forget. */
+	merged: boolean;
+}
+
+// --- Stash ----------------------------------------------------------------
+
+/**
+ * One `stash@{n}`.
+ *
+ * A stash is a commit whose first parent is the commit the work was made on, so
+ * `commitDiff(entry.id)` shows what is in it — there is no separate stash-diff
+ * call, and there does not need to be.
+ */
+export interface StashEntry {
+	/** `n` in `stash@{n}`. 0 is the most recent. */
+	index: number;
+	/** `stash@{n}` — the name git itself uses. */
+	name: string;
+	id: string;
+	short: string;
+	/** What the entry says about itself: `On main: wip on notes`. */
+	message: string;
+	time: number;
+	authorName: string;
+	/** The commit the work was made on — the row it hangs off. */
+	parent: string;
+	parentShort: string;
+	parentSummary: string;
+}
+
+// --- Pull requests --------------------------------------------------------
+
+/**
+ * The shape a pull request takes on the screen.
+ *
+ * **This is FEAT-017's contract.** Nothing populates it today — Spagitty talks
+ * to no hosting service — and it is defined now so that connecting a host is a
+ * matter of filling this in rather than redesigning the screen around whatever
+ * one host's API happens to return.
+ *
+ * The vocabulary is host-agnostic on purpose: "pull request", never a brand.
+ * The hosting service is a detail, not the language.
+ */
+export interface PullRequest {
+	/** The host's own identifier, whatever form it takes. */
+	id: string;
+	/** The number people say out loud: "#412". */
+	number: number;
+	title: string;
+	/** Description / markdown changelog text. */
+	body: string;
+	/** Display name of whoever opened it. */
+	authorName: string;
+	/** Seconds since the unix epoch. */
+	updated: number;
+	sourceBranch: string;
+	targetBranch: string;
+	draft: boolean;
+	/** Where it sits with reviewers. */
+	review: ReviewState;
+	/** Whether the host's checks passed. Null when the host runs none. */
+	checks: CheckState | null;
+	/** True when this one is waiting on the person using Spagitty. */
+	needsYou: boolean;
+	/** Why it needs you, in one line, when it does. */
+	needsYouBecause: string | null;
+	changedFiles: number;
+	added: number;
+	removed: number;
+	/** Whether the host says it can merge. Null when the host has not said. */
+	mergeable: boolean | null;
+	/** The commit the head branch points at. Empty when the host did not say (FEAT-087). */
+	headSha: string;
+	/** The person using Spagitty is a requested reviewer (FEAT-087). */
+	reviewRequested: boolean;
+	/** Review threads still open, and resolved ones (FEAT-087). */
+	openThreads: number;
+	resolvedThreads: number;
+	/** Open threads the person started where somebody else spoke last (FEAT-087). */
+	repliesToYou: number;
+	/** `owner/name` when the row came from a search across repositories (FEAT-087). */
+	repository: string | null;
+	/**
+	 * The person's own latest review, when the host says (BUG-064). Absent or
+	 * null from a host that does not, and when they have left none.
+	 */
+	yourReview?: YourReview | null;
+}
+
+/** What the person last said on a pull request, and on which head (BUG-064). */
+export interface YourReview {
+	verdict: ReviewVerdict;
+	/** The head the review was left on. Empty when the host did not say. */
+	sha: string;
+}
+
+export type ReviewState = 'awaitingReview' | 'changesRequested' | 'approved' | 'noReviewers';
+
+/**
+ * What a reviewer is saying, in Spagitty's own words (FEAT-058).
+ *
+ * Mapped onto the host's vocabulary at the edge, the way `ReviewState` already
+ * is: GitHub calls these `APPROVE`, `REQUEST_CHANGES` and `COMMENT`.
+ */
+export type ReviewVerdict = 'approve' | 'requestChanges' | 'comment';
+
+/** Merge strategies supported across forges (FEAT-071). */
+export type MergeMethod = 'merge' | 'squash' | 'rebase';
+
+/** A commit belonging to a pull request (FEAT-059). */
+export interface PullRequestCommit {
+	sha: string;
+	short: string;
+	summary: string;
+	authorName: string;
+	authorEmail: string;
+	time: number;
+}
+
+/** An inline review comment or thread reply (FEAT-059). */
+export interface PullRequestComment {
+	id: number;
+	inReplyTo: number | null;
+	path: string;
+	line: number | null;
+	side: string;
+	body: string;
+	author: string;
+	createdAt: number;
+	resolved: boolean;
+	/** The thread as the host names it to resolve (FEAT-093); null when it cannot be. */
+	threadId?: string | null;
+}
+
+/** A local draft inline comment waiting to be published with a review (FEAT-059). */
+export interface DraftComment {
+	path: string;
+	/** The line the comment is on — the last, when it covers a range. */
+	line: number;
+	side: string;
+	body: string;
+	/** The first line, when the comment covers a range, and its side. */
+	startLine?: number | null;
+	startSide?: string | null;
+	/** Where `line` and `startLine` sit, as GitLab places a comment (FEAT-088). */
+	place?: LinePlace | null;
+	startPlace?: LinePlace | null;
+	/** The file's path before the change, when it was renamed. */
+	oldPath?: string | null;
+}
+
+/**
+ * One diff line as GitLab counts it (FEAT-088): the two versions' counters at
+ * that line — its own number on its side, the next line's on the other.
+ */
+export interface LinePlace {
+	kind: 'added' | 'removed' | 'context';
+	old: number;
+	new: number;
+}
+
+/** The three commits a pull request read from disk is between (FEAT-089). */
+/** Where Check out branch left the working copy (FEAT-095). */
+export interface CheckedOut {
+	/** The branch now checked out. */
+	branch: string;
+	/** The remote-tracking branch it follows, when the pull request is the remote's own branch. */
+	upstream: string | null;
+	/** The pull request's own name is another branch here, so this is `pr-N`. */
+	renamed: boolean;
+}
+
+export interface PullHead {
+	head: string;
+	/** The target branch's tip. */
+	base: string;
+	/** Where the head left the target: the diff is from here. */
+	mergeBase: string;
+}
+
+/**
+ * One file of a pull request, whole (FEAT-089): every line of the new version
+ * with the removed lines in place. The changed parts and the folds between
+ * them are cut from these lines on the screen.
+ */
+export interface FullFile {
+	path: string;
+	oldPath: string | null;
+	status: FileStatus;
+	binary: boolean;
+	tooLarge: boolean;
+	added: number;
+	removed: number;
+	/** The blob on each side; a viewed tick is kept against the new one. */
+	oldBlob: string | null;
+	newBlob: string | null;
+	lines: DiffLine[];
+}
+
+/** Lines one merge wrote in one place while resolving a conflict (FEAT-092). */
+export interface ConflictFix {
+	path: string;
+	merge: string;
+	short: string;
+	summary: string;
+	/** The lines of the head it wrote that the pull request adds. */
+	lines: number[];
+	/** What the target and the pull request had where they conflicted; empty outside a conflict. */
+	mainSide: string[];
+	branchSide: string[];
+}
+
+export interface FixedFile {
+	path: string;
+	/** The pull request also changes it outside its conflict fixes. */
+	author: boolean;
+}
+
+export interface ConflictFixes {
+	fixes: ConflictFix[];
+	files: FixedFile[];
+	/** Every merge re-done, by short id. */
+	merges: string[];
+	/** More merges than were re-done. */
+	truncated: boolean;
+}
+
+/** Checks and threads the list did not carry, asked for after it (FEAT-088). */
+export interface ReviewSummary {
+	number: number;
+	checks: CheckState | null;
+	openThreads: number;
+	resolvedThreads: number;
+	repliesToYou: number;
+}
+
+/** Which hosting service a remote points at (FEAT-017, FEAT-070). */
+export type ForgeKind = 'gitHub' | 'gitLab' | 'bitbucket';
+/** A repository on a hosting service, identified from a git remote. */
+export interface ForgeRepo {
+	kind: ForgeKind;
+	/** The hostname, so an enterprise installation is not handed the wrong token. */
+	host: string;
+	owner: string;
+	name: string;
+}
+
+/**
+ * A connected account.
+ *
+ * **No token.** It lives in the OS keychain and never crosses this boundary —
+ * a token in a type the webview can hold is a token in a devtools inspector.
+ */
+export interface ForgeAccount {
+	kind: ForgeKind;
+	host: string;
+	/** The login the token authenticates as, read back from the host. */
+	user: string;
+}
+
+export type CheckState = 'passing' | 'failing' | 'running';
+
+// --- Interactive rebase ---------------------------------------------------
+
+/** What to do with one commit, in git's own vocabulary. */
+export type RebaseAction = 'pick' | 'squash' | 'reword' | 'drop';
+
+/** One row of the todo list, as `git rebase -i` would open it. */
+export interface TodoRow {
+	id: string;
+	short: string;
+	summary: string;
+	authorName: string;
+	time: number;
+	/** Paths this commit changed. What the conflict heuristic compares. */
+	paths: string[];
+}
+
+export interface RebaseTodo {
+	/** The commit the rebase would replay onto. */
+	upstream: string;
+	upstreamShort: string;
+	/** Oldest first — a rebase replays forwards. */
+	rows: TodoRow[];
+	/** True when the range was longer than the cap and was cut. */
+	truncated: boolean;
+}
+
+/** One entry of the plan. The plan is the complete list, and its order is the order. */
+export interface RebaseEdit {
+	id: string;
+	action: RebaseAction;
+	/**
+	 * The new message, for a `reword`.
+	 *
+	 * Collected on screen rather than at execution time: "at execution time"
+	 * means git opening an editor on a terminal Spagitty does not have. A reword
+	 * carrying no message is executed as a plain pick.
+	 */
+	message?: string | null;
+}
+
+// --- History operations ---------------------------------------------------
+
+/**
+ * How far back a reset takes the index and the working tree.
+ *
+ * `hard` is the one that loses uncommitted work, and it is the reason this is a
+ * union of three names rather than a boolean called `force`: every screen that
+ * offers it has to spell out which one it is offering.
+ */
+export type ResetMode = 'soft' | 'mixed' | 'hard';
+
+/** What dropping one branch onto another can turn into. */
+export type Integration = 'merge' | 'mergeNoFastForward' | 'fastForward' | 'rebase';
+
+/**
+ * How a pull brings the remote's commits in.
+ *
+ * `fastForwardOnly` is the safe one: it refuses unless the local branch can
+ * simply move forward, so it can never write a merge commit or leave a conflict.
+ */
+export type PullMode = 'fastForwardOnly' | 'merge' | 'rebase';
+
+/** What to do with a stash entry. */
+export type StashAction = 'apply' | 'pop' | 'drop';
+
+/** One row of the result: what a commit would become. */
+export interface PreviewRow {
+	id: string;
+	short: string;
+	summary: string;
+	/** Commits folded into this one, oldest first. Empty for a plain pick. */
+	absorbed: string[];
+	reworded: boolean;
+	/**
+	 * An earlier row in the plan touched a path this one also touches, so
+	 * replaying it may not apply cleanly. A heuristic — knowing for certain
+	 * means performing the merges, which is execution.
+	 */
+	mayConflict: boolean;
+}
+
+export interface RebasePreview {
+	rows: PreviewRow[];
+	dropped: string[];
+	/**
+	 * Set when the plan cannot be executed as written. Dropping everything is
+	 * not one of these — an empty result is a legitimate thing to look at.
+	 */
+	refusal: string | null;
+	/** True when the plan would leave no commits at all. */
+	emptiesTheBranch: boolean;
+}
+
+// --- Log search -----------------------------------------------------------
+
+/**
+ * What to look for. Every field is optional and they compose as AND.
+ *
+ * Text matching is a case-insensitive substring, not a regular expression —
+ * regexes are explicit non-scope for this pass.
+ */
+export interface SearchQuery {
+	/** Matched against `Name <email>`, the way `git log --author` looks at it. */
+	author?: string | null;
+	/** Matched against the whole message, subject and body, like `--grep`. */
+	message?: string | null;
+	/** A path the commit changed, like `git log -- <path>`. */
+	path?: string | null;
+	/** Search within added/removed patch lines (FEAT-066). */
+	diffContent?: string | null;
+	/** Seconds since the unix epoch, like `--since`. */
+	since?: number | null;
+	/** Seconds since the unix epoch, like `--until`. */
+	until?: number | null;
+}
+
+/**
+ * One result: the graph's row without its lane.
+ *
+ * A filtered list has no lanes, and drawing them would draw edges between
+ * commits that are not parent and child.
+ */
+export interface SearchRow {
+	/** Position in the result list, not in history. */
+	index: number;
+	id: string;
+	short: string;
+	summary: string;
+	authorName: string;
+	authorEmail: string;
+	initials: string;
+	time: number;
+	refs: RefChip[];
+}
+
+export interface SearchRowsEvent {
+	token: number;
+	rows: SearchRow[];
+}
+
+export interface SearchDoneEvent {
+	token: number;
+	total: number;
+	/** True when the walk reached the end of history rather than being cancelled. */
+	complete: boolean;
+	error: string | null;
+}
+
+/** Why there is nothing to blame. Not an error — ordinary states of files. */
+export type NotBlamable = 'binary' | 'tooLarge' | 'notAFile' | 'empty';
+
+export interface BlameLine {
+	/** 1-based line number in the blamed file. */
+	line: number;
+	text: string;
+	commit: string;
+	short: string;
+	summary: string;
+	authorName: string;
+	time: number;
+	/** Where the line lived before, when it arrived under another name. */
+	sourcePath: string | null;
+}
+
+export interface Blame {
+	path: string;
+	/** The revision blamed, resolved to a full id. */
+	revision: string;
+	lines: BlameLine[];
+	/** Set when `lines` is empty for a reason worth stating. */
+	refused: NotBlamable | null;
+}
+
+// --- Files (FEAT-131) -----------------------------------------------------
+
+/** A branch, tag or commit, resolved to the commit it means. Mirrors `files::Revision`. */
+export interface FilesRevision {
+	id: string;
+	short: string;
+}
+
+export type FilesEntryKind = 'folder' | 'file' | 'link' | 'submodule';
+
+/** One entry of a folder at a revision. Mirrors `files::TreeEntry`. */
+export interface FilesEntry {
+	name: string;
+	/** From the repository's root, with `/` between the parts. */
+	path: string;
+	kind: FilesEntryKind;
+}
+
+/** What a file is, and its text when it has any. Mirrors `files::Content`. */
+export type FilesContent =
+	| { kind: 'text'; text: string }
+	| { kind: 'image'; mime: string; base64: string }
+	| { kind: 'binary' }
+	/** A Git LFS pointer: the object it stands for, and that object's size. */
+	| { kind: 'lfs'; oid: string; objectSize: number }
+	/** Over 50 MB. Not read at all. */
+	| { kind: 'tooLarge' }
+	/** Nothing at that path in that revision, or a folder or submodule. */
+	| { kind: 'missing' };
+
+/** A file read from git's objects at a revision. Mirrors `files::FileRead`. */
+export interface FilesRead {
+	path: string;
+	/** The commit read from, in full. */
+	revision: string;
+	/** The blob's id, which colour is cached by. Empty when nothing is there. */
+	blob: string;
+	size: number;
+	/** The tree-sitter grammar for this path, when one is compiled in. */
+	grammar: string | null;
+	/** False over 5 MB: shown, and not coloured. */
+	colour: boolean;
+	content: FilesContent;
+}
+
+/** What *Find a file* found. Mirrors `files::Found`. */
+export interface FilesFound {
+	paths: string[];
+	/** More matched than were returned. */
+	more: boolean;
+}
+
+/** How a search reads what was typed (FEAT-151). Mirrors `files::SearchOptions`. */
+export interface SearchOptions {
+	/** A regular expression rather than the text as typed. */
+	regex: boolean;
+	/** Only where it stands as a word of its own. */
+	word: boolean;
+	/** Letter case counts. Without it, only when what was typed has a capital. */
+	case: boolean;
+}
+
+/** One line *Search in files* found. Mirrors `files::Hit`. */
+export interface FilesHit {
+	path: string;
+	/** One-based. */
+	line: number;
+	/** Where the match is in the whole line. */
+	column: number;
+	length: number;
+	/** The line, or the part of a long one around the match. */
+	text: string;
+	/** The match within `text`. */
+	start: number;
+	end: number;
+}
+
+/** What *Search in files* found. Mirrors `files::Searched`. */
+export interface FilesSearched {
+	hits: FilesHit[];
+	/** How many files held a match. */
+	files: number;
+	/** More matched than were returned. */
+	more: boolean;
+}
+
+/**
+ * What a name is at one place it appears (FEAT-154): defined there, used,
+ * or only mentioned, in a comment, a string, or a file of data or prose.
+ */
+export type UsageRole = 'definition' | 'use' | 'mention';
+
+/** One place a name appears. Mirrors `usages::Usage`. */
+export interface FilesUsage extends FilesHit {
+	role: UsageRole;
+	/** What the grammar calls it — `function`, `class`, `call` — or null. */
+	kind: string | null;
+}
+
+/** Where a name is defined and used at a revision. Mirrors `usages::Usages`. */
+export interface FilesUsages {
+	name: string;
+	/** Definitions first, then uses, then mentions; each in path and line order. */
+	usages: FilesUsage[];
+	/** How many files the name appears in. */
+	files: number;
+	/** More were found than were returned. */
+	more: boolean;
+}
+
+/** A path to stop tracking (FEAT-155). Mirrors `untrack::Target`. */
+export interface UntrackTarget {
+	/** From the top of the repository. */
+	path: string;
+	folder: boolean;
+}
+
+/** What an untracking commit made. Mirrors `untrack::Untracked`. */
+export interface Untracked {
+	commit: string;
+	branch: string;
+	/** Where the branch is pushed, or null when there is nowhere. */
+	remote: string | null;
+	/** Whether the commit ran the hooks; not on a branch not checked out here. */
+	hooksRan: boolean;
+}
+
+/** One commit a blamed file's lines come from. Mirrors `blame::BlameCommit`. */
+export interface BlameCommit {
+	id: string;
+	short: string;
+	summary: string;
+	authorName: string;
+	authorEmail: string;
+	/** Author time, seconds since the unix epoch. */
+	time: number;
+	/** The agent a `Co-authored-by` trailer names, by gate 1's rule. */
+	agent: string | null;
+	/** The path the lines were written under at this commit. */
+	path: string;
+	/** The commit and path this version was changed from. Null when the commit added the file. */
+	previous: string | null;
+	previousPath: string | null;
+}
+
+/** A whole file's blame, each commit said once. Mirrors `blame::CompactBlame`. */
+export interface CompactBlame {
+	path: string;
+	revision: string;
+	commits: BlameCommit[];
+	/** For each line, in order: an index into `commits`. */
+	lines: number[];
+	/** For each line: its number in the commit that wrote it. */
+	origin: number[];
+	refused: NotBlamable | null;
+}
+
+// --- Investigate (FEAT-132) -----------------------------------------------
+
+/** What a life is the life of. Mirrors `investigate::Target`. */
+export type LifeTarget =
+	| { kind: 'file'; path: string }
+	| { kind: 'folder'; path: string }
+	| { kind: 'branch'; name: string }
+	| { kind: 'line'; path: string; line: number };
+
+/** What happened, in one word. Mirrors `investigate::Kind`. */
+export type LifeKind =
+	| 'born'
+	| 'renamed'
+	| 'moved'
+	| 'rewrite'
+	| 'edit'
+	| 'deleted'
+	| 'added'
+	| 'removed'
+	| 'commit'
+	| 'merge'
+	| 'merged'
+	| 'rebase'
+	| 'reset';
+
+/** One thing in a life. Mirrors `investigate::Entry`. */
+export interface LifeEntry {
+	commit: string;
+	short: string;
+	authorName: string;
+	authorEmail: string;
+	/** Seconds since the unix epoch. */
+	time: number;
+	summary: string;
+	/** The agent a `Co-authored-by` trailer names, by gate 1's rule. */
+	agent: string | null;
+	kind: LifeKind;
+	added: number;
+	removed: number;
+	/** A file or a line: the path at this commit. */
+	path: string | null;
+	/** The path before this commit, when it renamed or moved the file. */
+	oldPath: string | null;
+	/** A file: its lines after this commit. Null for a binary file. */
+	size: number | null;
+	/** A file: the share of its lines, as they were, that this commit removed. */
+	share: number | null;
+	/** A folder: how many files this commit added, removed and renamed. */
+	filesAdded: number;
+	filesRemoved: number;
+	filesRenamed: number;
+	/** A line: its text as this commit left it. */
+	text: string | null;
+	/** Said beside the summary: `old → new`, or what a branch landed in. */
+	note: string | null;
+}
+
+/** A page of a life. Mirrors `investigate::Page`. */
+export interface LifePage {
+	entries: LifeEntry[];
+	/** Nothing older is left to read. */
+	done: boolean;
+}
+
+/** How a life is asked for. Mirrors `investigate::Ask`. */
+export interface LifeAsk {
+	target: LifeTarget;
+	rev: string;
+	follow: boolean;
+	since: number | null;
+	skip: number;
+	limit: number;
+}
+
+/** Who has lines in a file today. Mirrors `investigate::Owner`. */
+export interface LifeOwner {
+	name: string;
+	email: string;
+	agent: boolean;
+	lines: number;
+	/** From 0 to 1. */
+	share: number;
+}
+
+/** A file at a revision, from one blame. Mirrors `investigate::Today`. */
+export interface LifeToday {
+	lines: number;
+	owners: LifeOwner[];
+	/** For each commit that still has lines in the file: how many. */
+	alive: Record<string, number>;
+}
+
+/** A branch against the default branch. Mirrors `investigate::BranchFacts`. */
+export interface BranchFacts {
+	against: string | null;
+	fork: string | null;
+	landed: string | null;
+	ahead: number;
+	behind: number;
+	local: boolean;
+}
+
+// --- Conflicts ------------------------------------------------------------
+
+/**
+ * What the repository is in the middle of.
+ *
+ * Read from the repository's own state, never inferred from the presence of
+ * conflicts: merge, rebase, cherry-pick and revert all leave conflicts behind,
+ * and naming the wrong one sends someone to the wrong command to get out.
+ */
+export type ConflictOperation =
+	| 'merge'
+	| 'rebase'
+	| 'rebaseInteractive'
+	| 'cherryPick'
+	| 'revert'
+	| 'applyMailbox'
+	| 'bisect'
+	| 'none';
+
+/**
+ * Which sides a conflicted path has, which is the same thing as what kind of
+ * conflict it is.
+ */
+export type ConflictKind = 'bothModified' | 'bothAdded' | 'deletedByUs' | 'deletedByThem';
+
+export interface ConflictFile {
+	path: string;
+	kind: ConflictKind;
+}
+
+/** One version of a conflicted file. */
+export interface ConflictSide {
+	/** Empty when `binary` or `tooLarge`, because there is nothing honest to show. */
+	text: string;
+	lines: number;
+	bytes: number;
+	binary: boolean;
+	tooLarge: boolean;
+}
+
+/**
+ * The three index stages of one conflicted path, plus what is on disk.
+ *
+ * A missing side is `null` rather than an empty side: "deleted on that side"
+ * and "emptied on that side" are different things, and the second loses work if
+ * acted on.
+ */
+export interface ConflictSides {
+	path: string;
+	kind: ConflictKind;
+	/** Stage 1, the common ancestor. Null when both sides added the path. */
+	base: ConflictSide | null;
+	/** Stage 2 — ours, which is HEAD. */
+	ours: ConflictSide | null;
+	/** Stage 3 — theirs, the incoming side. */
+	theirs: ConflictSide | null;
+	/** The working-tree file, markers and all. Null when there is none on disk. */
+	merged: ConflictSide | null;
+}
+
+export interface ConflictState {
+	operation: ConflictOperation;
+	files: ConflictFile[];
+}
+
+// --- Repository -----------------------------------------------------------
+
+export interface HeadInfo {
+	/** Short branch name, or null when detached. */
+	branch: string | null;
+	detached: boolean;
+	id: string | null;
+	short: string | null;
+}
+
+export interface RepoInfo {
+	path: string;
+	name: string;
+	bare: boolean;
+	head: HeadInfo;
+	/**
+	 * Unix seconds of the last fetch — the mtime of `.git/FETCH_HEAD`, which git
+	 * writes on every fetch including one that brought nothing down. `null` for
+	 * a repository that has never been fetched, which is a real answer and is
+	 * said in words rather than shown as an empty time (FEAT-040).
+	 */
+	lastFetched: number | null;
+}
+
+/**
+ * Right-aligned counts in the nav rail.
+ *
+ * `null` means "not computed yet" — the rail shows a `·` rather than a number.
+ * Counts whose screens do not exist yet are null on purpose: a wrong count is
+ * worse than no count, because it is what people use to decide whether a screen
+ * is worth opening.
+ */
+export interface RepoCounts {
+	commits: number | null;
+	working: number | null;
+	/** Paths staged for the next commit — what the Commit button counts. */
+	staged: number | null;
+	conflicts: number | null;
+	branches: number | null;
+	stashes: number | null;
+	tags: number | null;
+	submodules: number | null;
+}
+
+/**
+ * One card on the All repositories screen.
+ *
+ * Read where the repository sits, without opening it as the current one.
+ * `present` false means the path is gone or is no longer a repository, and
+ * every other field is a default that means nothing.
+ */
+export interface RepoSummary {
+	path: string;
+	name: string;
+	present: boolean;
+	bare: boolean;
+	branch: string | null;
+	detached: boolean;
+	short: string | null;
+	/** First line of the tip's message, so a card says what it was last doing. */
+	summary: string | null;
+	time: number | null;
+	/** Distinct changed paths, or null for a bare repository. */
+	dirty: number | null;
+	conflicts: number | null;
+	stashes: number | null;
+	branches: number | null;
+}
+
+export interface OpenResult {
+	info: RepoInfo;
+	counts: RepoCounts;
+	/** Identifies this walk. Rows from any other token are stale. */
+	token: number;
+}
+
+export interface Snapshot {
+	info: RepoInfo;
+	counts: RepoCounts;
+}
+
+export interface About {
+	version: string;
+	commit: string;
+	license: string;
+}
+
+// --- Clone ----------------------------------------------------------------
+
+/**
+ * Why a clone cannot start.
+ *
+ * Every one of these is knowable without touching the network, which is the
+ * point: the user is told while they are typing rather than after a round trip.
+ */
+export type CloneProblemKind =
+	| 'noUrl'
+	| 'unusableUrl'
+	| 'noParent'
+	| 'missingParent'
+	| 'destinationNotEmpty';
+
+export interface CloneProblem {
+	kind: CloneProblemKind;
+	/** The path the problem is about, where there is one. */
+	detail?: string;
+}
+
+/** Where a clone would land, and what is wrong with that. */
+export interface ClonePlan {
+	name: string | null;
+	/** The exact path that will be created — what the screen shows. */
+	destination: string | null;
+	/** True when the destination does not exist yet, so cancelling may remove it. */
+	createsDestination: boolean;
+	problem: CloneProblem | null;
+	/** The sentence to show. Written by the core, so there is only one of them. */
+	message: string | null;
+}
+
+/** One step of git's own progress reporting. */
+export interface CloneProgress {
+	phase: string;
+	percent: number | null;
+	/** git's own words, shown when there is no percentage. */
+	line: string;
+}
+
+/** Payload of `clone-progress`. */
+export interface CloneProgressEvent extends CloneProgress {
+	token: number;
+}
+
+/** Payload of `clone-done`: the clone for `token` stopped, one way or another. */
+export interface CloneDoneEvent {
+	token: number;
+	ok: boolean;
+	/** False for a clone that failed on its own; true for one the user stopped. */
+	cancelled: boolean;
+	error: string | null;
+	path: string;
+}
+
+/** Which network operation a worker is running (FEAT-018). */
+export type NetworkOperation = 'fetch' | 'push';
+
+/** Payload of `network-progress`: one step of git's own progress reporting. */
+export interface NetworkProgressEvent extends CloneProgress {
+	token: number;
+	operation: NetworkOperation;
+}
+
+/** Payload of `network-done`: the fetch or push for `token` has stopped. */
+export interface NetworkDoneEvent {
+	token: number;
+	operation: NetworkOperation;
+	ok: boolean;
+	error: string | null;
+	/**
+	 * git's last words on success — "Everything up-to-date", a ref update
+	 * summary — so a fetch that brought nothing down can say so.
+	 */
+	summary: string | null;
+}
+
+/** One tag, peeled to the commit it names (FEAT-051). */
+export interface Tag {
+	/** Short name — `v1.0.0`, not `refs/tags/v1.0.0`. */
+	name: string;
+	/** The commit it points at, after peeling an annotated tag. */
+	target: string;
+	targetShort: string;
+	/**
+	 * True when this is a tag object rather than a ref pointing at a commit.
+	 * Only an annotated tag can carry a message or a tagger.
+	 */
+	annotated: boolean;
+	/** The tag's own message. Empty for a lightweight tag, which has none. */
+	message: string;
+	taggerName: string;
+	/**
+	 * Unix seconds: the tagger's time for an annotated tag, the commit's own
+	 * for a lightweight one, which is the only date it has.
+	 */
+	time: number;
+	/** First line of the tagged commit's message. */
+	summary: string;
+}
+
+/** One move of one ref (FEAT-050). */
+export interface ReflogEntry {
+	/** Position from the newest, counting from 0 — the `n` in `HEAD@{n}`. */
+	index: number;
+	/** The revision this entry names: `HEAD@{3}`, `main@{0}`. */
+	revision: string;
+	/** Where the ref pointed before this move. */
+	before: string;
+	beforeShort: string;
+	after: string;
+	afterShort: string;
+	/** True when this entry created the ref — there is nothing before it. */
+	created: boolean;
+	authorName: string;
+	/** Unix seconds. */
+	time: number;
+	/** git's own description: `commit: subject`, `rebase (finish): …`. */
+	message: string;
+	/** The word before the colon, which is what a reader scans for. */
+	operation: string;
+}
+
+/** A ref's reflog, newest first. */
+export interface Reflog {
+	/** The ref this is the log of, as it should be shown: `HEAD`, `main`. */
+	reference: string;
+	entries: ReflogEntry[];
+	truncated: boolean;
+	/**
+	 * False when this ref has no reflog at all — reflogs turned off, or a ref
+	 * that has never moved. Different from an empty list, and said differently.
+	 */
+	exists: boolean;
+}
+
+/** How far a branch has drifted from its upstream (FEAT-033). */
+export interface BranchDivergence {
+	/** Short name of the configured upstream. */
+	upstream: string;
+	ahead: number;
+	behind: number;
+}
+
+/** One configured remote (FEAT-049). */
+export interface Remote {
+	name: string;
+	/** Where it is fetched from. */
+	url: string;
+	/**
+	 * Where it is pushed to, when that is configured separately. Null is the
+	 * ordinary case and means "the same as `url`".
+	 */
+	pushUrl: string | null;
+	/** Which forge the URL points at — the same glyph the graph's chips use. */
+	host: Host;
+	/**
+	 * Refs under `refs/remotes/<name>/`. Zero means it has never been fetched,
+	 * which is what tells "added a moment ago" from "gone stale".
+	 */
+	refs: number;
+}
+
+/** One linked working tree attached to a git repository (FEAT-062). */
+export interface Worktree {
+	/** Absolute filesystem path to the working tree. */
+	path: string;
+	/** Display name (trailing directory component). */
+	name: string;
+	/** HEAD commit object ID (full hex SHA). */
+	head: string;
+	/** Short 7-character commit hash for display. */
+	headShort: string;
+	/** Short branch name if on a branch, or null if detached. */
+	branch: string | null;
+	/** True if this is the main / root repository working tree. */
+	isMain: boolean;
+	/** True if the working tree is bare. */
+	isBare: boolean;
+	/** True if HEAD is detached (not on any named branch). */
+	isDetached: boolean;
+	/** Optional lock reason if locked against pruning. */
+	lockedReason: string | null;
+	/** Optional prunable reason if the worktree gitdir is orphaned or missing. */
+	prunableReason: string | null;
+}
+
+/** One git submodule in a repository (FEAT-067). */
+export interface Submodule {
+	name: string;
+	path: string;
+	url: string;
+	headCommit: string | null;
+	headShort: string | null;
+	initialized: boolean;
+	inSync: boolean;
+	hasConflict: boolean;
+	describe: string | null;
+}
+
+/** Known external diff/merge tool information (FEAT-068). */
+export interface ExternalToolInfo {
+	id: string;
+	name: string;
+	command: string;
+	isInstalled: boolean;
+}
+
+/** External tools configuration state (FEAT-068). */
+export interface ExternalToolsConfig {
+	diffTool: string | null;
+	mergeTool: string | null;
+	availableDiffTools: ExternalToolInfo[];
+	availableMergeTools: ExternalToolInfo[];
+}
+
+/** Which side of a conflict to keep. */
+export type ConflictSideName = 'ours' | 'theirs';
+
+/**
+ * One `<<<<<<< ======= >>>>>>>` block in a file on disk.
+ *
+ * Line numbers are 1-based and inclusive, matching the merged pane, so a region
+ * can be pointed at on screen without a second numbering scheme.
+ */
+export interface ConflictRegion {
+	/** Position in the file, counting from 0. What a caller names it by. */
+	index: number;
+	startLine: number;
+	endLine: number;
+	ours: string;
+	/** Present only when the file was merged with `diff3` markers. */
+	base: string | null;
+	theirs: string;
+}
+
+/** How far a rebase that is running has got, from git's own state directory. */
+export interface RebaseProgress {
+	/** Which commit is being applied, counting from 1. */
+	step: number;
+	total: number;
+	/** The branch being rebased. Null for one started from a detached HEAD. */
+	branch: string | null;
+	/** Short id of `ORIG_HEAD` — where the branch was before any of this. */
+	original: string | null;
+}
+
+/** Payload of `rebase-progress`. */
+export interface RebaseProgressEvent extends RebaseProgress {
+	token: number;
+}
+
+/**
+ * Payload of `rebase-done`: the rebase for `token` is no longer running.
+ *
+ * `stopped` is the hand-off, not a failure — git got part-way and is waiting
+ * for a conflict to be resolved or for an `edit` to be finished.
+ */
+export interface RebaseDoneEvent {
+	token: number;
+	ok: boolean;
+	stopped: boolean;
+	error: string | null;
+}
+
+// --- Settings -------------------------------------------------------------
+
+/** A configuration file Spagitty will write to. Never inferred — always chosen. */
+export type IdentityScope = 'global' | 'local';
+
+/** The two keys the Settings screen edits, and no others. */
+export type IdentityKey = 'name' | 'email';
+
+/**
+ * Where the value git would actually use comes from.
+ *
+ * Wider than `IdentityScope`, because a value can come from somewhere Spagitty
+ * will not write: saying "system" out loud is what explains why editing the
+ * global field did not change the effective value.
+ */
+export type IdentityOrigin = 'unset' | 'system' | 'global' | 'local' | 'environment';
+
+export interface IdentityValue {
+	/** What git would use. */
+	effective: string | null;
+	origin: IdentityOrigin;
+	/** What each writable scope holds, so an override can be shown beside what it hides. */
+	global: string | null;
+	local: string | null;
+}
+
+export interface Identity {
+	name: IdentityValue;
+	email: IdentityValue;
+	/** False when no repository is open: the local scope is neither read nor written. */
+	repository: boolean;
+}
+
+/** One saved identity profile (FEAT-069). */
+export interface IdentityProfile {
+	id: string;
+	name: string;
+	authorName: string;
+	authorEmail: string;
+	signingKey: string | null;
+}
+
+/** Spagitty's own behaviour toggles, stored in its config directory. */
+export interface Settings {
+	/**
+	 * Ask the project whether there is a newer Spagitty, at startup.
+	 *
+	 * On by default — the one preference here that changes what the application
+	 * does rather than what it checks. There is no package manager behind an
+	 * AppImage or a bare `.exe`, so this is the only way somebody finds out
+	 * their client is old. Turning it off stops every request.
+	 */
+	checkForUpdates: boolean;
+	confirmHistoryRewrite: boolean;
+	showGitCommands: boolean;
+	/**
+	 * Delete remote-tracking refs the remote no longer has, when fetching.
+	 *
+	 * Off by default: pruning deletes refs, and a branch vanishing from the
+	 * graph because a fetch quietly pruned it is a surprise nobody asked for.
+	 */
+	pruneOnFetch: boolean;
+	/**
+	 * Fetch each author's real picture for the graph's nodes (FEAT-079).
+	 *
+	 * On by default, and the second preference here to change what the
+	 * application does and still be on. A generated face disambiguates — these
+	 * rows are one person — and does not identify, which is the question a node
+	 * is looked at to answer. Off falls back to the generated face and empties
+	 * the cache.
+	 */
+	fetchAvatars: boolean;
+	/**
+	 * How much personality the delight layer shows (FEAT-072).
+	 *
+	 * Opt-in intensity, never opt-in existence: badges are earned and the badge
+	 * screen works at every level. What this changes is how loudly an unlock
+	 * arrives.
+	 */
+	personality: Personality;
+	/** Whether Spagitty makes a sound, and how loud. Off until asked. */
+	sound: SoundLevel;
+	/**
+	 * Watch the connected accounts' pull requests and say when something
+	 * happens (FEAT-114). Off until asked: a request to every connected host on
+	 * a timer.
+	 */
+	notifyPullRequests: boolean;
+	/** Also show each one as an operating-system notification. */
+	notifyDesktop: boolean;
+	/** Your pull request was merged or closed. */
+	notifyMerged: boolean;
+	/** Somebody else commented on or reviewed a pull request you are in. */
+	notifyComments: boolean;
+	/** You were asked to review. */
+	notifyReviewRequests: boolean;
+	/** The checks on your pull request started failing. */
+	notifyChecks: boolean;
+	/** Minutes between looks: 1, 2, 5 or 15. */
+	notifyEveryMinutes: number;
+	/** What is pinned, hidden and reordered on the rail (FEAT-134). */
+	rail: import('./nav').RailSettings;
+	/** Which cards Home shows, and in what order (FEAT-148). */
+	home: import('./home/layout').HomeLayout;
+	/** The shell a terminal runs (FEAT-130). Empty is the platform's own. */
+	terminalShell: string;
+	/** Run the terminal inside tmux, or psmux on Windows, when one can run. */
+	terminalMultiplexer: boolean;
+	/** Give the multiplexer's bars and borders the theme's colours (FEAT-157). */
+	terminalColours: boolean;
+	/** Settings › Calls (FEAT-160, FEAT-165); a repository can override some. */
+	calls?: import('./calls/types').CallsSettings;
+}
+
+// --- Terminal (FEAT-130)---------------------------------------------------
+
+/** The multiplexer in use. Mirrors `terminal::MuxInfo`. */
+export interface TerminalMux {
+	/** `tmux` or `psmux`. */
+	name: string;
+	version: string;
+	path: string;
+	/** True when it is the one Spagitty ships. */
+	bundled: boolean;
+}
+
+/** Mirrors `terminal::TerminalInfo`. */
+export interface TerminalInfo {
+	/** Null when no multiplexer can run, or it is turned off: every tab is a plain terminal. */
+	mux: TerminalMux | null;
+	/** The program a new terminal runs. */
+	shell: string;
+}
+
+/** A session on Spagitty's socket. Mirrors `terminal::SessionInfo`. */
+export interface TerminalSession {
+	name: string;
+	windows: number;
+	attached: boolean;
+}
+
+/** One window of a session. Mirrors `terminal::WindowInfo`. */
+export interface TerminalWindow {
+	index: number;
+	name: string;
+	active: boolean;
+}
+
+/** Something asked of a session. Mirrors `terminal::Ask`. */
+export type TerminalAsk =
+	| { kind: 'newWindow'; cwd: string }
+	| { kind: 'selectWindow'; index: number }
+	| { kind: 'splitRight' }
+	| { kind: 'splitDown' }
+	| { kind: 'detach' }
+	| { kind: 'close' };
+
+/**
+ * The theme's colours for the multiplexer's bars and borders, each `#rrggbb`.
+ * Mirrors `terminal::Colours` (FEAT-157).
+ */
+export interface TerminalStyle {
+	ground: string;
+	ink: string;
+	muted: string;
+	line: string;
+	accent: string;
+	onAccent: string;
+	selection: string;
+	ok: string;
+	danger: string;
+}
+
+/** Which of what a terminal printed is real. Mirrors `commands::TerminalLinks`. */
+export interface TerminalLinks {
+	/** Each hex word that is a commit here, with the full id it means. */
+	commits: [string, string][];
+	/** Each path that is a file at HEAD. */
+	paths: string[];
+}
+
+/** Where a watched pull request stands (FEAT-114). Mirrors `watch::WatchState`. */
+export type WatchState = 'open' | 'merged' | 'closed';
+
+/** One pull request as the notification watcher compares it. Mirrors `watch::Watched`. */
+export interface Watched {
+	/** `host/owner/name#number`: the same pull request on every read. */
+	key: string;
+	host: string;
+	repository: string;
+	number: number;
+	title: string;
+	url: string;
+	state: WatchState;
+	mine: boolean;
+	reviewRequested: boolean;
+	/** Comments and reviews so far. Only ever compared with itself. */
+	activity: number;
+	lastActor: string | null;
+	lastActorIsMe: boolean;
+	checks: CheckState | null;
+}
+
+/**
+ * What is known about one author, beyond what the commit already said.
+ *
+ * Mirrors `commands::AvatarAnswer`. Both halves are absent more often than
+ * not, and neither absence is a failure: a handle needs an address that spells
+ * one out, and a picture needs somebody to have uploaded one.
+ */
+export interface AvatarAnswer {
+	handle: string | null;
+	/** A `data:` URL, ready to draw. */
+	picture: string | null;
+	/**
+	 * No answer yet, for a reason that may pass — offline, rate limited. The
+	 * store asks again later instead of settling for the session (FEAT-081).
+	 */
+	retry: boolean;
+}
+
+/** Mirrors `settings::Personality`. `off` is the default (TASK-045). */
+export type Personality = 'off' | 'professional' | 'balanced' | 'fullSpagitty';
+
+/** Mirrors `settings::SoundLevel`. */
+export type SoundLevel = 'off' | 'subtle' | 'full';
+
+/** Which signing machinery git is configured to use — `gpg.format`. */
+export type SigningFormat = 'openPgp' | 'ssh' | 'x509';
+
+/**
+ * Why a commit that is meant to be signed would not be.
+ *
+ * Both are known before the commit is attempted, which is the point: a
+ * repository with no working signer is told so at the point of commit rather
+ * than after one fails.
+ */
+export type SigningProblem =
+	| { kind: 'missingProgram'; detail: string }
+	| { kind: 'noSigningKey' };
+
+/**
+ * Commit signing, as git would resolve it here.
+ *
+ * `commit.gpgsign` is the authority — there is no separate Spagitty preference,
+ * because two switches for one behaviour disagree the moment one of them is
+ * changed outside this application.
+ */
+export interface Signing {
+	/** What a commit made now would do. */
+	enabled: boolean;
+	/** Which file `enabled` came from. `unset` means nothing sets it. */
+	origin: IdentityOrigin;
+	format: SigningFormat;
+	/** `user.signingkey`, effective. */
+	key: string | null;
+	/** The program git would run for this format. */
+	program: string;
+	/** Null when signing is off: a signer that will not be used cannot fail. */
+	problem: SigningProblem | null;
+	/** False when no repository is open. */
+	repository: boolean;
+	/** `commit.gpgsign` as each writable scope holds it. */
+	global: boolean | null;
+	local: boolean | null;
+}
+
+/** Which kind of build is asking about updates. */
+export type UpdateChannel = 'released' | 'development';
+
+/** What an update check found. */
+export interface Update {
+	channel: UpdateChannel;
+	/** The tag this build was cut as, or null for a build somebody compiled. */
+	current: string | null;
+	/** The newest tag the project has published. */
+	latest: string;
+	/** True only when this is a released build and the latest is a different one. */
+	newer: boolean;
+	url: string;
+}
+
+export interface Dependency {
+	name: string;
+	version: string;
+	/** Null where the package declares none — listed as "not declared", never hidden. */
+	license: string | null;
+}
+
+/**
+ * Every dependency this build is made of, generated from the lockfiles.
+ *
+ * `generated` false means the build could not produce the list; `notes` says
+ * why. An empty list with no explanation would read as "no dependencies".
+ */
+export interface Licenses {
+	generated: boolean;
+	notes: string[];
+	rust: Dependency[];
+	npm: Dependency[];
+}
+
+// --- Events ---------------------------------------------------------------
+
+/** Payload of `graph-rows`: one streamed chunk. */
+export interface GraphRowsEvent {
+	token: number;
+	rows: GraphRow[];
+}
+
+/** Payload of `graph-done`: the walk for `token` stopped. */
+export interface GraphDoneEvent {
+	token: number;
+	total: number;
+	/** True when it reached the end of history rather than being cancelled. */
+	complete: boolean;
+	error: string | null;
+}
+
+/** Payload of `repo-changed`: the filesystem watcher saw something settle. */
+export interface RepoChangedEvent {
+	refs: boolean;
+	worktree: boolean;
+}
+
+/**
+ * How one executed `git` command ended.
+ *
+ * `started` is a clone: nothing waits for it, so its outcome arrives long after
+ * the line is worth showing.
+ */
+export type CommandOutcome =
+	| { kind: 'ok' }
+	| { kind: 'failed'; code: number | null; stderr: string }
+	| { kind: 'started' };
+
+/**
+ * One `git` command Spagitty actually ran, recorded at the spawn site.
+ *
+ * Reads are absent by design: log walking, refs, diff and status happen
+ * in-process and have no command line. Nothing is invented for them.
+ */
+/** One hold of the open repository: how long it waited and ran (TASK-052). */
+export interface CommandTiming {
+	seq: number;
+	atMs: number;
+	command: string;
+	/** Microseconds waiting for the repository. */
+	waitUs: number;
+	/** Microseconds holding it: the work. */
+	heldUs: number;
+}
+
+export interface ExecutedCommand {
+	/** Monotonic within the app's run. Used to ask for everything newer. */
+	seq: number;
+	atMs: number;
+	/** The whole command, `git` first, with any URL credentials already removed. */
+	argv: string[];
+	outcome: CommandOutcome;
+	/** Wall time in milliseconds. Zero for a command that was only started. */
+	durationMs: number;
+}
+
+export const CLONE_PROGRESS_EVENT = 'clone-progress';
+export const CLONE_DONE_EVENT = 'clone-done';
+export const SEARCH_ROWS_EVENT = 'search-rows';
+export const SEARCH_DONE_EVENT = 'search-done';
+export const GRAPH_ROWS_EVENT = 'graph-rows';
+export const GRAPH_DONE_EVENT = 'graph-done';
+export const REPO_CHANGED_EVENT = 'repo-changed';
+export const GIT_COMMAND_EVENT = 'git-command';
+export const REBASE_PROGRESS_EVENT = 'rebase-progress';
+export const REBASE_DONE_EVENT = 'rebase-done';
+/**
+ * The desktop's palette changed under us (FEAT-080).
+ *
+ * Carries the whole new theme rather than a "go and look" ping: the payload is
+ * a few hundred bytes, and a signal that means "re-invoke a command" turns one
+ * event into a round trip during the exact moment the user is watching for a
+ * colour change.
+ */
+export const DESKTOP_THEME_EVENT = 'desktop-theme-changed';
+
+export const NETWORK_PROGRESS_EVENT = 'network-progress';
+export const NETWORK_DONE_EVENT = 'network-done';
+
+// --- Merger (FEAT-100) ----------------------------------------------------
+
+/** What a name given to Merger turned out to be. Only `local` can receive a merge. */
+export type MergerRefKind = 'local' | 'remote' | 'tag' | 'commit';
+
+export interface MergerCommit {
+	id: string;
+	short: string;
+	summary: string;
+	/** Unix seconds. */
+	time: number;
+}
+
+/** One of the two branches. */
+export interface MergerSide {
+	name: string;
+	kind: MergerRefKind;
+	tip: string;
+	short: string;
+	/** Commits since the two split. */
+	ahead: number;
+	/** The newest of them, newest first, at most three. */
+	newest: MergerCommit[];
+	/** How many of them touch a conflicted file: the most times a rebase of this side can stop. */
+	touching: number;
+	/** When the tip was committed, unix seconds. */
+	time: number;
+	/** The worktree it is checked out in, when it is. */
+	checkedOut: string | null;
+}
+
+/** Which side changed a file since the split, and whether the two collide. */
+export type MergerTouch = 'conflict' | 'both' | 'a' | 'b';
+
+export interface MergerFile {
+	path: string;
+	touch: MergerTouch;
+	addedByA: boolean;
+	addedByB: boolean;
+	deletedByA: boolean;
+	deletedByB: boolean;
+	/** Conflict regions; one for a file that conflicts as a whole. */
+	conflicts: number;
+	kind: ConflictKind | null;
+}
+
+/** What merging A and B would do, worked out without writing it. */
+export interface MergerForecast {
+	a: MergerSide;
+	b: MergerSide;
+	base: string;
+	baseShort: string;
+	/** A's history holds all of B. */
+	aHasB: boolean;
+	bHasA: boolean;
+	files: MergerFile[];
+	/** Conflict regions across every file. */
+	conflicts: number;
+	method: 'mergeTree' | 'worktree';
+}
+
+/** What lands at one conflicted path (FEAT-101): text, or one side whole. */
+export interface MergerResolution {
+	path: string;
+	text?: string;
+	/** A is `ours`, B is `theirs`. A side with no version deletes the path. */
+	take?: 'ours' | 'theirs';
+}
+
+/** Everything a merge needs to land, as the plan read it. */
+export interface MergerLandAsk {
+	a: string;
+	b: string;
+	aTip: string;
+	bTip: string;
+	target: 'a' | 'b' | 'new';
+	newName?: string;
+	strategy: 'merge' | 'squash' | 'rebase' | 'ff';
+	message?: string;
+	resolutions: MergerResolution[];
+}
+
+export interface MergerLanded {
+	target: string;
+	commit: string;
+	short: string;
+	/** Commits written: 1, the replayed ones, or 0 for a fast-forward. */
+	written: number;
+}
+
+/** Where one region came from on each side (FEAT-102). */
+export interface MergerRegionSource {
+	index: number;
+	aLine: number | null;
+	bLine: number | null;
+	aCommit: MergerCommit | null;
+	bCommit: MergerCommit | null;
+}
+
+/** One conflicted file of a dry run, every side of it. */
+export interface MergerFileConflict {
+	path: string;
+	kind: ConflictKind;
+	base: ConflictSide | null;
+	a: ConflictSide | null;
+	b: ConflictSide | null;
+	/** The merged file with diff3 markers, when the conflict is in its lines. */
+	merged: ConflictSide | null;
+	regions: MergerRegionSource[];
+}
+
+/** Every conflict of merging A and B. */
+export interface MergerConflicts {
+	base: string;
+	baseShort: string;
+	aTip: string;
+	bTip: string;
+	files: MergerFileConflict[];
+}
+
+/** Where Merger's rebase stands (FEAT-103). */
+export type MergerReplay =
+	| {
+			state: 'stopped';
+			/** The commit being replayed, from 1, of how many. */
+			step: number;
+			total: number;
+			commit: MergerCommit | null;
+			files: MergerFileConflict[];
+	  }
+	| { state: 'done'; tip: string; short: string; written: number };
+
+// --- Hooks (FEAT-107) -------------------------------------------------------
+
+/** Who manages a repository's hooks. */
+export type HookManager = 'git' | 'husky' | 'lefthook' | 'preCommit';
+
+/** One hook that would run, and what it runs. */
+export interface Hook {
+	name: string;
+	/** The file holding what runs — `.husky/pre-commit` for Husky, not its stub. */
+	path: string;
+	script: string;
+	truncated: boolean;
+	/** Run by a commit: pre-commit, prepare-commit-msg, commit-msg, post-commit. */
+	onCommit: boolean;
+}
+
+export interface Hooks {
+	/** The directory git runs hooks from. */
+	dir: string;
+	manager: HookManager;
+	/** lefthook's or pre-commit's configuration, where the steps are. */
+	config: { path: string; text: string } | null;
+	hooks: Hook[];
+	/** False when this repository's hooks are switched off in Spagitty. */
+	enabled: boolean;
+}
+
+export const HOOK_OUTPUT_EVENT = 'hook-output';
+
+/** A line a commit's hooks printed. */
+export interface HookOutputEvent {
+	token: number;
+	line: string;
+}

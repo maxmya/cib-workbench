@@ -1,0 +1,807 @@
+// SPDX-License-Identifier: MIT
+
+//! The one place Spagitty makes a network request.
+//!
+//! There is exactly one, for the same reason [`crate::shell`] is the one place
+//! a process is spawned: so that "what does this application send, and where"
+//! has a single answer somebody can read in an afternoon. Nothing outside this
+//! module holds a `ureq` type, and a second call site would have to be added
+//! here rather than anywhere else.
+//!
+//! # What it will not do
+//!
+//! - **No plaintext.** `https` only, refused before the request is made rather
+//!   than left to the host to redirect. A token must never travel in the clear,
+//!   and a misconfigured remote must not be the way it does.
+//! - **No redirects to another host.** A redirect that changes host would carry
+//!   the `Authorization` header somewhere the user never connected. `ureq` is
+//!   told not to follow redirects at all; the two endpoints used here do not
+//!   redirect, and one that started to is a change worth noticing rather than
+//!   following.
+//! - **No waiting forever.** Timeouts on connect and on the whole call, so a
+//!   host that accepts a connection and then says nothing cannot hang the
+//!   worker thread behind the Pull requests screen.
+//!
+//! # TLS
+//!
+//! `native-tls`: the platform's own stack and the platform's own certificate
+//! store. A desktop client behind a corporate proxy with a custom root works
+//! without being told about it, which a bundled root store would not.
+
+use std::io::Read;
+use std::time::Duration;
+
+use crate::{Error, Result};
+
+/// How long to wait for a host that has stopped talking.
+///
+/// Generous enough for a slow connection on a large list, short enough that a
+/// dead host is reported rather than waited on. The Pull requests screen reads
+/// on a worker thread, so this is the ceiling on a spinner, not on the UI.
+const TIMEOUT: Duration = Duration::from_secs(30);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// What a host answered.
+pub struct Response {
+    pub status: u16,
+    pub body: String,
+    /// `Retry-After`, when the host sent one. The one header worth carrying:
+    /// it is how a rate limit says when it will end.
+    pub retry_after: Option<String>,
+}
+
+/// Headers needed by paged forge views, without changing existing callers.
+pub struct Conditional {
+    pub response: Response,
+    pub etag: Option<String>,
+    pub more: bool,
+    pub scopes: Option<Vec<String>>,
+}
+
+pub fn get_conditional_json(
+    url: &str,
+    token: &str,
+    host: &str,
+    etag: Option<&str>,
+) -> Result<Conditional> {
+    if !url.starts_with("https://") {
+        return Err(Error::Forge {
+            host: host.into(),
+            detail: "refusing to send a token over an unencrypted connection".into(),
+        });
+    }
+    let mut request = agent()
+        .get(url)
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28");
+    if !token.is_empty() {
+        request = request.header("Authorization", &format!("Bearer {token}"));
+    }
+    if let Some(etag) = etag {
+        request = request.header("If-None-Match", etag);
+    }
+    let response = request.call().map_err(|error| Error::ForgeOffline {
+        host: host.into(),
+        detail: error.to_string(),
+    })?;
+    let header = |name: &str| {
+        response
+            .headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string)
+    };
+    let etag = header("etag");
+    let more = header("link")
+        .is_some_and(|links| links.split(',').any(|link| link.contains("rel=\"next\"")))
+        || header("x-next-page").is_some_and(|page| !page.is_empty());
+    let scopes = header("x-oauth-scopes").map(|text| {
+        text.split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    });
+    Ok(Conditional {
+        response: read(response),
+        etag,
+        more,
+        scopes,
+    })
+}
+
+/// `GET url` with a bearer token, as JSON.
+///
+/// An empty `token` sends **no** `Authorization` header at all, for the one
+/// caller that has nothing to authenticate with: the update check reads a
+/// public release list and must not invent a credential to do it.
+///
+/// A non-2xx status is **not** an error here — it is a [`Response`] with a
+/// status on it, because only the caller knows whether a 404 means "no such
+/// pull request" or "this repository is private". Turning a status into a
+/// sentence is [`super::status_error`]'s job.
+///
+/// A request that never got an answer at all *is* an error, and it is the one
+/// this reports: there is no status to interpret, and "offline" is a different
+/// thing to say than anything a host could have replied.
+pub fn get_json(url: &str, token: &str, host: &str) -> Result<Response> {
+    if !url.starts_with("https://") {
+        return Err(Error::Forge {
+            host: host.to_string(),
+            detail: "refusing to send a token over an unencrypted connection".into(),
+        });
+    }
+
+    let mut request = agent()
+        .get(url)
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28");
+
+    if !token.is_empty() {
+        request = request.header("Authorization", &format!("Bearer {token}"));
+    }
+
+    let sent = request.call();
+
+    match sent {
+        Ok(response) => Ok(read(response)),
+        // A status ureq treats as an error is still an answer, and the caller
+        // is the one that knows what that status means here.
+        Err(ureq::Error::StatusCode(status)) => Ok(Response {
+            status,
+            body: String::new(),
+            retry_after: None,
+        }),
+        Err(error) => Err(Error::ForgeOffline {
+            host: host.to_string(),
+            detail: error.to_string(),
+        }),
+    }
+}
+
+/// What a host answered to a request for a small public file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fetched {
+    pub status: u16,
+    /// Empty for anything that is not a readable body within the limit.
+    pub body: Vec<u8>,
+    /// `Location`, on a redirect.
+    ///
+    /// The agent follows no redirect itself (see [`agent`]), so a 3xx comes
+    /// back here as an answer. Carried so that the one caller with a reason to
+    /// follow one — a public picture, never a credential — can decide which
+    /// hosts it is willing to be sent to, rather than the transport following
+    /// wherever it is told (FEAT-081).
+    pub location: Option<String>,
+}
+
+/// The bytes of a small file, from a URL that carries no credential.
+///
+/// The one request in the application that fetches something other than JSON,
+/// and the one that sends **no** `Authorization` header ever — not "empty
+/// token means no header" as [`get_json`] allows, but no parameter to pass one
+/// through. An avatar is a public image on a public URL; a request for one
+/// that could carry a token would be a way for a redirect or a typo in a host
+/// name to leak it (FEAT-079).
+///
+/// `limit` caps what is read. A URL that answered with a gigabyte would
+/// otherwise be a gigabyte in memory, on a path that runs for every author in
+/// a repository — and nothing this fetches is legitimately large. A body that
+/// exceeds it is discarded rather than truncated: half a PNG is not an avatar,
+/// and a caller that got one back would cache it.
+///
+/// Like the others: a status is an answer, not an error. A 404 from Gravatar
+/// is how "this address has no picture" is spelled, and it is the common case
+/// rather than a failure. So is a redirect, which is returned with its
+/// `Location` rather than followed.
+pub fn get_bytes(url: &str, limit: usize) -> Result<Fetched> {
+    if !url.starts_with("https://") {
+        return Err(Error::Forge {
+            host: String::new(),
+            detail: "refusing to fetch over an unencrypted connection".into(),
+        });
+    }
+
+    match agent().get(url).call() {
+        Ok(mut response) => {
+            let status = response.status().as_u16();
+            let location = response
+                .headers()
+                .get("location")
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
+            // One byte past the limit, so a body sitting exactly on it is kept
+            // and one over it is known to be over rather than assumed.
+            let mut body = Vec::new();
+            let read = response
+                .body_mut()
+                .as_reader()
+                .take(limit as u64 + 1)
+                .read_to_end(&mut body);
+
+            if read.is_err() || body.len() > limit {
+                body.clear();
+            }
+            Ok(Fetched {
+                status,
+                body,
+                location,
+            })
+        }
+        Err(ureq::Error::StatusCode(status)) => Ok(Fetched {
+            status,
+            body: Vec::new(),
+            location: None,
+        }),
+        Err(error) => Err(Error::ForgeOffline {
+            host: String::new(),
+            detail: error.to_string(),
+        }),
+    }
+}
+
+/// `POST url` with a bearer token and a JSON body.
+///
+/// The same rules as [`get_json`] and the same reporting: a status is an
+/// answer, an unanswered request is an error. GraphQL is a POST even though it
+/// reads nothing, which is the protocol's choice rather than this module's.
+pub fn post_json(url: &str, token: &str, host: &str, body: &str) -> Result<Response> {
+    send_json(Verb::Post, url, token, host, body)
+}
+
+/// `PUT url` with a bearer token and a JSON body.
+///
+/// The same rules and the same reporting as [`post_json`]. A separate verb
+/// rather than a flag on one function because the forges are specific about it:
+/// GitHub merges with `PUT` and GitLab updates a merge request with `PUT`, and
+/// a `POST` to either is answered with a method error rather than the change.
+pub fn put_json(url: &str, token: &str, host: &str, body: &str) -> Result<Response> {
+    send_json(Verb::Put, url, token, host, body)
+}
+
+/// `PATCH url` with a bearer token and a JSON body.
+///
+/// The same rules and the same reporting as [`post_json`]. GitHub updates a
+/// pull request — closing it, retitling it — with `PATCH`.
+pub fn patch_json(url: &str, token: &str, host: &str, body: &str) -> Result<Response> {
+    send_json(Verb::Patch, url, token, host, body)
+}
+
+/// `DELETE url` with a bearer token, and no body (FEAT-088).
+///
+/// The same rules and the same reporting as [`get_json`]. GitLab discards a
+/// pending review comment this way, which is how a review that failed half way
+/// through sending takes back the comments it had already left as drafts.
+pub fn delete(url: &str, token: &str, host: &str) -> Result<Response> {
+    if !url.starts_with("https://") {
+        return Err(Error::Forge {
+            host: host.to_string(),
+            detail: "refusing to send a token over an unencrypted connection".into(),
+        });
+    }
+
+    let sent = agent()
+        .delete(url)
+        .header("Authorization", &format!("Bearer {token}"))
+        .call();
+
+    match sent {
+        Ok(response) => Ok(read(response)),
+        Err(ureq::Error::StatusCode(status)) => Ok(Response {
+            status,
+            body: String::new(),
+            retry_after: None,
+        }),
+        Err(error) => Err(Error::ForgeOffline {
+            host: host.to_string(),
+            detail: error.to_string(),
+        }),
+    }
+}
+
+/// Which verb a body-carrying request goes out with.
+///
+/// Not public: a caller picks a verb by picking a function, so this stays an
+/// implementation detail of the three that share [`send_json`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Verb {
+    Post,
+    Put,
+    Patch,
+}
+
+/// The one body-carrying request, whichever verb it goes out with.
+///
+/// The `https` guard, the bearer header, and the reading of the answer are the
+/// same for all three verbs, and are written here once so that a change to any
+/// of them cannot apply to two of the three.
+fn send_json(verb: Verb, url: &str, token: &str, host: &str, body: &str) -> Result<Response> {
+    if !url.starts_with("https://") {
+        return Err(Error::Forge {
+            host: host.to_string(),
+            detail: "refusing to send a token over an unencrypted connection".into(),
+        });
+    }
+
+    let agent = agent();
+    let request = match verb {
+        Verb::Post => agent.post(url),
+        Verb::Put => agent.put(url),
+        Verb::Patch => agent.patch(url),
+    };
+
+    let sent = request
+        .header("Authorization", &format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .send(body);
+
+    match sent {
+        Ok(response) => Ok(read(response)),
+        Err(ureq::Error::StatusCode(status)) => Ok(Response {
+            status,
+            body: String::new(),
+            retry_after: None,
+        }),
+        Err(error) => Err(Error::ForgeOffline {
+            host: host.to_string(),
+            detail: error.to_string(),
+        }),
+    }
+}
+
+fn agent() -> ureq::Agent {
+    agent_with_timeout(TIMEOUT)
+}
+
+fn agent_with_timeout(timeout: Duration) -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_global(Some(timeout))
+        .timeout_connect(Some(CONNECT_TIMEOUT))
+        // See the header: a redirect that changed host would carry the token
+        // with it.
+        .max_redirects(0)
+        // A 4xx is an answer, and its body says which one. Left as an error,
+        // ureq drops the body and headers, so a spent rate limit (403 with
+        // "API rate limit exceeded") read as a refused token.
+        .http_status_as_error(false)
+        .user_agent(user_agent())
+        // **Chosen, not inherited.** `TlsProvider` defaults to Rustls whichever
+        // feature is compiled in, so building with `native-tls` alone leaves an
+        // agent that panics on the first `https` URL — "provider is Rustls but
+        // feature is not enabled". It is a panic rather than an error, and it
+        // takes the process with it.
+        //
+        // Naming the provider is the whole fix. It also makes the choice
+        // visible here rather than implied by a line in `Cargo.toml`.
+        //
+        // **The roots are chosen too.** `RootCerts` defaults to `WebPki` — the
+        // bundled Mozilla list — and with native-tls that also *disables* the
+        // platform's built-in roots. A self-hosted forge signed by a corporate
+        // CA that the machine trusts was refused with "unable to find any
+        // user-specified roots in the final cert chain" (BUG-042).
+        // `PlatformVerifier` is what the header promises: the OS store.
+        .tls_config(
+            ureq::tls::TlsConfig::builder()
+                .provider(ureq::tls::TlsProvider::NativeTls)
+                .root_certs(ureq::tls::RootCerts::PlatformVerifier)
+                .build(),
+        )
+        .build()
+        .new_agent()
+}
+
+/// Binary transfers use the same TLS and redirect policy, with time for large
+/// artifacts. The caller derives destinations from the configured host.
+pub fn upload_file(
+    url: &str,
+    token: &str,
+    host: &str,
+    path: &std::path::Path,
+    put: bool,
+    mut progress: impl FnMut(u64),
+) -> Result<Response> {
+    if !url.starts_with("https://") {
+        return Err(Error::Forge {
+            host: host.into(),
+            detail: "refusing an unencrypted file upload".into(),
+        });
+    }
+    let file = std::fs::File::open(path)?;
+    let total = file.metadata()?.len();
+    if total > 2 * 1024 * 1024 * 1024 {
+        return Err(Error::Forge {
+            host: host.into(),
+            detail: "Release files must be at most 2 GiB.".into(),
+        });
+    }
+    struct Upload<'a, F> {
+        file: std::fs::File,
+        sent: u64,
+        next: u64,
+        progress: &'a mut F,
+    }
+    impl<F: FnMut(u64)> Read for Upload<'_, F> {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            let size = self.file.read(buffer)?;
+            self.sent += size as u64;
+            if self.sent >= self.next || size == 0 {
+                (self.progress)(self.sent);
+                self.next = self.sent + 262144;
+            }
+            Ok(size)
+        }
+    }
+    let mut reader = Upload {
+        file,
+        sent: 0,
+        next: 0,
+        progress: &mut progress,
+    };
+    let agent = agent_with_timeout(Duration::from_secs(1800));
+    let request = if put { agent.put(url) } else { agent.post(url) };
+    let response = request
+        .header("Authorization", &format!("Bearer {token}"))
+        .header("Content-Type", "application/octet-stream")
+        .header("Content-Length", &total.to_string())
+        .send(ureq::SendBody::from_reader(&mut reader))
+        .map_err(|error| Error::ForgeOffline {
+            host: host.into(),
+            detail: format!(
+                "Upload delivery is uncertain: {error}. Refresh the host before retrying."
+            ),
+        })?;
+    progress(total);
+    Ok(read(response))
+}
+
+/// Follow signed download locations without forwarding the account token.
+/// The host API URL on the first request is constructed by the core caller.
+pub fn download_file(
+    url: &str,
+    token: &str,
+    host: &str,
+    file: &mut std::fs::File,
+    mut progress: impl FnMut(u64, u64),
+) -> Result<()> {
+    use std::io::Write;
+    let mut location = url.to_string();
+    let agent = agent_with_timeout(Duration::from_secs(1800));
+    for hop in 0..=4 {
+        if !location.starts_with("https://") {
+            return Err(Error::Forge {
+                host: host.into(),
+                detail: "refusing an unencrypted artifact download".into(),
+            });
+        }
+        let mut request = agent
+            .get(&location)
+            .header("Accept", "application/octet-stream");
+        if hop == 0 && !token.is_empty() {
+            request = request.header("Authorization", &format!("Bearer {token}"));
+        }
+        let mut response = request.call().map_err(|error| Error::ForgeOffline {
+            host: host.into(),
+            detail: error.to_string(),
+        })?;
+        let status = response.status().as_u16();
+        if matches!(status, 301 | 302 | 303 | 307 | 308) {
+            location = response
+                .headers()
+                .get("location")
+                .and_then(|header| header.to_str().ok())
+                .filter(|url| url.starts_with("https://"))
+                .ok_or_else(|| Error::Forge {
+                    host: host.into(),
+                    detail: "The artifact redirect has no HTTPS destination.".into(),
+                })?
+                .into();
+            continue;
+        }
+        if !(200..300).contains(&status) {
+            return Err(super::status_error(host, status, "", None));
+        }
+        let total = response
+            .headers()
+            .get("content-length")
+            .and_then(|h| h.to_str().ok())
+            .and_then(|h| h.parse::<u64>().ok())
+            .unwrap_or(0);
+        let limit = 2 * 1024 * 1024 * 1024;
+        if total > limit {
+            return Err(Error::Forge {
+                host: host.into(),
+                detail: "The artifact exceeds 2 GiB.".into(),
+            });
+        }
+        let mut reader = response.body_mut().as_reader();
+        let mut buffer = [0u8; 65536];
+        let mut sent = 0;
+        loop {
+            let count = reader.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            sent += count as u64;
+            if sent > limit {
+                return Err(Error::Forge {
+                    host: host.into(),
+                    detail: "The artifact exceeds 2 GiB.".into(),
+                });
+            }
+            file.write_all(&buffer[..count])?;
+            progress(sent, total);
+        }
+        file.flush()?;
+        return Ok(());
+    }
+    Err(Error::Forge {
+        host: host.into(),
+        detail: "The artifact redirected too many times.".into(),
+    })
+}
+
+/// Logs are bounded text. Signed redirects never receive the account token.
+pub fn get_log(url: &str, token: &str, host: &str, redirects: bool) -> Result<String> {
+    get_text(url, token, host, redirects, "text/plain")
+}
+pub fn get_repository_text(url: &str, token: &str, host: &str) -> Result<String> {
+    get_text(url, token, host, false, "application/vnd.github.raw+json")
+}
+fn get_text(url: &str, token: &str, host: &str, redirects: bool, accept: &str) -> Result<String> {
+    let mut location = url.to_string();
+    for hop in 0..=4 {
+        if !location.starts_with("https://") {
+            return Err(Error::Forge {
+                host: host.into(),
+                detail: "Refusing an unencrypted job log.".into(),
+            });
+        }
+        let mut request = agent().get(&location).header("Accept", accept);
+        if hop == 0 && !token.is_empty() {
+            request = request.header("Authorization", &format!("Bearer {token}"));
+        }
+        let mut response = request.call().map_err(|e| Error::ForgeOffline {
+            host: host.into(),
+            detail: e.to_string(),
+        })?;
+        let status = response.status().as_u16();
+        if redirects && matches!(status, 301 | 302 | 303 | 307 | 308) {
+            location = response
+                .headers()
+                .get("location")
+                .and_then(|h| h.to_str().ok())
+                .filter(|s| s.starts_with("https://"))
+                .ok_or_else(|| Error::Forge {
+                    host: host.into(),
+                    detail: "The job log has no HTTPS download location.".into(),
+                })?
+                .into();
+            continue;
+        }
+        if !(200..300).contains(&status) {
+            return Err(super::status_error(host, status, "", None));
+        }
+        let mut bytes = Vec::new();
+        response
+            .body_mut()
+            .as_reader()
+            .take(4 * 1024 * 1024 + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() > 4 * 1024 * 1024 {
+            bytes.truncate(4 * 1024 * 1024);
+            bytes.extend_from_slice(
+                b"\n[Log exceeds 4 MiB; open the job on its host for the full log.]\n",
+            );
+        }
+        return Ok(String::from_utf8_lossy(&bytes).into_owned());
+    }
+    Err(Error::Forge {
+        host: host.into(),
+        detail: "The job log redirected too many times.".into(),
+    })
+}
+
+fn read(mut response: ureq::http::Response<ureq::Body>) -> Response {
+    let status = response.status().as_u16();
+    let retry_after = response
+        .headers()
+        .get("retry-after")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+
+    // A body that cannot be read is an empty body: everything downstream
+    // treats an unparsable answer as one that said nothing useful, and there
+    // is nothing better to do with half of one.
+    let body = response.body_mut().read_to_string().unwrap_or_default();
+
+    Response {
+        status,
+        body,
+        retry_after,
+    }
+}
+
+/// What Spagitty calls itself to a host.
+///
+/// A version and a name, and nothing else. Some hosts require a user agent and
+/// refuse a request without one; none of them needs to know anything more about
+/// the machine this is running on.
+fn user_agent() -> &'static str {
+    crate::brand::USER_AGENT
+}
+
+impl std::fmt::Debug for Response {
+    /// Never prints the body.
+    ///
+    /// A body can carry a token in an error message, and a `Debug` that landed
+    /// in a log line is exactly how a secret escapes. The status and whether a
+    /// body arrived is all a reader of a log needs.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Response")
+            .field("status", &self.status)
+            .field("body_bytes", &self.body.len())
+            .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_plaintext_url_is_refused_before_anything_is_sent() {
+        // The token must never travel in the clear, and a remote configured
+        // with `http://` must not be the way it does. Refused here rather than
+        // left to a redirect the host controls.
+        let refused = get_json("http://github.com/x", "secret", "github.com");
+
+        match refused {
+            Err(Error::Forge { detail, .. }) => assert!(detail.contains("unencrypted")),
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+        assert!(matches!(
+            get_conditional_json("http://github.com/x", "secret", "github.com", Some("tag")),
+            Err(Error::Forge { .. })
+        ));
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("file");
+        assert!(upload_file(
+            "http://example.org/upload",
+            "secret",
+            "example.org",
+            &path,
+            false,
+            |_| {}
+        )
+        .is_err());
+        let mut file = std::fs::File::create(path).unwrap();
+        assert!(download_file(
+            "http://example.org/download",
+            "secret",
+            "example.org",
+            &mut file,
+            |_, _| {}
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn the_agent_is_built_with_a_tls_provider_that_is_actually_compiled_in() {
+        // The regression this exists for took the whole process down on the
+        // first request. `TlsProvider` defaults to Rustls whichever feature is
+        // enabled, so an agent that does not name one panics on any `https`
+        // URL — and the update check makes one at startup, so the application
+        // did not open at all.
+        //
+        // Asserted by building the agent and reading back what it settled on,
+        // which is the thing that was wrong. Making a request would prove it
+        // too and would need a network.
+        let agent = agent();
+
+        assert_eq!(
+            agent.config().tls_config().provider(),
+            ureq::tls::TlsProvider::NativeTls
+        );
+    }
+
+    #[test]
+    fn the_agent_hands_back_an_error_status_with_its_body() {
+        // Left at ureq's default, a 4xx is an `Err(StatusCode)` with no body
+        // and no headers, so GitHub's "API rate limit exceeded" 403 reached
+        // `status_error` empty and was reported as a refused token.
+        assert!(!agent().config().http_status_as_error());
+    }
+
+    #[test]
+    fn the_agent_trusts_the_platform_certificate_store_not_a_bundled_one() {
+        // ureq's default is the bundled Mozilla list, which with native-tls
+        // turns the platform's roots *off*. A GitLab signed by a corporate CA
+        // the machine trusts was then refused (BUG-042). Asserted by reading
+        // the config back, for the same reason as the provider test above.
+        let agent = agent();
+
+        assert!(matches!(
+            agent.config().tls_config().root_certs(),
+            ureq::tls::RootCerts::PlatformVerifier
+        ));
+    }
+
+    #[test]
+    fn a_host_that_does_not_resolve_is_reported_as_offline_not_as_a_status() {
+        // There is no status to interpret, and "could not reach it" is a
+        // different thing to tell the reader than anything a host could reply.
+        let unreachable = get_json(
+            "https://spagitty-no-such-host.invalid/x",
+            "secret",
+            "spagitty-no-such-host.invalid",
+        );
+
+        assert!(
+            matches!(unreachable, Err(Error::ForgeOffline { .. })),
+            "expected an offline error, got {unreachable:?}"
+        );
+    }
+
+    #[test]
+    fn a_plaintext_url_is_refused_on_the_way_out_as_well() {
+        let refused = post_json("http://github.com/graphql", "secret", "github.com", "{}");
+
+        match refused {
+            Err(Error::Forge { detail, .. }) => assert!(detail.contains("unencrypted")),
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_other_body_carrying_verbs_refuse_plaintext_too() {
+        // The guard lives in `send_json`, so all three share it — asserted per
+        // verb because a future caller reaches for the function, not the
+        // helper, and a verb that skipped the check would leak a token.
+        for refused in [
+            put_json("http://github.com/x", "secret", "github.com", "{}"),
+            patch_json("http://github.com/x", "secret", "github.com", "{}"),
+        ] {
+            match refused {
+                Err(Error::Forge { detail, .. }) => assert!(detail.contains("unencrypted")),
+                other => panic!("expected a refusal, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_response_never_prints_its_body() {
+        // A body can carry a token back in an error message, and a `Debug` in a
+        // log line is exactly how a secret escapes.
+        let response = Response {
+            status: 401,
+            body: "Bearer ghp_thisisasecret".into(),
+            retry_after: None,
+        };
+
+        let printed = format!("{response:?}");
+        assert!(!printed.contains("ghp_thisisasecret"));
+        assert!(printed.contains("401"));
+    }
+
+    #[test]
+    fn an_empty_token_is_an_unauthenticated_request_rather_than_an_empty_bearer() {
+        // The update check reads a public release list. Sending
+        // `Authorization: Bearer ` would be inventing a credential, and some
+        // hosts reject a malformed one rather than ignoring it.
+        //
+        // Asserted through the only observable this module has without a
+        // server: an unreachable host still reports as offline rather than as
+        // a request that could not be built.
+        let unreachable = get_json("https://spagitty-no-such-host.invalid/x", "", "h");
+
+        assert!(matches!(unreachable, Err(Error::ForgeOffline { .. })));
+    }
+
+    #[test]
+    fn the_user_agent_names_the_application_and_its_version() {
+        let agent = user_agent();
+
+        assert!(agent.starts_with("workbench/"));
+        // Nothing about the machine. A host does not need to know.
+        assert!(!agent.contains(' '));
+    }
+}

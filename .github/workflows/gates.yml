@@ -1,0 +1,268 @@
+# SPDX-License-Identifier: MIT
+#
+# The pipeline, as six ordered gates. A gate that fails stops everything
+# downstream — that is what `needs:` buys here, and it is the point.
+#
+#   0 scope -> 1 license -> 2 quality -> 3 tests -> 4 security -> 5 build -> 6 release
+#
+# This file is the push lane. Gates 0 to 4 live in checks.yml, which this
+# file and pull-request.yml both call. A pull request runs those and nothing
+# else, so its checks never list gates 5 and 6 as skipped.
+#
+# `main` runs 1 to 4 on every push. Gates 5 and 6 run only when the change
+# ships in the application — a merge into main is a publish *of a release*,
+# not of every README edit. Documentation, agile records and brand collateral
+# land without rebuilding or tagging; they ride the next version.
+# `dev` runs 1 to 4 and stops. Producing a dev build is a manual action, in
+# .github/workflows/prerelease.yml.
+#
+# What each gate proves, and why it sits where it does, is in docs/ci.md.
+
+name: gates
+
+on:
+  push:
+    branches: [main, dev]
+
+concurrency:
+  group: gates-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Abandon a stalled cache segment so Cargo can compile dependencies instead.
+  SEGMENT_DOWNLOAD_TIMEOUT_MINS: 2
+
+jobs:
+  # --- Gates 0 to 4 -------------------------------------------------------
+  # In checks.yml, shared with the pull request lane. Its `ship` output is
+  # gate 0's answer, which gates 5 and 6 read.
+  checks:
+    uses: ./.github/workflows/checks.yml
+
+  # --- Gate 5 -------------------------------------------------------------
+  # main only, and only when the change ships in the application. `dev` stops
+  # after gate 4; its build is triggered by hand. A README or agile edit is not
+  # a release — rebuilding three platforms and failing on an already-tagged
+  # version is the wrong response to documentation.
+  build:
+    name: 5 · build
+    needs: checks
+    if: >
+      github.ref == 'refs/heads/main' &&
+      needs.checks.outputs.ship == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        # `name` rather than `os` as the identity, because macOS is two entries
+        # on two runners now (TASK-040) and `os` stopped being unique. This lane
+        # built one `macos-latest` job, which is Apple silicon, so a `main`
+        # release has never carried an Intel download at all.
+        #
+        # macOS is back in this lane, signed ad hoc and not notarized, until an
+        # Apple Developer ID exists. The author chose this over a release with
+        # no Mac download: every 1.0.x release carries all three platforms, as
+        # the draft lane's ad-hoc builds proved workable (v0.8.1-alpha.1). The
+        # signing step below says how to return to refusing unsigned builds.
+        include:
+          - name: linux
+            os: ubuntu-latest
+          - name: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            arch: arm64
+          - name: macos-x86_64
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+            arch: x86_64
+          - name: windows
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # Empty on Linux and Windows, where the runner's own triple is the
+          # one wanted; named on macOS so each runner builds for the
+          # architecture it is published as.
+          targets: ${{ matrix.target || '' }}
+      - uses: Swatinem/rust-cache@v2
+        timeout-minutes: 5
+        continue-on-error: true
+        with:
+          shared-key: ${{ matrix.name }}
+      - uses: ./.github/actions/linux-deps
+        if: matrix.os == 'ubuntu-latest'
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+
+      # Sets `$UPDATE_INFORMATION`, which is the only interface Tauri's AppImage
+      # bundler has for making the bundle updatable in place. Linux only: it is
+      # a linuxdeploy variable and means nothing to the other two runners.
+      - uses: ./.github/actions/appimage-update-info
+        if: matrix.os == 'ubuntu-latest'
+
+      # The tag gate 6 is about to publish this build under, worked out from
+      # the manifest exactly as gate 6 works it out. Gate 5 running first is
+      # not a problem: both read the same manifest, so neither has to tell the
+      # other.
+      #
+      # `shell: bash` because this matrix includes Windows, where the default
+      # is pwsh and `$GITHUB_OUTPUT` is not a variable it has.
+      - name: The tag this build will be published under
+        id: release
+        shell: bash
+        run: echo "tag=v$(bun -e "console.log(require('./package.json').version)")" >> "$GITHUB_OUTPUT"
+
+      # `interim` until an Apple Developer ID exists: with no certificate the
+      # Mac build is signed ad hoc, and the version's changelog section says
+      # what that means on first open. Once APPLE_CERTIFICATE and the
+      # notarization secrets are in place, switch this to `production` so a
+      # release can never again go out unsigned by accident (TASK-040).
+      - id: signing
+        uses: ./.github/actions/macos-signing
+        if: runner.os == 'macOS'
+        with:
+          lane: interim
+          certificate: ${{ secrets.APPLE_CERTIFICATE }}
+          certificate-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          apple-id: ${{ secrets.APPLE_ID }}
+          apple-password: ${{ secrets.APPLE_PASSWORD }}
+          apple-team-id: ${{ secrets.APPLE_TEAM_ID }}
+          signing-identity: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+
+      - run: bun run tauri build ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+        shell: bash
+        env:
+          # A release ships the terminal's multiplexer or does not ship (FEAT-130):
+          # without this, a download that failed would be a warning.
+          SPAGITTY_MULTIPLEXER_REQUIRED: 1
+          # What the update check compares itself against, and the whole reason
+          # it can answer at all: `Cargo.toml` says one version across every
+          # release in a series, so a version number cannot identify a build.
+          # Absent from anything compiled locally, which is how a development
+          # build knows it has no release to be behind.
+          #
+          # Gate 5 did not set this until TASK-037, so every release published
+          # from `main` reported itself as a development build and could never
+          # say a newer one existed. The feature was shipped and inert.
+          SPAGITTY_RELEASE: ${{ steps.release.outputs.tag }}
+
+      # The container, the signature, Gatekeeper's verdict and the
+      # architecture, asked of the finished .dmg before it is uploaded.
+      - uses: ./.github/actions/macos-verify
+        if: runner.os == 'macOS'
+        with:
+          policy: ${{ steps.signing.outputs.policy }}
+          notarized: ${{ steps.signing.outputs.notarized }}
+          architecture: ${{ matrix.arch }}
+
+      # Only the downloads, never the whole bundle tree — see the action for
+      # what uploading the tree did to the v0.2.0 release. It also refuses an
+      # AppImage that came out without its update information.
+      #
+      # The suffix is what keeps the two macOS runners apart: a .dmg is named
+      # from the product name and version, which is identical on both, and gate
+      # 6 refuses a release whose basenames clash.
+      - uses: ./.github/actions/release-assets
+        with:
+          suffix: ${{ runner.os == 'macOS' && matrix.name || '' }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workbench-${{ matrix.name }}
+          path: out/**
+          # A build that produced nothing used to pass this step with a
+          # warning, and gate 6 would then publish a release with no downloads
+          # in it. A build that bundles nothing is a failed build.
+          if-no-files-found: error
+
+  # --- Gate 6 -------------------------------------------------------------
+  release:
+    name: 6 · release
+    needs: [build, checks]
+    if: >
+      github.ref == 'refs/heads/main' &&
+      needs.checks.outputs.ship == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - name: Read the version out of the manifest
+        id: version
+        run: |
+          version=$(bun -e "console.log(require('./package.json').version)")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      # A tag that already exists is a release that already happened. Moving it
+      # is forbidden, so the job stops instead.
+      - name: Refuse to move an existing tag
+        run: |
+          if git rev-parse "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "::error::${{ steps.version.outputs.tag }} already exists; bump the version instead"
+            exit 1
+          fi
+
+      # The notes are the version's changelog section, not notes
+      # generated from the commit log. Workbench's own changelog: CHANGELOG.md is
+      # Spagitty's. No section, no release — the gate fails
+      # before anything is tagged, which is the right order to fail in.
+      - name: Read the notes out of the changelog
+        run: |
+          bun tools/release-notes.mjs "${{ steps.version.outputs.version }}" CHANGELOG.workbench.md > notes.md
+          cat notes.md
+
+      # Everything that can be checked is checked before the tag is pushed,
+      # because a pushed tag cannot be taken back and a version
+      # whose tag exists can never be released. v0.2.0 is tagged and has no
+      # release for exactly this reason: the asset upload failed *after* the
+      # push, and there is no second attempt at a version.
+      - name: The assets can actually be attached
+        id: assets
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find artifacts -type f | sort)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::gate 5 uploaded no artifacts, so there is nothing to release"
+            exit 1
+          fi
+          clashes=$(basename -a "${files[@]}" | sort | uniq -d)
+          if [ -n "$clashes" ]; then
+            echo "::error::these names appear more than once, and a release can hold each only once: $(echo $clashes | tr '\n' ' ')"
+            exit 1
+          fi
+          printf '%s\n' "${files[@]}"
+          echo "files=${files[*]}" >> "$GITHUB_OUTPUT"
+
+      # The runner has no git identity of its own, and an annotated tag needs
+      # one — this failed the first main release with "empty ident name".
+      # The bot identity is scoped to this repository, not set globally.
+      - name: Tag and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.version.outputs.tag }}" -m "Workbench ${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --title "Workbench ${{ steps.version.outputs.tag }}" \
+            --notes-file notes.md \
+            ${{ steps.assets.outputs.files }}

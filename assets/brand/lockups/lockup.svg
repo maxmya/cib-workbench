@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 819 319">
+<g transform="translate(55 55) scale(2.0900)">
+  <rect x="4" y="4" width="92" height="92" rx="24" fill="#CC3B2C"/>
+  <path data-part="gap" d="M34 20 C34 38 50 38 50 55 L50 72" fill="none" stroke="#CC3B2C" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+  <path data-part="strand" d="M34 20 C34 38 50 38 50 55 L50 72" fill="none" stroke="#FFF3E4" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path data-part="gap" d="M50 20 C50 40 66 34 66 55 L66 72" fill="none" stroke="#CC3B2C" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+  <path data-part="strand" d="M50 20 C50 40 66 34 66 55 L66 72" fill="none" stroke="#FFF3E4" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path data-part="gap" d="M66 20 C66 40 34 34 34 55 L34 72" fill="none" stroke="#CC3B2C" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+  <path data-part="strand" d="M66 20 C66 40 34 34 34 55 L34 72" fill="none" stroke="#FFF3E4" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="34" cy="79" r="5.5" fill="#FFF3E4"/>
+  <circle cx="50" cy="79" r="5.5" fill="#FFF3E4"/>
+  <circle cx="66" cy="79" r="5.5" fill="#FFF3E4"/>
+</g>
+<text x="310" y="189.0" font-size="110" font-family="Sora, system-ui, sans-serif" font-weight="600" letter-spacing="-2.2" fill="#f3e9dd">spa<tspan fill="#f2715a">git</tspan>ty</text>
+</svg>

@@ -1,0 +1,231 @@
+# SPDX-License-Identifier: MIT
+#
+# The `dev` pre-release, triggered by hand.
+#
+# Merges into `dev` run gates 1 to 4 and stop. Producing a build
+# and an alpha release from `dev` is an explicit action someone takes when they
+# want a pre-release — never something a landing does on its own.
+#
+# The version carries a pre-release suffix (`vX.Y.Z-alpha.N`), so nothing built
+# here can be mistaken for a release of `main`.
+
+name: prerelease
+
+on:
+  workflow_dispatch:
+    inputs:
+      alpha:
+        description: The alpha number, e.g. 3 for v0.1.0-alpha.3
+        required: true
+        type: string
+
+concurrency:
+  group: prerelease
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  SEGMENT_DOWNLOAD_TIMEOUT_MINS: 2
+
+jobs:
+  # Before the build, not after it, for the reason draft-release.yml works its
+  # tag out first: the binary is stamped with the tag it is being cut as, and
+  # that stamp is the only thing that tells a running Spagitty which release it
+  # is. Checking the number here also stops a reused alpha before three
+  # platforms are built rather than after.
+  #
+  # The `dev`-only guard lives here now. Every other job needs this one, so a
+  # skip carries through rather than being repeated three times.
+  tag:
+    name: work out the tag
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.compose.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - id: compose
+        run: |
+          base=$(bun -e "console.log(require('./package.json').version)")
+
+          # The manifest carries its own pre-release suffix from 0.4.0-alpha
+          # onwards, and the alpha *number* is appended here. Strip the suffix
+          # or the two compose into `v0.4.0-alpha-alpha.3`.
+          base=${base%%-*}
+
+          echo "tag=v$base-alpha.${{ inputs.alpha }}" >> "$GITHUB_OUTPUT"
+
+      # A tag that exists is a release that happened, and moving
+      # one is forbidden.
+      - name: Refuse to move an existing tag
+        run: |
+          if git rev-parse "${{ steps.compose.outputs.tag }}" >/dev/null 2>&1; then
+            echo "::error::${{ steps.compose.outputs.tag }} already exists; pick the next alpha number"
+            exit 1
+          fi
+
+  build:
+    name: build ${{ matrix.name }}
+    needs: tag
+    strategy:
+      fail-fast: false
+      matrix:
+        # Four entries, not three (TASK-040). `macos-latest` is Apple silicon,
+        # so every alpha this lane has ever cut was an arm64-only macOS
+        # release; an Intel Mac had nothing to download from it.
+        include:
+          - name: linux
+            os: ubuntu-latest
+          - name: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            arch: arm64
+          - name: macos-x86_64
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+            arch: x86_64
+          - name: windows
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target || '' }}
+      - uses: Swatinem/rust-cache@v2
+        timeout-minutes: 5
+        continue-on-error: true
+        with:
+          shared-key: ${{ matrix.name }}
+      - uses: ./.github/actions/linux-deps
+        if: matrix.os == 'ubuntu-latest'
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+
+      # Sets `$UPDATE_INFORMATION`, so the AppImage an alpha ships can be
+      # updated in place like any other. Linux only — see the action.
+      - uses: ./.github/actions/appimage-update-info
+        if: matrix.os == 'ubuntu-latest'
+
+      # `interim`: an alpha may fall back to an ad-hoc signature, and says so
+      # in its notes. Only gate 6's production lane refuses to build without a
+      # certificate.
+      - id: signing
+        uses: ./.github/actions/macos-signing
+        if: runner.os == 'macOS'
+        with:
+          lane: interim
+          certificate: ${{ secrets.APPLE_CERTIFICATE }}
+          certificate-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          apple-id: ${{ secrets.APPLE_ID }}
+          apple-password: ${{ secrets.APPLE_PASSWORD }}
+          apple-team-id: ${{ secrets.APPLE_TEAM_ID }}
+          signing-identity: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+
+      - run: bun run tauri build ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+        shell: bash
+        env:
+          # A release ships the terminal's multiplexer or does not ship (FEAT-130):
+          # without this, a download that failed would be a warning.
+          SPAGITTY_MULTIPLEXER_REQUIRED: 1
+          # What the update check compares itself against. Without it an alpha
+          # reports itself as a development build and can never say a newer
+          # release exists — which is what every alpha did until TASK-037.
+          SPAGITTY_RELEASE: ${{ needs.tag.outputs.tag }}
+
+      - uses: ./.github/actions/macos-verify
+        if: runner.os == 'macOS'
+        with:
+          policy: ${{ steps.signing.outputs.policy }}
+          notarized: ${{ steps.signing.outputs.notarized }}
+          architecture: ${{ matrix.arch }}
+
+      # Only the downloads, never the whole bundle tree. Attaching the tree is
+      # what killed the v0.2.0 release; the action carries the account of it.
+      # It also refuses an AppImage that came out without its update information.
+      - uses: ./.github/actions/release-assets
+        with:
+          suffix: ${{ runner.os == 'macOS' && matrix.name || '' }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workbench-alpha-${{ matrix.name }}
+          path: out/**
+          if-no-files-found: error
+
+  publish:
+    name: publish the alpha
+    needs: [tag, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      # The tag was worked out and checked in its own job before anything was
+      # built, because the build is stamped with it. Nothing here recomputes it:
+      # a second copy of that arithmetic is a second thing to get wrong.
+
+      # An alpha's notes are the changelog's Unreleased section — that is what
+      # an alpha is a preview of. Empty Unreleased, no alpha.
+      - name: Read the notes out of the changelog
+        run: |
+          bun tools/release-notes.mjs Unreleased CHANGELOG.workbench.md > notes.md
+          cat notes.md
+
+      # Checked before the tag is pushed, for the same reason gate 6 checks it:
+      # a release asset is keyed by its basename, and finding that out from
+      # GitHub's 422 after the push leaves an alpha number burnt with nothing
+      # published under it.
+      - name: The assets can actually be attached
+        id: assets
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find artifacts -type f | sort)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::the build uploaded no artifacts, so there is nothing to publish"
+            exit 1
+          fi
+          clashes=$(basename -a "${files[@]}" | sort | uniq -d)
+          if [ -n "$clashes" ]; then
+            echo "::error::these names appear more than once, and a release can hold each only once: $(echo $clashes | tr '\n' ' ')"
+            exit 1
+          fi
+          printf '%s\n' "${files[@]}"
+          echo "files=${files[*]}" >> "$GITHUB_OUTPUT"
+
+      # The runner has no git identity; an annotated tag needs one.
+      - name: Tag and publish as a pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ needs.tag.outputs.tag }}" -m "Workbench ${{ needs.tag.outputs.tag }}"
+          git push origin "${{ needs.tag.outputs.tag }}"
+          gh release create "${{ needs.tag.outputs.tag }}" \
+            --title "Workbench ${{ needs.tag.outputs.tag }}" \
+            --prerelease \
+            --notes-file notes.md \
+            ${{ steps.assets.outputs.files }}
