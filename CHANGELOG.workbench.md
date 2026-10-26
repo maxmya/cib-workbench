@@ -24,10 +24,20 @@ versions follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
   CIB-blue glow, rather than navy with sky-blue text. The app icon's plate is
   the same blue.
 
+### Changed (pipeline)
+
+- **Releases take about half as long.** The four checks run side by side, the
+  installers build while they run, and the Linux packages the builds need are
+  kept between runs instead of downloaded each time.
+
+### Removed
+
+- **The Intel Mac download.** macOS builds are for Apple silicon only.
+
 ### Downloads
 
-- **Windows, Linux and macOS**, as in 1.0.0. The Mac builds are signed ad hoc
-  and are not notarized: on first open macOS says the developer cannot be
+- **Windows, Linux and macOS on Apple silicon.** The Mac build is signed ad hoc
+  and is not notarized: on first open macOS says the developer cannot be
   verified. Allow it under **System Settings › Privacy & Security ›
   Open Anyway**, and macOS remembers the choice. If macOS says the app is
   **damaged** instead, compare the download with `SHA256SUMS-*.txt`.

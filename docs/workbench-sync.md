@@ -62,11 +62,17 @@ and agent prompts.
 ## Pipelines
 
 The GitHub workflows are Spagitty's six gates, run on this repository:
-`pull-request.yml` (gates 0–4 on a pull request), `gates.yml` (0–4 on a push
-to `main` or `dev`; 5 build and 6 release on `main` when the version is new),
+`pull-request.yml` (gates 1–4 on a pull request), `gates.yml` (0 scope, then
+1–4 beside 5 build on `main` when the version is new, and 6 release once all
+of them pass; it also runs by hand from the Actions tab),
 `prerelease.yml` (an alpha from `dev`, by hand) and `draft-release.yml` (a
 draft from a `draft/**` branch). Workbench's differences in them:
 
+- gates 1–4 run side by side, not in a chain, and gate 0 lives in `scope.yml`
+  so the build can start without waiting for them;
+- the Linux packages are cached (`.github/actions/linux-deps`), and Rust
+  caches are written only from `main`;
+- no Intel Mac build in any lane;
 - gate 2 checks `tools/make-workbench-icon.py` instead of Spagitty's
   `tools/make-icons.py`, and runs `node tools/brand-spdx.mjs --check`;
 - release notes come from `CHANGELOG.workbench.md`;
