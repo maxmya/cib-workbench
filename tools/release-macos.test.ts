@@ -70,10 +70,12 @@ describe('both Mac architectures are built, on runners that exist', () => {
 	 * job silently ships an arm64-only release and nothing reports a problem.
 	 * An Intel Mac simply has nothing to download.
 	 */
-	it.each(LANES)('%s builds Intel as well as Apple silicon', (lane) => {
+	// Workbench: Apple silicon only. The author dropped the Intel Mac build on
+	// 2026-10-26; `scripts/build-macos.sh intel` still builds one locally.
+	it.each(LANES)('%s builds Apple silicon, and no Intel Mac', (lane) => {
 		const text = read(lane);
-		expect(text, 'no x86_64 Darwin target').toContain('x86_64-apple-darwin');
 		expect(text, 'no aarch64 Darwin target').toContain('aarch64-apple-darwin');
+		expect(text, 'an Intel Mac runner is back').not.toContain('macos-15-intel');
 	});
 
 	/**
@@ -84,7 +86,7 @@ describe('both Mac architectures are built, on runners that exist', () => {
 	 */
 	it('gate 5 builds every platform, both Mac architectures included', () => {
 		const lane = runners(read('.github/workflows/gates.yml'));
-		expect(lane).toEqual(['ubuntu-latest', 'macos-latest', 'macos-15-intel', 'windows-latest']);
+		expect(lane).toEqual(['ubuntu-latest', 'macos-latest', 'windows-latest']);
 	});
 
 	/**

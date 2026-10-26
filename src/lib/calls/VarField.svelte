@@ -208,10 +208,23 @@
 </div>
 
 <style>
+	/*
+	 * The well is painted here, behind the mirror, never on the input. The
+	 * input's own letters are transparent and the mirror draws them; a filled
+	 * input covered the mirror, and the URL bar showed a selection with no
+	 * letters in it.
+	 */
 	.field {
 		position: relative;
 		min-width: 0;
 		flex: 1;
+		background: var(--sunken);
+		border-radius: var(--r-field);
+		transition: background-color var(--t-fast) var(--ease);
+	}
+
+	.field:focus-within {
+		background: color-mix(in srgb, var(--sunken) 82%, var(--accent) 4%);
 	}
 
 	.mirror,
@@ -269,6 +282,15 @@
 	input::placeholder,
 	textarea::placeholder {
 		color: var(--placeholder);
+	}
+
+	/* Transparent in every state: app.css fills a focused input, which would
+	   cover the mirror exactly while somebody is typing. */
+	input:hover,
+	textarea:hover,
+	input:focus,
+	textarea:focus {
+		background-color: transparent;
 	}
 
 	input:focus,

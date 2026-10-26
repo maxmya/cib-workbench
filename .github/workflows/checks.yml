@@ -1,8 +1,14 @@
 # SPDX-License-Identifier: MIT
 #
-# Gates 0 to 4, called by both lanes: gates.yml on a push to `main` or `dev`,
+# Gates 1 to 4, called by both lanes: gates.yml on a push to `main` or `dev`,
 # and pull-request.yml on a pull request into either. Kept in one file so the
 # two lanes cannot check different things.
+#
+# Workbench: the four gates run side by side rather than one after another, so
+# a run takes as long as its slowest job, not the sum of them (the author,
+# 2026-10-26). A failure still fails the run and still stops a release, which
+# needs every one of them; what is lost is only stopping the others early.
+# Gate 0 is scope.yml, which only the push lane needs.
 #
 # Gates 5 and 6 are not here. They only ever run on a push to `main`, and a
 # job that is skipped still shows in a pull request's checks — two grey
@@ -15,10 +21,6 @@ name: checks
 
 on:
   workflow_call:
-    outputs:
-      ship:
-        description: Whether the change ships in the application; gates 5 and 6 read it.
-        value: ${{ jobs.scope.outputs.ship }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -28,88 +30,10 @@ env:
   COVERAGE_FLOOR: 70
 
 jobs:
-  # --- Scope --------------------------------------------------------------
-  # Decide whether this change is something people download. Gates 5 and 6
-  # read the answer; gates 1 to 4 always run so a docs edit that breaks the
-  # brand check or the licence files still fails.
-  scope:
-    name: 0 · scope
-    runs-on: ubuntu-latest
-    outputs:
-      ship: ${{ steps.classify.outputs.ship }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Classify whether this change ships
-        id: classify
-        run: |
-          set -euo pipefail
-
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --no-tags origin "${{ github.base_ref }}"
-            range="origin/${{ github.base_ref }}...HEAD"
-          else
-            before="${{ github.event.before }}"
-            # A brand-new branch has no previous tip; treat it as shipping so
-            # the first push cannot slip past a release by accident.
-            if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
-              echo "ship=true" >> "$GITHUB_OUTPUT"
-              echo "no previous tip — treating as a shipping change"
-              exit 0
-            fi
-            range="$before...${{ github.sha }}"
-          fi
-
-          mapfile -t files < <(git diff --name-only "$range")
-          if [ "${#files[@]}" -eq 0 ]; then
-            echo "ship=false" >> "$GITHUB_OUTPUT"
-            echo "no files changed"
-            exit 0
-          fi
-
-          printf 'changed:\n'
-          printf '  %s\n' "${files[@]}"
-
-          ship=false
-          for f in "${files[@]}"; do
-            case "$f" in
-              src/*|src-tauri/*|crates/*|extensions/*|packages/extension-sdk/*|tools/extensions/*|schemas/extensions/*) ship=true ;;
-              # Workbench: the app bundles these (the icon, the fonts, CIB's images).
-              assets/brand/*|assets/fonts/*) ship=true ;;
-              package.json|Cargo.toml|Cargo.lock|bun.lock|bun.lockb) ship=true ;;
-              vite.config.ts|vite.config.js|svelte.config.js|svelte.config.ts|tsconfig.json) ship=true ;;
-              */Cargo.toml) ship=true ;;
-            esac
-          done
-
-          # A version whose tag already exists has been released. Gate 6
-          # refuses to move that tag, so running gates 5 and 6
-          # here only builds four platforms and then fails. Code merged
-          # without a version bump goes out with the next release, the same
-          # way documentation does. Gate 6 still refuses the tag in case this
-          # check is ever bypassed.
-          if [ "$ship" = true ] && [ "${{ github.event_name }}" = "push" ]; then
-            version=$(node -p "require('./package.json').version")
-            if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
-              echo "v$version is already released — gates 5 and 6 stay off until the version is bumped"
-              ship=false
-            fi
-          fi
-
-          echo "ship=$ship" >> "$GITHUB_OUTPUT"
-          if [ "$ship" = true ]; then
-            echo "shipping change — gates 5 and 6 will run on main"
-          else
-            echo "documentation / record / collateral only — gates 5 and 6 stay off"
-          fi
-
   # --- Gate 1 -------------------------------------------------------------
   # Cheapest and most certain first, so an obvious failure never burns a build.
   license:
     name: 1 · licenses
-    needs: scope
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -148,6 +72,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         timeout-minutes: 5
         continue-on-error: true
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Rust dependency licenses
         uses: EmbarkStudios/cargo-deny-action@v2
@@ -170,7 +96,6 @@ jobs:
   # --- Gate 2 -------------------------------------------------------------
   quality:
     name: 2 · code quality
-    needs: license
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -180,6 +105,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         timeout-minutes: 5
         continue-on-error: true
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: ./.github/actions/linux-deps
 
       - run: cargo fmt --all --check
@@ -221,7 +148,6 @@ jobs:
   # --- Gate 3 -------------------------------------------------------------
   tests:
     name: 3 · tests and coverage
-    needs: quality
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -231,6 +157,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         timeout-minutes: 5
         continue-on-error: true
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: ./.github/actions/linux-deps
 
@@ -256,7 +184,6 @@ jobs:
 
   farm_processes:
     name: 3 · farm processes (${{ matrix.os }})
-    needs: quality
     strategy:
       fail-fast: false
       matrix:
@@ -268,6 +195,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         timeout-minutes: 5
         continue-on-error: true
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: ./.github/actions/linux-deps
         if: matrix.os == 'ubuntu-latest'
       # The process tree moved to its own crate (FEAT-096), and the extension
@@ -284,7 +213,6 @@ jobs:
   # --- Gate 4 -------------------------------------------------------------
   security:
     name: 4 · security
-    needs: [tests, farm_processes]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -295,6 +223,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         timeout-minutes: 5
         continue-on-error: true
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Rust advisories
         uses: EmbarkStudios/cargo-deny-action@v2

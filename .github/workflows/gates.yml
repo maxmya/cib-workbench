@@ -17,6 +17,10 @@
 # .github/workflows/prerelease.yml.
 #
 # What each gate proves, and why it sits where it does, is in docs/ci.md.
+#
+# Workbench: gates 1 to 4 run side by side (checks.yml), gate 0 is scope.yml,
+# and gate 5 builds while they run. Gate 6 still needs every one of them, so a
+# failed check still means no release; docs/workbench-sync.md has the rest.
 
 name: gates
 
@@ -42,6 +46,9 @@ jobs:
   # --- Gates 0 to 4 -------------------------------------------------------
   # In checks.yml, shared with the pull request lane. Its `ship` output is
   # gate 0's answer, which gates 5 and 6 read.
+  scope:
+    uses: ./.github/workflows/scope.yml
+
   checks:
     uses: ./.github/workflows/checks.yml
 
@@ -52,10 +59,12 @@ jobs:
   # version is the wrong response to documentation.
   build:
     name: 5 · build
-    needs: checks
+    # Workbench: beside gates 1 to 4 rather than after them. Gate 6 still
+    # needs every check, so nothing built here is published unless they pass.
+    needs: scope
     if: >
       github.ref == 'refs/heads/main' &&
-      needs.checks.outputs.ship == 'true'
+      needs.scope.outputs.ship == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -76,10 +85,8 @@ jobs:
             os: macos-latest
             target: aarch64-apple-darwin
             arch: arm64
-          - name: macos-x86_64
-            os: macos-15-intel
-            target: x86_64-apple-darwin
-            arch: x86_64
+          # Workbench builds no Intel Mac: the author dropped it (2026-10-26),
+          # and its runner was the slowest job in the release.
           - name: windows
             os: windows-latest
     runs-on: ${{ matrix.os }}
@@ -188,10 +195,10 @@ jobs:
   # --- Gate 6 -------------------------------------------------------------
   release:
     name: 6 · release
-    needs: [build, checks]
+    needs: [scope, checks, build]
     if: >
       github.ref == 'refs/heads/main' &&
-      needs.checks.outputs.ship == 'true'
+      needs.scope.outputs.ship == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
