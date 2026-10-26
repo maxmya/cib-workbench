@@ -76,6 +76,8 @@ jobs:
           for f in "${files[@]}"; do
             case "$f" in
               src/*|src-tauri/*|crates/*|extensions/*|packages/extension-sdk/*|tools/extensions/*|schemas/extensions/*) ship=true ;;
+              # Workbench: the app bundles these (the icon, the fonts, CIB's images).
+              assets/brand/*|assets/fonts/*) ship=true ;;
               package.json|Cargo.toml|Cargo.lock|bun.lock|bun.lockb) ship=true ;;
               vite.config.ts|vite.config.js|svelte.config.js|svelte.config.ts|tsconfig.json) ship=true ;;
               */Cargo.toml) ship=true ;;

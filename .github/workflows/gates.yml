@@ -23,6 +23,11 @@ name: gates
 on:
   push:
     branches: [main, dev]
+  # Workbench: by hand from the Actions tab, for when a shipping push failed and
+  # its fix touched nothing that ships, so no later push would release it. Gate 0
+  # treats a run with no previous tip as shipping; gate 6 still refuses a tag
+  # that exists, so this cannot release a version twice.
+  workflow_dispatch:
 
 concurrency:
   group: gates-${{ github.ref }}
