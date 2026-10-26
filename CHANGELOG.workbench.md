@@ -26,6 +26,10 @@ versions follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- **The URL shows in Calls.** Its field was filled over the layer that draws
+  the text, so a typed or loaded URL showed as a selection with no letters.
+- **Fields and wells are not black holes in Night.** They are a shade under
+  the pane instead of mixed toward black.
 - **Settings › Calls lines up.** Cards in a row are now the same height; each
   stopped at its own content, so the rows looked scattered.
 

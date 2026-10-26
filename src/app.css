@@ -432,7 +432,12 @@
 :root[data-theme='dark'] {
 	--surface: color-mix(in srgb, var(--panel) 92%, var(--ink) 10%);
 	--surface-2: color-mix(in srgb, var(--panel) 86%, var(--ink) 16%);
-	--sunken: color-mix(in srgb, var(--panel) 84%, #000);
+	/*
+	 * Workbench: a field is a shade under the pane, not a hole. Mixed toward
+	 * black from a black theme's panel it was near-pure black, and every field
+	 * and response well read as a dark slab (the author, 2026-10-26).
+	 */
+	--sunken: color-mix(in srgb, var(--bg) 96%, var(--ink) 4%);
 
 	--umbra: #000;
 

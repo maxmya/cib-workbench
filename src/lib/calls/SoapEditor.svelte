@@ -363,10 +363,6 @@
 		font-weight: normal;
 	}
 
-	.line :global(input) {
-		background: var(--sunken);
-	}
-
 	.curl {
 		flex: none;
 		padding: 6px 10px;
