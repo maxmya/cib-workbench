@@ -14,7 +14,10 @@ versions follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
-Workbench 1.0.0, based on Spagitty 4.0.1.
+## [1.0.0] - 2026-10-26
+
+The first Workbench, based on Spagitty 4.0.1. INTERNAL USE ONLY: in
+development and provided as is.
 
 ### Added
 
@@ -46,3 +49,15 @@ Workbench 1.0.0, based on Spagitty 4.0.1.
 - The update check. Workbench comes through CIB's internal software channel
   and asks nobody for a newer release.
 - God mode from Settings.
+
+
+### Downloads
+
+- **Windows, Linux and macOS** (Apple silicon `*-macos-arm64.dmg` and Intel
+  `*-macos-x86_64.dmg`), each with its terminal multiplexer. The Windows builds
+  are unsigned, so SmartScreen warns. The Mac builds are signed ad hoc and are
+  not notarized: on first open macOS says the developer cannot be verified.
+  Open the app once from the right-click **Open** menu, or allow it under
+  **System Settings › Privacy & Security › Open Anyway**, and macOS remembers
+  the choice. If macOS says the app is **damaged** instead, compare the
+  download with `SHA256SUMS-*.txt` and download it again if it differs.

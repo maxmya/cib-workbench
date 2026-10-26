@@ -126,10 +126,9 @@ describe('every lane decides a signing policy before it builds', () => {
 	 */
 	it('gate 5 signs ad hoc only with notes that say so', () => {
 		expect(read('.github/workflows/gates.yml')).toMatch(/lane: interim/);
-		// Workbench: `CHANGELOG.md` is Spagitty's, so its notes are for the
-		// Spagitty release this build is based on, not Workbench's own number.
-		const version = read('src/lib/brand.ts').match(/version: '([^']+)'/)![1];
-		const notes = sectionFor(read('CHANGELOG.md'), version) ?? '';
+		// Workbench: its releases take their notes from its own changelog.
+		const version = JSON.parse(read('package.json')).version;
+		const notes = sectionFor(read('CHANGELOG.workbench.md'), version) ?? '';
 		expect(notes, `the ${version} notes do not say the Mac build is not notarized`).toMatch(
 			/not notarized/i
 		);
