@@ -81,15 +81,15 @@
 
 :root {
 	--bg: #ffffff;
-	--panel: #f3f6fa;
-	--ink: #0b1a30;
-	--muted: #51607a;
-	--line: rgba(11, 26, 48, 0.18);
-	--soft: rgba(11, 26, 48, 0.07);
-	--placeholder: rgba(11, 26, 48, 0.34);
-	--accent: #1858a8;
-	--selection: rgba(24, 88, 168, 0.12);
-	--stripe: rgba(11, 26, 48, 0.035);
+	--panel: #f2f3f5;
+	--ink: #16181b;
+	--muted: #5d6168;
+	--line: rgba(22, 24, 27, 0.16);
+	--soft: rgba(22, 24, 27, 0.07);
+	--placeholder: rgba(22, 24, 27, 0.34);
+	--accent: #0c529a;
+	--selection: rgba(12, 82, 154, 0.12);
+	--stripe: rgba(22, 24, 27, 0.035);
 
 	/*
 	 * What a result means, said in colour.
@@ -105,7 +105,7 @@
 	--warn: #9a6200;
 	--ok: #1f7a4d;
 
-	--lane-1: #1858a8;
+	--lane-1: #0c529a;
 	--lane-2: #1f7a4d;
 	--lane-3: #9a6200;
 	--lane-4: #6a55b8;
@@ -249,7 +249,7 @@
 	/* Contrast-safe text on top of a filled accent surface. */
 	--on-accent: #ffffff;
 	/* Workbench: the filled primary button only. CIB blue in both modes. */
-	--primary: #1858a8;
+	--primary: #0c529a;
 	--on-primary: #ffffff;
 }
 
@@ -258,12 +258,12 @@
 	--side-b: #f0a64a;
 	/* The agent's mint, lighter on a dark ground (2.0). */
 	--agent: #86e3d2;
-	--bg: #0b1a30;
-	--panel: #071426;
-	--ink: #e7edf6;
-	--muted: rgba(231, 237, 246, 0.62);
-	--line: rgba(231, 237, 246, 0.18);
-	--soft: rgba(231, 237, 246, 0.08);
+	--bg: #111214;
+	--panel: #0b0b0c;
+	--ink: #eceef1;
+	--muted: rgba(236, 238, 241, 0.62);
+	--line: rgba(236, 238, 241, 0.16);
+	--soft: rgba(236, 238, 241, 0.07);
 
 	/*
 	 * Dark reverses which half does the work. The edge has to be *lighter* than
@@ -291,18 +291,18 @@
 	 * becoming a rule.
 	 */
 	--shadow-edge: rgba(205, 214, 244, 0.11);
-	--placeholder: rgba(231, 237, 246, 0.32);
-	--accent: #7dade8;
-	--selection: rgba(125, 173, 232, 0.18);
-	--stripe: rgba(231, 237, 246, 0.04);
-	--on-accent: #06142a;
-	--primary: #1858a8;
+	--placeholder: rgba(236, 238, 241, 0.32);
+	--accent: #4d8fd6;
+	--selection: rgba(77, 143, 214, 0.2);
+	--stripe: rgba(236, 238, 241, 0.035);
+	--on-accent: #05070a;
+	--primary: #0c529a;
 	--on-primary: #ffffff;
 	--danger: #ec6a82;
 	--warn: #d8b25e;
 	--ok: #6fc59a;
 
-	--lane-1: #7dade8;
+	--lane-1: #4d8fd6;
 	--lane-2: #6fc59a;
 	--lane-3: #d8b25e;
 	--lane-4: #a99cdb;
@@ -830,7 +830,7 @@ a {
 :root {
 	--environment:
 		radial-gradient(120% 90% at 8% -10%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 60%),
-		radial-gradient(90% 80% at 100% 110%, color-mix(in srgb, var(--lane-5) 7%, transparent), transparent 62%),
+		radial-gradient(90% 80% at 100% 110%, color-mix(in srgb, var(--primary) 6%, transparent), transparent 62%),
 		radial-gradient(70% 60% at 60% 40%, color-mix(in srgb, var(--accent) 3%, transparent), transparent 70%),
 		var(--panel);
 	--pane-edge: color-mix(in srgb, var(--line) 55%, transparent);
@@ -857,8 +857,8 @@ a {
 :root[data-theme='dark'] {
 	--environment:
 		radial-gradient(120% 90% at 8% -10%, color-mix(in srgb, var(--primary) 32%, transparent), transparent 60%),
-		radial-gradient(90% 80% at 100% 110%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 62%),
-		radial-gradient(70% 60% at 60% 40%, color-mix(in srgb, var(--lane-4) 9%, transparent), transparent 70%),
+		radial-gradient(90% 80% at 100% 110%, color-mix(in srgb, var(--primary) 16%, transparent), transparent 62%),
+		radial-gradient(70% 60% at 60% 40%, color-mix(in srgb, var(--primary) 6%, transparent), transparent 70%),
 		color-mix(in srgb, var(--panel) 82%, #000);
 	--pane-edge: color-mix(in srgb, #fff 9%, transparent);
 	--pane-shadow:

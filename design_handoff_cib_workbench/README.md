@@ -4,11 +4,14 @@
 
 These override the mockups and `WORKBENCH_PLAN.md` wherever they disagree.
 
-- **CIB blue is `#1858A8`**, not `#005BAB`. It is the colour CIB's own site names
-  `primary-blue` (`.txt-primary-blue`, `.bg-primary-blue` in cibeg.com's
-  `main.en.css`). Every `#005BAB` and `rgba(0,91,171,…)` in the mockups means
-  `#1858A8` / `rgba(24,88,168,…)`. Night's accent is a light tint of the same hue,
-  not the sky blue `#6CB4F0`.
+- **CIB blue is `#0C529A`**, the plate of CIB's own logo lockups (the author's
+  Business Banking lockup), not `#005BAB` and not the web blue `#1858A8`. Every
+  `#005BAB` and `rgba(0,91,171,…)` in the mockups means `#0C529A` /
+  `rgba(12,82,154,…)`.
+- **Night is black, not navy.** Surfaces are neutral near-black (`#111214`, the
+  ground `#0B0B0C`) with neutral text, and the only colour in the ground is a soft
+  CIB-blue ambient glow. Night's text accent is `#4D8FD6`, CIB blue lifted until
+  it reads on black, not the sky blue `#6CB4F0`. Day is neutral greys too.
 - **The globe in W🌐rkbench is a lowercase o.** The mockups size it to the capital
   W and stand it on the baseline, so it reads as a capital. It is as tall as the
   lowercase letters, with the small overshoot round letters have above and below.

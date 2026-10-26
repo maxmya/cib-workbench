@@ -90,22 +90,22 @@ export interface Family {
  */
 const GIORNO: Palette = {
 	bg: '#ffffff',
-	panel: '#f3f6fa',
-	ink: '#0b1a30',
-	muted: '#51607a',
-	line: 'rgba(11, 26, 48, 0.18)',
-	soft: 'rgba(11, 26, 48, 0.07)',
-	placeholder: 'rgba(11, 26, 48, 0.34)',
-	accent: '#1858a8',
+	panel: '#f2f3f5',
+	ink: '#16181b',
+	muted: '#5d6168',
+	line: 'rgba(22, 24, 27, 0.16)',
+	soft: 'rgba(22, 24, 27, 0.07)',
+	placeholder: 'rgba(22, 24, 27, 0.34)',
+	accent: '#0c529a',
 	onAccent: '#ffffff',
-	primary: '#1858a8',
+	primary: '#0c529a',
 	onPrimary: '#ffffff',
 	danger: '#b4234a',
 	warn: '#9a6200',
 	ok: '#1f7a4d',
-	selection: 'rgba(24, 88, 168, 0.12)',
-	stripe: 'rgba(11, 26, 48, 0.035)',
-	lanes: ['#1858a8', '#1f7a4d', '#9a6200', '#6a55b8', '#0e7c72']
+	selection: 'rgba(12, 82, 154, 0.12)',
+	stripe: 'rgba(22, 24, 27, 0.035)',
+	lanes: ['#0c529a', '#1f7a4d', '#9a6200', '#6a55b8', '#0e7c72']
 };
 
 /**
@@ -116,23 +116,23 @@ const GIORNO: Palette = {
  * day. The ink is a little dimmer and the ground a little lighter and greyer.
  */
 const NOTTE: Palette = {
-	bg: '#0b1a30',
-	panel: '#071426',
-	ink: '#e7edf6',
-	muted: 'rgba(231, 237, 246, 0.62)',
-	line: 'rgba(231, 237, 246, 0.18)',
-	soft: 'rgba(231, 237, 246, 0.08)',
-	placeholder: 'rgba(231, 237, 246, 0.32)',
-	accent: '#7dade8',
-	onAccent: '#06142a',
-	primary: '#1858a8',
+	bg: '#111214',
+	panel: '#0b0b0c',
+	ink: '#eceef1',
+	muted: 'rgba(236, 238, 241, 0.62)',
+	line: 'rgba(236, 238, 241, 0.16)',
+	soft: 'rgba(236, 238, 241, 0.07)',
+	placeholder: 'rgba(236, 238, 241, 0.32)',
+	accent: '#4d8fd6',
+	onAccent: '#05070a',
+	primary: '#0c529a',
 	onPrimary: '#ffffff',
 	danger: '#ec6a82',
 	warn: '#d8b25e',
 	ok: '#6fc59a',
-	selection: 'rgba(125, 173, 232, 0.18)',
-	stripe: 'rgba(231, 237, 246, 0.04)',
-	lanes: ['#7dade8', '#6fc59a', '#d8b25e', '#a99cdb', '#5bbfb5']
+	selection: 'rgba(77, 143, 214, 0.2)',
+	stripe: 'rgba(236, 238, 241, 0.035)',
+	lanes: ['#4d8fd6', '#6fc59a', '#d8b25e', '#a99cdb', '#5bbfb5']
 };
 
 /** The families Settings could offer; one, now (TASK-051). */

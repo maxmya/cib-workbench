@@ -31,7 +31,8 @@ Rules:
   never redrawn, recoloured or cropped, and the logo for a mode is picked by
   file (`cib-logo-color.png` on light, `cib-logo-reversed.png` on dark), never
   by a CSS filter.
-- **CIB blue is `#1858A8`**, the colour cibeg.com names `primary-blue`. CIB
+- **CIB blue is `#0C529A`**, the plate of CIB's logo lockups. Night is black
+  with a CIB-blue ambient, never navy; text stays neutral in both modes. CIB
   orange (`#F58420` on cibeg.com) appears only inside CIB's own images.
 - **The app icon is not CIB's app icon.** The globe alone on CIB blue is CIB's
   mobile-app icon, so Workbench's carries a white tools badge (a wrench and a

@@ -4,7 +4,7 @@
 
 Workbench's icon is CIB's round globe (`assets/brand/cib/cib-globe-round.png`,
 CIB's own file, never redrawn, recoloured or covered) on a plate of CIB's
-primary blue, #1858A8 — the colour cibeg.com names `primary-blue` — with a
+blue, #0C529A — the plate of CIB's own logo lockups — with a
 white tools badge at the bottom right: a wrench crossed with a screwdriver.
 
 The badge is what makes it a developer tool rather than the bank: the globe
@@ -40,8 +40,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CIB = ROOT / "assets" / "brand" / "cib"
 GLOBE = CIB / "cib-globe-round.png"
 
-# CIB's primary blue, from cibeg.com's own stylesheet (`.bg-primary-blue`).
-PLATE = (0x18, 0x58, 0xA8, 255)
+# CIB blue, the plate of CIB's logo lockups.
+PLATE = (0x0C, 0x52, 0x9A, 255)
 BADGE = (255, 255, 255, 255)
 
 # Fractions of the plate. The handoff's corner: radius 39 on a 168 plate.
