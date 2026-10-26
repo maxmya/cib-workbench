@@ -486,11 +486,16 @@
 		color: var(--danger);
 	}
 
+	/*
+	 * Cards in a row share its height. `align-items: start` let each card stop
+	 * at its own content while the row ran to the tallest one, so the short
+	 * cards ended at different heights and the grid read as scattered boxes.
+	 */
 	.groups {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
 		gap: 12px;
-		align-items: start;
+		align-items: stretch;
 	}
 
 	.group {

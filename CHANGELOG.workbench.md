@@ -24,6 +24,11 @@ versions follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
   CIB-blue glow, rather than navy with sky-blue text. The app icon's plate is
   the same blue.
 
+### Fixed
+
+- **Settings › Calls lines up.** Cards in a row are now the same height; each
+  stopped at its own content, so the rows looked scattered.
+
 ### Changed (pipeline)
 
 - **Releases take about half as long.** The four checks run side by side, the
