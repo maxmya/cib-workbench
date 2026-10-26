@@ -23,7 +23,7 @@ Writes:
 Then run `bun tauri icon assets/brand/cib/workbench-icon-1024.png -o src-tauri/icons`.
 
     python3 tools/make-workbench-icon.py           # writes the files
-    python3 tools/make-workbench-icon.py --check   # verifies the committed files match
+    python3 tools/make-workbench-icon.py --check   # verifies the committed pixels match
 
 Requires Pillow.
 """
@@ -34,7 +34,7 @@ import io
 import pathlib
 import sys
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CIB = ROOT / "assets" / "brand" / "cib"
@@ -125,22 +125,38 @@ def png(image: Image.Image) -> bytes:
     return out.getvalue()
 
 
-def outputs() -> dict[pathlib.Path, bytes]:
+def outputs() -> dict[pathlib.Path, Image.Image]:
     return {
-        CIB / "workbench-icon-1024.png": png(render(1024)),
-        CIB / "workbench-icon-64.png": png(render(64)),
+        CIB / "workbench-icon-1024.png": render(1024),
+        CIB / "workbench-icon-64.png": render(64),
     }
+
+
+# How far a channel may differ between this machine's drawing and the file's.
+# The check compares pixels, not bytes: Pillow's wheels compress PNGs
+# differently on Windows and Linux, so the same drawing is not the same file.
+TOLERANCE = 2
+
+
+def matches(path: pathlib.Path, image: Image.Image) -> bool:
+    if not path.exists():
+        return False
+    committed = Image.open(path).convert("RGBA")
+    if committed.size != image.size:
+        return False
+    diff = ImageChops.difference(committed, image).getextrema()
+    return all(high <= TOLERANCE for _, high in diff)
 
 
 def main(argv: list[str]) -> int:
     check = "--check" in argv
     stale = []
-    for path, data in outputs().items():
+    for path, image in outputs().items():
         if check:
-            if not path.exists() or path.read_bytes() != data:
+            if not matches(path, image):
                 stale.append(path.relative_to(ROOT).as_posix())
         else:
-            path.write_bytes(data)
+            path.write_bytes(png(image))
             print(path.relative_to(ROOT).as_posix())
     if stale:
         print("out of date, run python3 tools/make-workbench-icon.py:", *stale, sep="\n  ")
