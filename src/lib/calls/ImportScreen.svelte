@@ -6,7 +6,11 @@
 	import { goto } from '$app/navigation';
 	import * as appApi from '$lib/api';
 	import { repo } from '$lib/repo.svelte';
+	import { settings } from '$lib/settings/store.svelte';
 	import EmptyState from '$lib/ui/EmptyState.svelte';
+	import Loader from '$lib/ui/Loader.svelte';
+	import type { Scope } from './api';
+	import ScopeSwitch from './ScopeSwitch.svelte';
 	import { CODE_KINDS, importer, type Filter } from './import.svelte';
 	import { methodColour } from './model';
 	import { calls } from './store.svelte';
@@ -65,17 +69,27 @@
 		if (wsdlUrl && (await importer.importWsdlUrl(wsdlUrl))) wsdlUrl = null;
 	}
 
+	/** Where what is brought in goes (FEAT-170): the same choice as Calls' own. */
+	const wanted = $derived<Scope>(settings.settings.callsScope ?? 'repository');
+	const scope = $derived(importer.scope);
+
 	$effect(() => {
 		const path = info?.path ?? null;
+		const next = wanted;
 		void repo.generation;
 		untrack(() => {
-			if (!path || !appApi.inTauri()) return;
+			if (!appApi.inTauri()) return;
 			void (async () => {
-				if (!calls.loaded) await calls.load(path);
-				await importer.load(path);
+				await calls.load(path, next);
+				await importer.load(path, calls.scope);
 			})();
 		});
 	});
+
+	function chooseScope(next: Scope) {
+		if (next === 'repository' && !info) return;
+		void settings.choose('callsScope', next);
+	}
 
 	/** The endpoints shown, by source and then by group, in order. */
 	const groups = $derived.by(() => {
@@ -150,9 +164,7 @@
 	</button>
 {/snippet}
 
-{#if !info}
-	<div class="screen"><EmptyState message="Open a repository to import calls into it." /></div>
-{:else}
+<!-- With no repository open, Import brings calls into Workbench (FEAT-170). -->
 	<div class="screen">
 		<header class="head">
 			<nav class="crumbs" aria-label="Where you are">
@@ -160,17 +172,30 @@
 				<span class="sep" aria-hidden="true">›</span>
 				<span>Import</span>
 			</nav>
+			<span class="into note">into</span>
+			<ScopeSwitch {scope} repository={info?.name ?? null} onchoose={chooseScope} label="Where calls are brought in" />
 			<span class="gap"></span>
-			{#if importer.scanning}
-				<span class="note" role="status">Reading files… {importer.scanning.files.toLocaleString()}</span>
-				<button type="button" class="act" onclick={() => importer.cancel()}>Cancel</button>
-			{:else}
-				<button type="button" class="act" onclick={() => importer.scan()}>{found ? 'Scan again' : 'Scan the code'}</button>
+			{#if importer.reading}
+				<!-- BUG-105: reading a collection takes a moment, and says so. -->
+				<span class="note reading" role="status"><Loader size="inline" label={importer.reading} />{importer.reading}</span>
+			{/if}
+			{#if scope === 'repository'}
+				{#if importer.scanning}
+					<span class="note reading" role="status"
+						><Loader size="inline" label="Reading files" />Reading files… {importer.scanning.files.toLocaleString()}</span
+					>
+					<button type="button" class="act" onclick={() => importer.cancel()}>Cancel</button>
+				{:else}
+					<button type="button" class="act" onclick={() => importer.scan()}>{found ? 'Scan again' : 'Scan the code'}</button>
+				{/if}
 			{/if}
 			<button type="button" class="act" onclick={() => goto('/calls')}>Done</button>
 		</header>
 		{#if importer.error}
 			<p class="error" role="alert">{importer.error}</p>
+		{/if}
+		{#if importer.lastRead}
+			<p class="read" role="status">{importer.lastRead}</p>
 		{/if}
 
 		<div class="body">
@@ -180,31 +205,42 @@
 					<span class="count">{found?.endpoints.length ?? 0}</span>
 				</button>
 
-				<h3>Scan the code</h3>
-				{#each code as source (source.id)}
-					{@render sourceRow(source)}
+				{#if scope === 'repository'}
+					<h3>Scan the code</h3>
+					{#each code as source (source.id)}
+						{@render sourceRow(source)}
+					{:else}
+						<p class="hint">
+							{found
+								? 'No Spring, JAX-RS, NestJS, SOAP or OpenAPI endpoints found.'
+								: 'Reads Spring, JAX-RS and NestJS controllers, JAX-WS and Spring-WS services, WSDL and OpenAPI files. Nothing is built or run.'}
+						</p>
+					{/each}
+
+					<h3>Collection files in this repository</h3>
+					{#each files as source (source.id)}
+						{@render sourceRow(source)}
+					{:else}
+						<p class="hint">{found ? 'None found.' : 'Postman, Insomnia, Bruno, .http and HAR files are found by the scan.'}</p>
+					{/each}
 				{:else}
 					<p class="hint">
-						{found
-							? 'No Spring, JAX-RS, NestJS, SOAP or OpenAPI endpoints found.'
-							: 'Reads Spring, JAX-RS and NestJS controllers, JAX-WS and Spring-WS services, WSDL and OpenAPI files. Nothing is built or run.'}
+						Into {PRODUCT_NAME}: for every repository, and never committed. To scan a repository's code, open it
+						and bring the calls into the repository.
 					</p>
-				{/each}
-
-				<h3>Collection files in this repository</h3>
-				{#each files as source (source.id)}
-					{@render sourceRow(source)}
-				{:else}
-					<p class="hint">{found ? 'None found.' : 'Postman, Insomnia, Bruno, .http and HAR files are found by the scan.'}</p>
-				{/each}
+				{/if}
 
 				<h3>From outside</h3>
 				{#each outside as source (source.id)}
 					{@render sourceRow(source)}
 				{/each}
-				<button type="button" class="add" onclick={chooseFile}>Choose a file…</button>
-				<button type="button" class="add" onclick={chooseFolder} title="A Bruno collection's folder"
-					>Choose a Bruno folder…</button
+				<button type="button" class="add" disabled={importer.reading !== null} onclick={chooseFile}>Choose a file…</button>
+				<button
+					type="button"
+					class="add"
+					disabled={importer.reading !== null}
+					onclick={chooseFolder}
+					title="A Bruno collection's folder">Choose a Bruno folder…</button
 				>
 				{#if pasting}
 					<textarea
@@ -298,13 +334,18 @@
 							{/each}
 						</section>
 					{:else}
-						<EmptyState
-							message={importer.scanning
-								? 'Reading the working tree…'
-								: found
+						{#if importer.reading || importer.scanning}
+							<!-- BUG-105: the list says it is filling, not that it is empty. -->
+							<Loader label={importer.reading ?? 'Reading the working tree…'} />
+						{:else}
+							<EmptyState
+								message={found
 									? 'Nothing here with these filters.'
-									: 'Scan the code, or choose a file, to find endpoints to bring in.'}
-						/>
+									: scope === 'repository'
+										? 'Scan the code, or choose a file, to find endpoints to bring in.'
+										: 'Choose a file, a Bruno folder or a WSDL, or paste a cURL command, to find calls to bring in.'}
+							/>
+						{/if}
 					{/each}
 				</div>
 			</main>
@@ -404,12 +445,13 @@
 					<p class="hint mono">{found.baseUrl}</p>
 				{/if}
 				<span class="grow"></span>
-				<button type="button" class="go" disabled={!ready} onclick={() => importer.bringIn()}>{target}</button>
+				<button type="button" class="go" disabled={!ready} aria-busy={importer.bringing} onclick={() => importer.bringIn()}
+					>{#if importer.bringing}<Loader size="inline" label="Bringing them in" /> Bringing them in…{:else}{target}{/if}</button
+				>
 				<p class="hint">A changed call gains its new fields and loses the old ones; what you typed stays.</p>
 			</aside>
 		</div>
 	</div>
-{/if}
 
 <style>
 	.screen {
@@ -418,6 +460,33 @@
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
+	}
+
+	.into {
+		margin-left: 6px;
+	}
+
+	.reading {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	/* What the last read found, and what to do next (BUG-105). */
+	.read {
+		margin: 0 16px 8px;
+		padding: 8px 12px;
+		border-radius: var(--r-button);
+		background: color-mix(in srgb, var(--ok) 12%, transparent);
+		color: var(--ink);
+		font-size: var(--fs-secondary);
+	}
+
+	.go {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
 	}
 
 	.head {

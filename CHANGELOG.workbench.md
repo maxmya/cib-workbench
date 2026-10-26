@@ -14,6 +14,55 @@ versions follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-26
+
+### Added
+
+- **Calls without a repository.** Collections can be kept in the repository,
+  beside the code, or in Workbench for every repository. The switch is in
+  Calls' head, on Import and in Settings › Calls; with no repository open,
+  Calls works Workbench-wide. Open calls, environments and history are kept
+  for each place (FEAT-170).
+- **Hooks you can read.** With Husky, lefthook or pre-commit in charge, the
+  Hooks tab shows every script they run, coloured, with *Explain* (an agent
+  you allow says what it does) and *Edit*. Scripts are coloured in Settings ›
+  Hooks too, and the screen says in a line what Runs and Hooks are for
+  (FEAT-171).
+- **Open on All repositories.** An option in Settings › Behaviour, off by
+  default, starts Workbench with nothing open (FEAT-172).
+
+### Changed
+
+- **The rail in groups.** Repository, Collaboration, Workspace, History and
+  Tools, each below a line you can see with the rail closed (FEAT-169).
+- **The launch screen stays two seconds,** so it can be read. A click or a key
+  skips it once the repository is open (FEAT-168).
+- **git's failures in plain words.** A refused push, pull, fetch, stash or
+  switch says what went wrong and what to do; git's own lines are behind
+  *Show git's output*. The toolbar says *Push failed · why?* instead of git's
+  whole text (BUG-107).
+
+### Fixed
+
+- **Closing a tab shows the next repository.** The closed one stayed loaded
+  behind it until you changed screens (BUG-102).
+- **Nerd Font icons draw in the Terminal.** Prompt icons were boxes; a symbols
+  font is bundled behind the code face (BUG-103).
+- **Review's controls line up with the toolbar,** and keep their width
+  whatever the file is called (BUG-104).
+- **Importing into Calls says it is reading,** then how many calls came and
+  what to do next (BUG-105).
+- **A Calls collection can be hidden or deleted** from its `⋯` menu
+  (BUG-106).
+
+### Downloads
+
+- **Windows, Linux and macOS on Apple silicon.** The Mac build is signed ad hoc
+  and is not notarized: on first open macOS says the developer cannot be
+  verified. Allow it under **System Settings › Privacy & Security ›
+  Open Anyway**, and macOS remembers the choice. If macOS says the app is
+  **damaged** instead, compare the download with `SHA256SUMS-*.txt`.
+
 ## [1.0.1] - 2026-10-26
 
 ### Changed

@@ -92,6 +92,7 @@ const DEFAULTS: Settings = {
 	confirmHistoryRewrite: true,
 	showGitCommands: false,
 	pruneOnFetch: false,
+	openOnRepositories: false,
 	fetchAvatars: true,
 	personality: 'off',
 	sound: 'off',

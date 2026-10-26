@@ -86,6 +86,49 @@ fn data<R: Runtime>(app: &AppHandle<R>, repo: &Path) -> Result<PathBuf> {
         .join(format!("{:016x}", fnv(repo.to_string_lossy().as_bytes()))))
 }
 
+/// Where a collection lives (FEAT-170): beside the open repository's code,
+/// or Workbench-wide, kept in application data and there whichever
+/// repository is open, or none.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Scope {
+    #[default]
+    Repository,
+    Global,
+}
+
+/// The Workbench-wide calls: a folder laid out as a repository's working
+/// tree is, so a collection, an environment, the open calls and history are
+/// kept the same way in both.
+fn global_root<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("calls")
+        .join("global");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+fn is_global<R: Runtime>(app: &AppHandle<R>, root: &Path) -> bool {
+    global_root(app).is_ok_and(|global| global == root)
+}
+
+/// The root `scope`'s calls are under: the open repository, or the
+/// Workbench-wide folder, which needs no repository open.
+fn root<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &State<'_, AppState>,
+    scope: Option<Scope>,
+    command: &'static str,
+) -> Result<PathBuf> {
+    match scope.unwrap_or_default() {
+        Scope::Repository => state.open_path(command).map_err(|e| e.to_string()),
+        Scope::Global => global_root(app),
+    }
+}
+
 /// The person's Settings › Calls with the repository's overrides laid over
 /// them, and the calls folder those settings name.
 fn place<R: Runtime>(
@@ -93,6 +136,12 @@ fn place<R: Runtime>(
     repo: &Path,
 ) -> Result<(Folder, CallsSettings, Vec<String>)> {
     let mine = settings::load(app).calls;
+    // Workbench-wide calls are always in the same place: the folder setting
+    // is where a *repository* keeps them, and changing it must not hide them.
+    if is_global(app, repo) {
+        let folder = Folder::new(repo, "").map_err(|e| e.to_string())?;
+        return Ok((folder, mine, Vec::new()));
+    }
     // The overrides are in the folder the person's settings name, so they are
     // read from there; an override of the folder itself then moves it.
     let first = Folder::new(repo, &mine.folder).map_err(|e| e.to_string())?;
@@ -120,6 +169,9 @@ pub struct PersonState {
     /// Collections drawn closed, by stem.
     pub collapsed: Vec<String>,
     pub filter: String,
+    /// Collections taken off the list without deleting their files, by
+    /// stem (BUG-106). *Show hidden* brings them back.
+    pub hidden: Vec<String>,
 }
 
 fn read_state(dir: &Path) -> PersonState {
@@ -154,8 +206,12 @@ pub struct Loaded {
 }
 
 #[tauri::command(async)]
-pub fn calls_load<R: Runtime>(app: AppHandle<R>, state: State<'_, AppState>) -> Result<Loaded> {
-    let repo = state.open_path("calls_load").map_err(|e| e.to_string())?;
+pub fn calls_load<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+    scope: Option<Scope>,
+) -> Result<Loaded> {
+    let repo = root(&app, &state, scope, "calls_load")?;
     let (folder, settings, overridden) = place(&app, &repo)?;
     let dir = data(&app, &repo)?;
     let (shared, shared_error) = match folder.shared() {
@@ -193,13 +249,12 @@ fn today(entries: &[Entry]) -> usize {
 pub fn calls_save_collection<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+    scope: Option<Scope>,
     collection: Collection,
     stem: Option<String>,
     was: Option<String>,
 ) -> Result<String> {
-    let repo = state
-        .open_path("calls_save_collection")
-        .map_err(|e| e.to_string())?;
+    let repo = root(&app, &state, scope, "calls_save_collection")?;
     let (folder, _, _) = place(&app, &repo)?;
     folder
         .write_collection(&collection, stem.as_deref(), was.as_deref())
@@ -210,11 +265,10 @@ pub fn calls_save_collection<R: Runtime>(
 pub fn calls_delete_collection<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+    scope: Option<Scope>,
     stem: String,
 ) -> Result<()> {
-    let repo = state
-        .open_path("calls_delete_collection")
-        .map_err(|e| e.to_string())?;
+    let repo = root(&app, &state, scope, "calls_delete_collection")?;
     let (folder, _, _) = place(&app, &repo)?;
     folder.delete_collection(&stem).map_err(|e| e.to_string())
 }
@@ -223,11 +277,10 @@ pub fn calls_delete_collection<R: Runtime>(
 pub fn calls_save_state<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+    scope: Option<Scope>,
     person: PersonState,
 ) -> Result<()> {
-    let repo = state
-        .open_path("calls_save_state")
-        .map_err(|e| e.to_string())?;
+    let repo = root(&app, &state, scope, "calls_save_state")?;
     write_state(&data(&app, &repo)?, &person)
 }
 
@@ -357,10 +410,11 @@ fn secured(call: &Call, scope: &spagitty_core::calls::vars::Scope) -> Result<Opt
 pub fn calls_send<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+    scope: Option<Scope>,
     calls: State<'_, CallsState>,
     ask: SendAsk,
 ) -> Result<()> {
-    let repo = state.open_path("calls_send").map_err(|e| e.to_string())?;
+    let repo = root(&app, &state, scope, "calls_send")?;
     let (folder, settings, _) = place(&app, &repo)?;
 
     let environment = match &ask.environment {
@@ -632,10 +686,9 @@ pub fn calls_save_body(calls: State<'_, CallsState>, send_id: String, path: Stri
 pub fn calls_history<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+    scope: Option<Scope>,
 ) -> Result<Vec<Entry>> {
-    let repo = state
-        .open_path("calls_history")
-        .map_err(|e| e.to_string())?;
+    let repo = root(&app, &state, scope, "calls_history")?;
     Ok(History::new(&data(&app, &repo)?.join("history")).list())
 }
 
@@ -644,11 +697,10 @@ pub fn calls_history<R: Runtime>(
 pub fn calls_history_body<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+    scope: Option<Scope>,
     id: String,
 ) -> Result<Option<String>> {
-    let repo = state
-        .open_path("calls_history_body")
-        .map_err(|e| e.to_string())?;
+    let repo = root(&app, &state, scope, "calls_history_body")?;
     Ok(History::new(&data(&app, &repo)?.join("history"))
         .body(&id)
         .map(|bytes| String::from_utf8_lossy(&bytes).into_owned()))
@@ -658,10 +710,9 @@ pub fn calls_history_body<R: Runtime>(
 pub fn calls_history_clear<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+    scope: Option<Scope>,
 ) -> Result<()> {
-    let repo = state
-        .open_path("calls_history_clear")
-        .map_err(|e| e.to_string())?;
+    let repo = root(&app, &state, scope, "calls_history_clear")?;
     History::new(&data(&app, &repo)?.join("history"))
         .clear()
         .map_err(|e| e.to_string())
@@ -814,10 +865,9 @@ fn record_kept<R: Runtime>(
 pub fn calls_environments<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+    scope: Option<Scope>,
 ) -> Result<Environments> {
-    let repo = state
-        .open_path("calls_environments")
-        .map_err(|e| e.to_string())?;
+    let repo = root(&app, &state, scope, "calls_environments")?;
     let (folder, _, _) = place(&app, &repo)?;
     Ok(environments_of(&folder))
 }
@@ -829,13 +879,12 @@ pub fn calls_environments<R: Runtime>(
 pub fn calls_save_environment<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+    scope: Option<Scope>,
     environment: Environment,
     was: Option<String>,
     copy_from: Option<String>,
 ) -> Result<Environments> {
-    let repo = state
-        .open_path("calls_save_environment")
-        .map_err(|e| e.to_string())?;
+    let repo = root(&app, &state, scope, "calls_save_environment")?;
     let (folder, _, _) = place(&app, &repo)?;
     folder
         .write_environment(&environment, was.as_deref())
@@ -859,11 +908,10 @@ pub fn calls_save_environment<R: Runtime>(
 pub fn calls_delete_environment<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+    scope: Option<Scope>,
     stem: String,
 ) -> Result<Environments> {
-    let repo = state
-        .open_path("calls_delete_environment")
-        .map_err(|e| e.to_string())?;
+    let repo = root(&app, &state, scope, "calls_delete_environment")?;
     let (folder, _, _) = place(&app, &repo)?;
     folder
         .delete_environment(&stem)
@@ -880,11 +928,10 @@ pub fn calls_delete_environment<R: Runtime>(
 pub fn calls_save_shared<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+    scope: Option<Scope>,
     shared: Shared,
 ) -> Result<Environments> {
-    let repo = state
-        .open_path("calls_save_shared")
-        .map_err(|e| e.to_string())?;
+    let repo = root(&app, &state, scope, "calls_save_shared")?;
     let (folder, _, _) = place(&app, &repo)?;
     folder.write_shared(&shared).map_err(|e| e.to_string())?;
     Ok(environments_of(&folder))
@@ -915,11 +962,10 @@ pub struct Private {
 pub fn calls_private<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+    scope: Option<Scope>,
     environment: Option<String>,
 ) -> Result<Private> {
-    let repo = state
-        .open_path("calls_private")
-        .map_err(|e| e.to_string())?;
+    let repo = root(&app, &state, scope, "calls_private")?;
     let (folder, _, _) = place(&app, &repo)?;
     let vars = vars_of(&folder, environment.as_deref())?;
     // An environment with nothing private never asks the keychain, so a
@@ -954,12 +1000,14 @@ pub fn calls_private<R: Runtime>(
 
 /// One secret's value, while the eye is held on Environments.
 #[tauri::command(async)]
-pub fn calls_reveal(
+pub fn calls_reveal<R: Runtime>(
+    app: AppHandle<R>,
     state: State<'_, AppState>,
+    scope: Option<Scope>,
     environment: Option<String>,
     name: String,
 ) -> Result<Option<String>> {
-    let repo = state.open_path("calls_reveal").map_err(|e| e.to_string())?;
+    let repo = root(&app, &state, scope, "calls_reveal")?;
     Ok(
         vault::values(&Keychain, &repo_key(&repo), environment.as_deref())
             .map_err(|e| e.to_string())?
@@ -970,15 +1018,15 @@ pub fn calls_reveal(
 
 /// Set a secret's value, or remove it with `None`.
 #[tauri::command(async)]
-pub fn calls_set_private(
+pub fn calls_set_private<R: Runtime>(
+    app: AppHandle<R>,
     state: State<'_, AppState>,
+    scope: Option<Scope>,
     environment: Option<String>,
     name: String,
     value: Option<String>,
 ) -> Result<()> {
-    let repo = state
-        .open_path("calls_set_private")
-        .map_err(|e| e.to_string())?;
+    let repo = root(&app, &state, scope, "calls_set_private")?;
     vault::set(
         &Keychain,
         &repo_key(&repo),
@@ -1009,9 +1057,10 @@ pub struct KeepAsk {
 pub fn calls_keep<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+    scope: Option<Scope>,
     ask: KeepAsk,
 ) -> Result<Environments> {
-    let repo = state.open_path("calls_keep").map_err(|e| e.to_string())?;
+    let repo = root(&app, &state, scope, "calls_keep")?;
     let var = ask.var.trim();
     if var.is_empty() || var.contains(['{', '}']) || var.chars().any(char::is_whitespace) {
         return Err(format!("{var:?} cannot be a variable's name"));
@@ -1049,12 +1098,11 @@ pub fn calls_keep<R: Runtime>(
 pub fn calls_forget_kept<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+    scope: Option<Scope>,
     environment: Option<String>,
     name: String,
 ) -> Result<Environments> {
-    let repo = state
-        .open_path("calls_forget_kept")
-        .map_err(|e| e.to_string())?;
+    let repo = root(&app, &state, scope, "calls_forget_kept")?;
     let (folder, _, _) = place(&app, &repo)?;
     vault::set(
         &Keychain,
@@ -1278,9 +1326,10 @@ pub fn calls_scan_cancel(imports: State<'_, ImportState>, scan_id: String) -> Re
 pub fn calls_found<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+    scope: Option<Scope>,
     imports: State<'_, ImportState>,
 ) -> Result<Option<Found>> {
-    let repo = state.open_path("calls_found").map_err(|e| e.to_string())?;
+    let repo = root(&app, &state, scope, "calls_found")?;
     let held = imports
         .found
         .lock()
@@ -1320,11 +1369,10 @@ pub fn calls_found_files<R: Runtime>(
 pub fn calls_import_file<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+    scope: Option<Scope>,
     path: String,
 ) -> Result<Found> {
-    let repo = state
-        .open_path("calls_import_file")
-        .map_err(|e| e.to_string())?;
+    let repo = root(&app, &state, scope, "calls_import_file")?;
     let path = PathBuf::from(&path);
     // A Postman environment is an environment, not calls: it goes in at once.
     if let Some((environment, secrets)) =
@@ -1346,11 +1394,10 @@ pub fn calls_import_file<R: Runtime>(
 pub fn calls_import_text<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+    scope: Option<Scope>,
     text: String,
 ) -> Result<Found> {
-    let repo = state
-        .open_path("calls_import_text")
-        .map_err(|e| e.to_string())?;
+    let repo = root(&app, &state, scope, "calls_import_text")?;
     let found = scan::read_text(&text).map_err(|e| e.to_string())?;
     add_found(&app, &repo, found)
 }
@@ -1414,12 +1461,11 @@ pub struct BroughtIn {
 pub fn calls_bring_in<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+    scope: Option<Scope>,
     imports: State<'_, ImportState>,
     ask: BringAsk,
 ) -> Result<BroughtIn> {
-    let repo = state
-        .open_path("calls_bring_in")
-        .map_err(|e| e.to_string())?;
+    let repo = root(&app, &state, scope, "calls_bring_in")?;
     let (folder, _, _) = place(&app, &repo)?;
     let mut found = imports
         .found
@@ -1619,11 +1665,10 @@ pub fn calls_rebuild(state: State<'_, AppState>, ask: RebuildAsk) -> Result<(Str
 pub fn calls_import_wsdl_url<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+    scope: Option<Scope>,
     url: String,
 ) -> Result<Found> {
-    let repo = state
-        .open_path("calls_import_wsdl_url")
-        .map_err(|e| e.to_string())?;
+    let repo = root(&app, &state, scope, "calls_import_wsdl_url")?;
     let (_, settings, _) = place(&app, &repo)?;
     let url = url.trim().to_string();
     if !url.starts_with("http://") && !url.starts_with("https://") {
@@ -1816,11 +1861,10 @@ fn share_files<R: Runtime>(
 pub fn calls_share_plan<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+    scope: Option<Scope>,
     ask: ShareAsk,
 ) -> Result<SharePlan> {
-    let repo = state
-        .open_path("calls_share_plan")
-        .map_err(|e| e.to_string())?;
+    let repo = root(&app, &state, scope, "calls_share_plan")?;
     let (folder, _, _) = place(&app, &repo)?;
     let (_, files) = share_files(&app, &repo, &folder, &ask)?;
     let total = if ask.format == "zip" {
@@ -1846,12 +1890,16 @@ pub fn calls_share_plan<R: Runtime>(
 pub fn calls_share<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+    scope: Option<Scope>,
     ask: ShareAsk,
 ) -> Result<String> {
-    let repo = state.open_path("calls_share").map_err(|e| e.to_string())?;
+    let repo = root(&app, &state, scope, "calls_share")?;
     let (folder, _, _) = place(&app, &repo)?;
     let (collection, files) = share_files(&app, &repo, &folder, &ask)?;
     match ask.format.as_str() {
+        "commit" if is_global(&app, &repo) => Err(
+            "A Workbench-wide collection is in no repository, so it cannot be committed. Save it as a file or a zip.".into(),
+        ),
         "commit" => {
             for (path, bytes) in &files {
                 let full = repo.join(path);
@@ -1902,9 +1950,10 @@ pub struct CurlAsk {
 pub fn calls_curl<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+    scope: Option<Scope>,
     ask: CurlAsk,
 ) -> Result<String> {
-    let repo = state.open_path("calls_curl").map_err(|e| e.to_string())?;
+    let repo = root(&app, &state, scope, "calls_curl")?;
     let (folder, settings, _) = place(&app, &repo)?;
     let environment = ask.environment.as_deref().and_then(|stem| {
         folder
@@ -1961,4 +2010,43 @@ pub fn calls_curl<R: Runtime>(
 #[tauri::command]
 pub fn calls_curl_parse(text: String) -> Result<curl::Pasted> {
     curl::parse_noting(&text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// FEAT-170: the screen names a scope in the words it uses.
+    #[test]
+    fn a_scope_is_named_as_the_screen_names_it() {
+        assert_eq!(
+            serde_json::to_string(&Scope::Global).expect("serialising"),
+            "\"global\""
+        );
+        let read: Scope = serde_json::from_str("\"repository\"").expect("reading");
+        assert_eq!(read, Scope::Repository);
+        assert_eq!(Scope::default(), Scope::Repository);
+    }
+
+    /// BUG-106: a state written before collections could be hidden still reads.
+    #[test]
+    fn an_older_state_reads_with_nothing_hidden() {
+        let state: PersonState =
+            serde_json::from_str(r#"{"active": "staging", "collapsed": ["c:orders"]}"#)
+                .expect("reading");
+        assert_eq!(state.active.as_deref(), Some("staging"));
+        assert!(state.hidden.is_empty());
+    }
+
+    #[test]
+    fn hidden_collections_are_kept() {
+        let dir = std::env::temp_dir().join(format!("spagitty-calls-state-{}", std::process::id()));
+        let state = PersonState {
+            hidden: vec!["orders-api".to_string()],
+            ..PersonState::default()
+        };
+        write_state(&dir, &state).expect("writing");
+        assert_eq!(read_state(&dir), state);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

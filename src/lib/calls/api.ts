@@ -30,26 +30,48 @@ import type {
 	WsdlView
 } from './types';
 
+/**
+ * Where the collections on screen live (FEAT-170): beside the open
+ * repository's code, or Workbench-wide, in application data, there with any
+ * repository open or none.
+ */
+export type Scope = 'repository' | 'global';
+
+/**
+ * The scope every command below reads and writes. Set by the store when the
+ * screen switches, so no caller can write one scope's collection into the
+ * other's folder by passing the wrong word.
+ */
+let scope: Scope = 'repository';
+
+export function setScope(next: Scope): void {
+	scope = next;
+}
+
+export function currentScope(): Scope {
+	return scope;
+}
+
 /** A piece of an event stream, as it arrived. */
 export const CHUNK_EVENT = 'calls-chunk';
 /** A send ended: answered, failed or cancelled. */
 export const DONE_EVENT = 'calls-done';
 
 export function load(): Promise<Loaded> {
-	return invoke('calls_load');
+	return invoke('calls_load', { scope });
 }
 
 /** Save a collection; answers with the file stem it was written under. */
 export function saveCollection(collection: Collection, stem: string | null, was: string | null): Promise<string> {
-	return invoke('calls_save_collection', { collection, stem, was });
+	return invoke('calls_save_collection', { scope, collection, stem, was });
 }
 
 export function deleteCollection(stem: string): Promise<void> {
-	return invoke('calls_delete_collection', { stem });
+	return invoke('calls_delete_collection', { scope, stem });
 }
 
 export function saveState(person: PersonState): Promise<void> {
-	return invoke('calls_save_state', { person });
+	return invoke('calls_save_state', { scope, person });
 }
 
 /**
@@ -57,7 +79,7 @@ export function saveState(person: PersonState): Promise<void> {
  * variable has no value; otherwise the answer is a `calls-done` event.
  */
 export function send(ask: { sendId: string; stem: string | null; call: Call; environment: string | null }): Promise<void> {
-	return invoke('calls_send', { ask });
+	return invoke('calls_send', { scope, ask });
 }
 
 export function cancel(sendId: string): Promise<void> {
@@ -70,15 +92,15 @@ export function saveBody(sendId: string, path: string): Promise<void> {
 }
 
 export function history(): Promise<HistoryEntry[]> {
-	return invoke('calls_history');
+	return invoke('calls_history', { scope });
 }
 
 export function historyBody(id: string): Promise<string | null> {
-	return invoke('calls_history_body', { id });
+	return invoke('calls_history_body', { scope, id });
 }
 
 export function clearHistory(): Promise<void> {
-	return invoke('calls_history_clear');
+	return invoke('calls_history_clear', { scope });
 }
 
 // --- Settings › Calls (FEAT-165) ---
@@ -113,13 +135,13 @@ export function rebuild(ask: {
 }
 
 export function importWsdlUrl(url: string): Promise<Found> {
-	return invoke('calls_import_wsdl_url', { url });
+	return invoke('calls_import_wsdl_url', { scope, url });
 }
 
 // --- Environments, secrets and kept values (FEAT-161) ---
 
 export function environments(): Promise<Environments> {
-	return invoke('calls_environments');
+	return invoke('calls_environments', { scope });
 }
 
 /**
@@ -131,30 +153,30 @@ export function saveEnvironment(
 	was: string | null,
 	copyFrom: string | null = null
 ): Promise<Environments> {
-	return invoke('calls_save_environment', { environment, was, copyFrom });
+	return invoke('calls_save_environment', { scope, environment, was, copyFrom });
 }
 
 export function deleteEnvironment(stem: string): Promise<Environments> {
-	return invoke('calls_delete_environment', { stem });
+	return invoke('calls_delete_environment', { scope, stem });
 }
 
 export function saveShared(shared: Shared): Promise<Environments> {
-	return invoke('calls_save_shared', { shared });
+	return invoke('calls_save_shared', { scope, shared });
 }
 
 /** An environment's kept values, and which secrets have a value; `null` is the shared variables. */
 export function privateOf(environment: string | null): Promise<Private> {
-	return invoke('calls_private', { environment });
+	return invoke('calls_private', { scope, environment });
 }
 
 /** One secret's value, while the eye is held. */
 export function reveal(environment: string | null, name: string): Promise<string | null> {
-	return invoke('calls_reveal', { environment, name });
+	return invoke('calls_reveal', { scope, environment, name });
 }
 
 /** Set a secret's value, or remove it with `null`. */
 export function setPrivate(environment: string | null, name: string, value: string | null): Promise<void> {
-	return invoke('calls_set_private', { environment, name, value });
+	return invoke('calls_set_private', { scope, environment, name, value });
 }
 
 export function keep(ask: {
@@ -166,11 +188,11 @@ export function keep(ask: {
 	method: string;
 	from: string;
 }): Promise<Environments> {
-	return invoke('calls_keep', { ask });
+	return invoke('calls_keep', { scope, ask });
 }
 
 export function forgetKept(environment: string | null, name: string): Promise<Environments> {
-	return invoke('calls_forget_kept', { environment, name });
+	return invoke('calls_forget_kept', { scope, environment, name });
 }
 
 // --- Import (FEAT-162) ---
@@ -191,7 +213,7 @@ export function cancelScan(scanId: string): Promise<void> {
 
 /** What the last scan found, marked against the collections as they are now. */
 export function found(): Promise<Found | null> {
-	return invoke('calls_found');
+	return invoke('calls_found', { scope });
 }
 
 /** The collection files in the repository, read without the code: opened in place. */
@@ -200,11 +222,11 @@ export function foundFiles(): Promise<Found> {
 }
 
 export function importFile(path: string): Promise<Found> {
-	return invoke('calls_import_file', { path });
+	return invoke('calls_import_file', { scope, path });
 }
 
 export function importText(text: string): Promise<Found> {
-	return invoke('calls_import_text', { text });
+	return invoke('calls_import_text', { scope, text });
 }
 
 export function bringIn(ask: {
@@ -214,7 +236,7 @@ export function bringIn(ask: {
 	choices: Choices;
 	serverAddress: boolean;
 }): Promise<BroughtIn> {
-	return invoke('calls_bring_in', { ask });
+	return invoke('calls_bring_in', { scope, ask });
 }
 
 // --- cURL (FEAT-166) ---
@@ -227,7 +249,7 @@ export function curl(ask: {
 	quoting: Quoting;
 	secrets: boolean;
 }): Promise<string> {
-	return invoke('calls_curl', { ask });
+	return invoke('calls_curl', { scope, ask });
 }
 
 export function curlParse(text: string): Promise<Pasted> {
@@ -238,10 +260,10 @@ export function curlParse(text: string): Promise<Pasted> {
 
 /** What a share would write, with sizes. */
 export function sharePlan(ask: ShareAsk): Promise<SharePlan> {
-	return invoke('calls_share_plan', { ask });
+	return invoke('calls_share_plan', { scope, ask });
 }
 
 /** Write the file or zip to `ask.path`, or commit; answers with the path or the commit's id. */
 export function share(ask: ShareAsk): Promise<string> {
-	return invoke('calls_share', { ask });
+	return invoke('calls_share', { scope, ask });
 }

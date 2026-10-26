@@ -7,6 +7,7 @@
 	import { sortable, type SortState } from '$lib/ui/sortable';
 	import BlockEditor from './BlockEditor.svelte';
 	import HookRuns from './HookRuns.svelte';
+	import ManagedHooks from './ManagedHooks.svelte';
 	import { builder } from './builder.svelte';
 	import { CATALOGUE, STAGES, type Stage } from './builder-types';
 	import { MANAGER_LABEL } from './store.svelte';
@@ -66,14 +67,41 @@
 	{#if builder.loading}<Loader label="Reading hooks…" />
 	{:else if !data || !draft}<EmptyState message={builder.errors.load || 'Open a repository to see and build its hooks.'} />
 	{:else}
+		<!--
+			FEAT-171: what this screen is, in a line, under its tabs. The author
+			found it hard to tell what Runs and Hooks were for.
+		-->
+		<p class="lead">
+			{#if mode === 'runs'}
+				Hooks are scripts git runs when you commit or push. <strong>Runs</strong> lists every time they ran here, each step,
+				and what it printed.
+			{:else if builder.readonly}
+				Hooks are scripts git runs when you commit or push. <strong>Hooks</strong> shows what this repository's run, and
+				explains or edits them.
+			{:else}
+				Hooks are scripts git runs when you commit or push. Build them here from blocks; <strong>Save &amp; install</strong>
+				writes them for this clone, and <strong>Share with repo</strong> commits the definition for everyone.
+			{/if}
+		</p>
 		{#if data.info.manager !== 'git' || builder.imported}
-			<div class="manager"><span>{builder.imported ? 'Commands imported. The original manager still owns the installed hooks until Save & install.' : `${MANAGER_LABEL[data.info.manager]} manages this repository’s hooks. Runs are available; the builder is read-only.`}</span><Btn disabled={builder.imported} onclick={() => builder.importManager()}>Import</Btn></div>
+			{@const manager = MANAGER_LABEL[data.info.manager]}
+			<div class="manager">
+				<span
+					>{#if builder.imported}Commands imported as blocks. {manager} still runs the installed hooks until you
+						<strong>Save &amp; install</strong>.{:else}<strong>{manager}</strong> runs this repository's hooks, from files
+						committed with the code. {mode === 'runs'
+							? 'Their runs are recorded here.'
+							: 'What it runs is below.'} To build them from blocks here instead, import them.{/if}</span
+				>
+				<Btn disabled={builder.imported} onclick={() => builder.importManager()}>Import as blocks</Btn>
+			</div>
 		{:else if draft.blocks.length > 0 && !data.installed}
 			<div class="manager"><span>This definition is saved but is not installed for this clone.</span><Btn disabled={builder.saving} onclick={() => builder.save()}>Install hooks</Btn></div>
 		{/if}
 		<div class="body">
 			{#if mode === 'runs'}<HookRuns />
 			{:else}
+				{#if builder.readonly}<ManagedHooks />{:else}
 				<aside class="stack" aria-label="Hook stages">
 					{#each STAGES as stage (stage)}
 						<section class="stage" aria-label={stage} use:sortable={sorting}>
@@ -88,7 +116,7 @@
 					{/each}
 					<span class="grow"></span><p class="note hint">Order runs top to bottom · drag to reorder</p>
 				</aside>
-				<BlockEditor />
+				<BlockEditor />{/if}
 				<aside class="catalogue" aria-label="Hook block catalogue"><span class="label">Add</span>{#each CATALOGUE as item (item.kind)}<button class="catalogue-block" disabled={builder.saving || draft.blocks.length >= 100} title={builder.readonly ? `Import the current hooks to add “${item.label}”` : item.detail} onclick={() => addBlock(item.kind)}><span class="catalogue-title"><span class="square" style:--tone={item.tone}></span><strong>{item.label}</strong></span><span class="note">{item.detail}</span></button>{/each}<span class="grow"></span>{#if data.info.config}<Btn onclick={() => builder.importManager()}>Import {data.info.config.path}</Btn>{/if}</aside>
 			{/if}
 		</div>
@@ -108,6 +136,8 @@
 	.share { display: flex; align-items: center; gap: 7px; white-space: nowrap; font-size: var(--fs-secondary); }
 	input[type='checkbox'] { accent-color: var(--ok); }
 	.head select { max-width: 120px; font-size: var(--fs-secondary); }
+	.lead { margin: 0 16px 10px; max-width: 90ch; color: var(--muted); font-size: var(--fs-secondary); line-height: 1.5; }
+	.lead strong, .manager strong { color: var(--ink); font-weight: 600; }
 	.manager { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 12px 10px; padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--r-button); font-size: var(--fs-secondary); color: var(--muted); }
 	.body { display: flex; flex: 1; min-height: 0; gap: 10px; padding: 0 12px 12px; }
 	.stack, .catalogue { width: 270px; flex: none; min-height: 0; overflow: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--pane-edge); border-radius: var(--r-panel); background: var(--surface); }

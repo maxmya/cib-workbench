@@ -34,6 +34,13 @@
 			<div class="text">
 				<span class="title">{current.title}</span>
 				{#if current.detail}<span class="note detail">{current.detail}</span>{/if}
+				<!-- git's own lines, for whoever wants them (BUG-107). -->
+				{#if current.output}
+					<details class="output">
+						<summary class="note">Show git's output</summary>
+						<pre class="mono">{current.output}</pre>
+					</details>
+				{/if}
 			</div>
 			<button class="close" aria-label="Dismiss" onclick={() => notice.dismiss()}>
 				<Icon name="close" size="0.9em" weight={2} />
@@ -100,6 +107,25 @@
 
 	/* Selectable and wrapped: git's message is often the thing worth copying. */
 	.detail {
+		white-space: pre-wrap;
+		word-break: break-word;
+		user-select: text;
+	}
+
+	.output summary {
+		cursor: pointer;
+		width: fit-content;
+	}
+
+	/* A page of git's output scrolls in the toast rather than growing it. */
+	.output pre {
+		margin: 6px 0 0;
+		max-height: 180px;
+		overflow: auto;
+		padding: 8px 10px;
+		border-radius: 10px;
+		background: var(--sunken);
+		font-size: var(--fs-mono);
 		white-space: pre-wrap;
 		word-break: break-word;
 		user-select: text;

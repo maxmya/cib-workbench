@@ -20,6 +20,8 @@
 	import type { MenuItem } from '$lib/ui/menu';
 	import { repo } from '$lib/repo.svelte';
 	import { settings } from '$lib/settings/store.svelte';
+	import { explainGitError } from '$lib/ui/git-error';
+	import { notice } from '$lib/ui/notice.svelte';
 
 	const head = $derived(repo.info?.head ?? null);
 
@@ -299,6 +301,18 @@
 	]);
 </script>
 
+<!--
+	What failed, in two words; the why on hover, and the notice that says it
+	in full and what to do, on a click (BUG-107).
+-->
+{#snippet failed(label: string, headline: string, error: string)}
+	<span class="note error" role="alert"
+		><button class="failed" title={explainGitError(error).why ?? error} onclick={() => notice.failed(headline, error)}
+			>{label} · why?</button
+		></span
+	>
+{/snippet}
+
 {#if branchMenu}
 	<BranchMenu
 		x={branchMenu.x}
@@ -385,19 +399,21 @@
 			worst outcome this control has.
 		-->
 		{#if branches.writeError}
-			<span class="note error" role="alert" title={branches.writeError}>{branches.writeError}</span>
+			{@render failed('Switch failed', 'Could not switch branch', branches.writeError)}
 		{/if}
 
 		<!--
-			A fetch or push that failed, in git's own words (FEAT-018), beside
-			the location: it is about the repository. One that worked is said
-			in a notice and then gone (BUG-091); its line used to stay here,
-			hashes and all, until the next one replaced it.
+			A fetch or push that failed, beside the location: it is about the
+			repository. One that worked is said in a notice and then gone
+			(BUG-091). It used to be git's whole text, run together on one line
+			across the bar; now it names what failed, and a click says why and
+			what to do (BUG-107).
 		-->
 		{#if activity.running}
 			<!-- Said over the pill while it runs: see `.working`. -->
 		{:else if network.error}
-			<span class="note error" role="alert" title={network.error}>{network.error}</span>
+			{@const verb = network.operation === 'push' ? 'Push' : 'Fetch'}
+			{@render failed(`${verb} failed`, `Could not ${verb.toLowerCase()}`, network.error)}
 		{/if}
 	</div>
 
@@ -576,6 +592,17 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.failed {
+		color: inherit;
+		padding: 2px 10px;
+		border-radius: var(--r-pill);
+		background: color-mix(in srgb, var(--danger) 12%, transparent);
+	}
+
+	.failed:hover {
+		background: color-mix(in srgb, var(--danger) 20%, transparent);
 	}
 
 	/*

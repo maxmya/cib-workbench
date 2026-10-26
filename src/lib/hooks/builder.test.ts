@@ -7,7 +7,7 @@ import { makeBlock, steps, type Builder, type Run } from './builder-types';
 const listeners: (() => void)[] = [];
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(async (_name: string, callback: () => void) => { listeners.push(callback); return vi.fn(); }) }));
 vi.mock('$app/navigation', () => ({ goto: vi.fn(async () => {}) }));
-vi.mock('./builder-api', () => ({ load: vi.fn(), save: vi.fn(async () => {}), importManager: vi.fn(), matches: vi.fn(async () => ['a.txt']), runs: vi.fn(async () => []), run: vi.fn(), log: vi.fn(async () => 'checking\n'), dryRun: vi.fn(async () => ({ passed: true, output: '' })), tryMessage: vi.fn(async () => ({ passed: false, output: 'The subject does not match.' })), stop: vi.fn(async () => {}), undoRestage: vi.fn(async () => {}) }));
+vi.mock('./builder-api', () => ({ load: vi.fn(), save: vi.fn(async () => {}), importManager: vi.fn(), matches: vi.fn(async () => ['a.txt']), runs: vi.fn(async () => []), run: vi.fn(), log: vi.fn(async () => 'checking\n'), dryRun: vi.fn(async () => ({ passed: true, output: '' })), tryMessage: vi.fn(async () => ({ passed: false, output: 'The subject does not match.' })), stop: vi.fn(async () => {}), undoRestage: vi.fn(async () => {}), agents: vi.fn(async () => [{ id: 'claude', name: 'Claude Code' }]), explain: vi.fn(async () => ({ agent: 'Claude Code', text: 'Runs lint-staged on what is staged.' })), write: vi.fn(async () => {}) }));
 
 import * as api from './builder-api';
 import { builder } from './builder.svelte';
@@ -136,4 +136,58 @@ it('leaves later blocks queued only while the run can still reach them', () => {
 	expect(steps(run)[1].state).toBe('queued');
 	run.exit = 2;
 	expect(steps(run)[1]).toEqual(expect.objectContaining({ state: 'skipped', why: 'an earlier block stopped the run' }));
+});
+
+/** FEAT-171: what a manager runs is on the screen, explained on request, and editable. */
+describe('hooks a manager runs', () => {
+	const husky = (): Builder => {
+		const managed = definition();
+		managed.info.manager = 'husky';
+		managed.info.hooks = [{ name: 'pre-commit', path: '.husky/pre-commit', script: 'npx lint-staged\n', truncated: false, onCommit: true }];
+		return managed;
+	};
+	const button = (view: { all: (selector: string) => Element[] }, text: string) =>
+		view.all('button').find((found) => found.textContent?.trim() === text) as HTMLButtonElement;
+
+	it('shows each script, coloured, and says who runs them', async () => {
+		vi.mocked(api.load).mockImplementation(async () => husky());
+		await builder.load('/repo');
+		const view = render(HooksScreen, { mode: 'edit' });
+		flushSync();
+
+		expect(view.text()).toContain('What Husky runs');
+		expect(view.text()).toContain('.husky/pre-commit');
+		expect(view.all('.script .line')).toHaveLength(1);
+		expect(view.text()).not.toContain('the builder is read-only');
+		view.destroy();
+	});
+
+	it('asks an agent what a script does, and shows the answer under it', async () => {
+		vi.mocked(api.load).mockImplementation(async () => husky());
+		await builder.load('/repo');
+		const view = render(HooksScreen, { mode: 'edit' });
+		click(button(view, 'Explain'));
+		await settle(); await settle(); flushSync();
+
+		expect(api.explain).toHaveBeenCalledWith('.husky/pre-commit', 'claude');
+		expect(view.get('.explained').textContent).toContain('Runs lint-staged on what is staged.');
+		view.destroy();
+	});
+
+	it('edits a script in place and reads the hooks again', async () => {
+		vi.mocked(api.load).mockImplementation(async () => husky());
+		await builder.load('/repo');
+		const view = render(HooksScreen, { mode: 'edit' });
+		click(button(view, 'Edit'));
+		flushSync();
+		const area = view.get('textarea[aria-label="Edit .husky/pre-commit"]') as HTMLTextAreaElement;
+		area.value = 'npx lint-staged\nnpm test\n';
+		fire(area, 'input');
+		click(button(view, 'Save'));
+		await settle(); await settle(); flushSync();
+
+		expect(api.write).toHaveBeenCalledWith('.husky/pre-commit', 'npx lint-staged\nnpm test\n');
+		expect(api.load).toHaveBeenCalledTimes(2);
+		view.destroy();
+	});
 });

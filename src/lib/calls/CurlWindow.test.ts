@@ -13,6 +13,8 @@ const { notice } = vi.hoisted(() => ({ notice: { ok: vi.fn(), failed: vi.fn() } 
 
 vi.mock('$lib/ui/notice.svelte', () => ({ notice, describe: (error: unknown) => String(error) }));
 vi.mock('./api', () => ({
+	setScope: vi.fn(),
+	currentScope: vi.fn(() => 'repository'),
 	curl: vi.fn(async (ask: { quoting: string; secrets: boolean }) =>
 		ask.secrets ? `curl -u 'mira:hunter2' (${ask.quoting})` : `curl -u 'mira:{{password}}' (${ask.quoting})`
 	),

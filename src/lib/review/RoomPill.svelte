@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script lang="ts">
 	import Icon from '$lib/ui/Icon.svelte';
+	import { centreOffset } from './pill';
 	import { room } from './room.svelte';
 
 	/**
@@ -25,9 +26,36 @@
 		if (file && viewed) void room.setViewed(file.path, false);
 		else void room.viewedNext();
 	}
+
+	/**
+	 * Onto the window's centre line, over the toolbar, as far as the column
+	 * allows (BUG-104). Measured again whenever the column or the window
+	 * changes size: the panes either side are dragged.
+	 */
+	let pill = $state<HTMLElement | null>(null);
+	let shift = $state(0);
+
+	$effect(() => {
+		const element = pill;
+		const column = element?.parentElement;
+		if (!element || !column) return;
+		const measure = () => {
+			const box = column.getBoundingClientRect();
+			shift = centreOffset(box, window.innerWidth, element.offsetWidth);
+		};
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(column);
+		observer.observe(element);
+		window.addEventListener('resize', measure);
+		return () => {
+			observer.disconnect();
+			window.removeEventListener('resize', measure);
+		};
+	});
 </script>
 
-<div class="pill ornament" role="toolbar" aria-label="Review controls">
+<div class="pill ornament" role="toolbar" aria-label="Review controls" bind:this={pill} style:--shift={`${shift}px`}>
 	<span class="group">
 		<button class="tool icon" aria-label="Previous file" onclick={() => room.step(-1)}>
 			<Icon name="chevron-left" size="1.1em" weight={1.9} />
@@ -118,6 +146,7 @@
 		border-radius: 26px;
 		white-space: nowrap;
 		z-index: 2;
+		transform: translateX(var(--shift, 0px));
 	}
 
 	.group {
@@ -155,12 +184,15 @@
 		justify-content: center;
 	}
 
+	/* One width whatever the file is called (BUG-104): a long name is cut, a
+	   short one leaves room, and the buttons either side never move. */
 	.where {
 		display: flex;
 		flex-direction: column;
 		line-height: 1.15;
 		flex: none;
-		max-width: 150px;
+		width: 150px;
+		min-width: 0;
 	}
 
 	.name {
@@ -199,6 +231,13 @@
 	   it is read (TASK-053). */
 	.viewed {
 		font-weight: 600;
+	}
+
+	/* Viewed and Finish review take the same place, so the swap moves nothing. */
+	.viewed,
+	.finish {
+		min-width: 128px;
+		justify-content: center;
 	}
 
 	.viewed[aria-pressed='true'] {

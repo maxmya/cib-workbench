@@ -24,6 +24,8 @@ vi.mock('$lib/api', async (importOriginal) => ({
 vi.mock('$lib/ui/notice.svelte', () => ({ notice, describe: (error: unknown) => String(error) }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(async () => () => {}) }));
 vi.mock('./api', () => ({
+	setScope: vi.fn(),
+	currentScope: vi.fn(() => 'repository'),
 	CHUNK_EVENT: 'calls-chunk',
 	DONE_EVENT: 'calls-done',
 	load: vi.fn(),

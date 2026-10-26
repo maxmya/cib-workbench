@@ -30,6 +30,7 @@
 	import StatusStrip from '$lib/chrome/StatusStrip.svelte';
 	import TitleBar from '$lib/chrome/TitleBar.svelte';
 	import Launch from '$lib/chrome/Launch.svelte';
+	import { holdLaunch } from '$lib/chrome/launch';
 	import Toolbar from '$lib/chrome/Toolbar.svelte';
 	import { avatars } from '$lib/graph/avatars.svelte';
 	import { density } from '$lib/graph/density.svelte';
@@ -75,6 +76,10 @@
 	/** Workbench: the launch screen, up until the session's first repository is open. */
 	let launching = $state(true);
 	let launchingRepo = $state<string | null>(null);
+	/** Lets the launch screen go early, once the repository is open (FEAT-168). */
+	let skipLaunch: () => void = () => {};
+	/** When the window appeared: the launch screen stays two seconds from here. */
+	const launchStarted = typeof performance === 'undefined' ? 0 : performance.now();
 
 	onMount(() => {
 		theme.init();
@@ -134,7 +139,7 @@
 			}
 		})();
 
-		(async () => {
+		const opening = (async () => {
 			// Listeners go up before anything can emit, so the first batch of a
 			// walk is never missed.
 			cleanups.push(await graph.attach());
@@ -241,11 +246,25 @@
 				route: () => page.url.pathname,
 				goto,
 				want: (id) => graph.want(id),
-				cancelled: () => cancelled
+				cancelled: () => cancelled,
+				// Read here rather than from the store: `settings.load()` above
+				// is not awaited, and the launch is decided now (FEAT-172).
+				startOnRepositories: async () => {
+					try {
+						return (await api.settings()).openOnRepositories === true;
+					} catch {
+						return false;
+					}
+				},
+				rest: () => workspace.rest()
 			});
-			// Workbench: whatever happened above, the launch screen gives way, so a
-			// listener that failed to attach cannot leave the window covered.
-		})().finally(() => (launching = false));
+		})();
+		// Workbench: whatever happened above, the launch screen gives way, so a
+		// listener that failed to attach cannot leave the window covered; and
+		// not before two seconds, so what it says can be read (FEAT-168).
+		const held = holdLaunch(opening, launchStarted);
+		skipLaunch = held.skip;
+		void held.done.then(() => (launching = false));
 
 		return () => {
 			cancelled = true;
@@ -461,7 +480,7 @@
 		-->
 		<div class="ground" aria-hidden="true"></div>
 
-		{#if launching}<Launch repository={launchingRepo} />{/if}
+		{#if launching}<Launch repository={launchingRepo} onskip={() => skipLaunch()} />{/if}
 
 		<!--
 			The spatial shell (FEAT-082): one row above, the rail and the pane,

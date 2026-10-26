@@ -17,6 +17,8 @@ const { notice, save } = vi.hoisted(() => ({
 vi.mock('$lib/ui/notice.svelte', () => ({ notice, describe: (error: unknown) => String(error) }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ save }));
 vi.mock('./api', () => ({
+	setScope: vi.fn(),
+	currentScope: vi.fn(() => 'repository'),
 	sharePlan: vi.fn(async (ask: { format: string; environments: string[] }) => ({
 		files:
 			ask.format === 'zip'

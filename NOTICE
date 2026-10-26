@@ -97,6 +97,14 @@ works offline; each one's licence text sits beside its file.
     redistribution inside a larger software package and asks that a modified
     font not keep the names "Bitstream" or "Vera". The file is unmodified.
     assets/fonts/opendyslexic-mono/
+  Symbols Nerd Font Mono 3.4.0 (BUG-103)   MIT
+    Copyright 2014 Ryan L McIntyre. The Terminal's fallback for icon glyphs.
+    Its glyphs are gathered from Font Awesome, Material Design Icons,
+    Octicons, Codicons, Devicons, Seti-UI, Weather Icons, Font Logos and
+    Powerline, each under its own permissive licence (OFL 1.1, MIT,
+    Apache 2.0 or CC BY 4.0), as the Nerd Fonts project records them. The
+    file is unmodified.
+    assets/fonts/symbols-nerd-font/
 
 The design handoff wireframes used "Architects Daughter" to signal draft
 status; it is deliberately not shipped.

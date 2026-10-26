@@ -321,6 +321,27 @@ describe('RepoTabs', () => {
 		view.destroy();
 	});
 
+	it('opens the neighbour when the tab on show is closed (BUG-102)', async () => {
+		// `workspace.close` makes the neighbour active before it is opened, and
+		// the switch took "active" to mean "already open": the closed
+		// repository stayed on screen behind the new tab.
+		workspace.clear();
+		workspace.opened('/repos/fixture');
+		workspace.opened('/repos/other');
+		repoControl.setInfo(info('main', false, '/repos/other'));
+		repoCalls.opened = [];
+
+		const view = render(RepoTabs, {});
+		view.all('.tab .close')[1].click();
+		await Promise.resolve();
+		flushSync();
+
+		expect(repoCalls.opened).toEqual(['/repos/fixture']);
+
+		workspace.clear();
+		view.destroy();
+	});
+
 	it('keeps the way to open a repository in the row', () => {
 		workspace.clear();
 		workspace.opened('/repos/fixture');
@@ -984,7 +1005,17 @@ describe('Toolbar', () => {
 		await Promise.resolve();
 		flushSync();
 
-		expect(view.text()).toContain('your local changes would be overwritten');
+		// Named in two words, with git's reason a hover away and the full
+		// notice a click away (BUG-107).
+		const alert = view.get('.location [role="alert"]');
+		expect(alert.textContent).toContain('Switch failed');
+		expect(alert.querySelector('button')?.getAttribute('title')).toContain('your local changes would be overwritten');
+
+		const { notice } = await import('$lib/ui/notice.svelte');
+		click(alert.querySelector('button') as HTMLElement);
+		expect(notice.current?.title).toBe('Could not switch branch');
+		expect(notice.current?.detail).toContain('your local changes would be overwritten');
+		notice.dismiss();
 		view.destroy();
 	});
 
@@ -1270,28 +1301,27 @@ describe('NavRail', () => {
 			'Farm',
 			'Graph',
 			'Working copy',
-			// FEAT-130 and FEAT-131.
-			'Terminal',
-			'Files',
-			'Merger',
 			'Branches',
+			'Merger',
+			// FEAT-169: a line, then what the hosting service holds.
 			'Pull requests',
 			'Review',
-			// FEAT-133.
-			'Recipes',
-			// FEAT-160.
-			'Calls',
 			'Issues',
-			'Hooks',
 			'Pipelines',
 			'Releases',
-			'Rebase',
+			// FEAT-130, FEAT-131, FEAT-160 and FEAT-133.
+			'Terminal',
+			'Files',
+			'Calls',
+			'Recipes',
+			'Hooks',
 			// FEAT-132.
-			'Investigate',
 			'Log',
+			'Investigate',
+			'Reflog',
+			'Rebase',
 			'Stash',
 			'Tags',
-			'Reflog',
 			'Untrack',
 			'All repositories',
 			'Settings'

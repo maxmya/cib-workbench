@@ -42,7 +42,18 @@ export interface ResumePort {
 	want(id: string): void;
 	/** True once the shell has been torn down; every await checks it. */
 	cancelled(): boolean;
+	/**
+	 * Settings › Behaviour's *Open on All repositories* (FEAT-172). True
+	 * opens nothing: the tabs stay, none is shown, and the window is on All
+	 * repositories. Absent is false.
+	 */
+	startOnRepositories?(): Promise<boolean>;
+	/** Shows no tab. Called when nothing is opened on purpose. */
+	rest?(): void;
 }
+
+/** Where a launch lands when nothing is to be opened (FEAT-172). */
+export const REPOSITORIES_ROUTE = '/repos';
 
 /**
  * Opens whatever this launch is supposed to open.
@@ -73,6 +84,15 @@ export async function resumeSession(port: ResumePort): Promise<void> {
 	if (launch) {
 		await port.open(launch);
 		await land();
+		return;
+	}
+
+	// Asked for no repository at all: the strip comes back as it was, with
+	// none of its tabs open, and the choice is made on All repositories.
+	if (await port.startOnRepositories?.()) {
+		if (port.cancelled()) return;
+		port.rest?.();
+		if (port.route() !== REPOSITORIES_ROUTE) await port.goto(REPOSITORIES_ROUTE);
 		return;
 	}
 

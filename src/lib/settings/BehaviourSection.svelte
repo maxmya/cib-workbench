@@ -66,6 +66,13 @@
 			pending: null
 		},
 		{
+			key: 'openOnRepositories',
+			// FEAT-172. Off: a launch goes on where the last one stopped.
+			label: 'Open on All repositories, with no repository open',
+			what: `${PRODUCT_NAME} starts on All repositories and opens nothing until you choose. Your tabs stay. Off reopens the tab you were last on. A repository named on the command line is opened either way.`,
+			pending: null
+		},
+		{
 			key: 'terminalMultiplexer',
 			// FEAT-130. On, because it is what keeps a session alive when
 			// Spagitty closes. The label says what is used; the hover says

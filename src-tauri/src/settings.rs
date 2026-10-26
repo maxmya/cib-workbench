@@ -161,6 +161,11 @@ pub struct Settings {
     /// thing this setting exists to stop — it was passed on every fetch before
     /// this was added.
     pub prune_on_fetch: bool,
+    /// Open on All repositories with no repository open, rather than on the
+    /// tab the last session was on (FEAT-172). Off, so a launch goes on
+    /// where the last one stopped, as it always has. A path given on the
+    /// command line is opened either way.
+    pub open_on_repositories: bool,
     /// Fetch each author's real picture for the graph's nodes (FEAT-079).
     ///
     /// On by default, and the second preference here to earn that — the
@@ -219,6 +224,12 @@ pub struct Settings {
     /// in its calls folder's `settings.json`.
     #[serde(deserialize_with = "lenient")]
     pub calls: CallsSettings,
+    /// Where Calls keeps collections (FEAT-170): in the open repository, or
+    /// Workbench-wide. Kept here rather than in `calls`, which a repository
+    /// may override: whether to use the repository at all is not its choice.
+    /// With no repository open, Calls is Workbench-wide whatever this says.
+    #[serde(deserialize_with = "lenient")]
+    pub calls_scope: crate::calls::Scope,
 }
 
 /// How often the screen offers to look, in minutes. The first is the floor:
@@ -259,6 +270,8 @@ impl Default for Settings {
             // A branch that vanishes from the graph because a fetch pruned it
             // is a surprise, and one nobody asked for.
             prune_on_fetch: false,
+            // Off: a launch goes on where the last one stopped.
+            open_on_repositories: false,
             // On, for the reasoning on the field: a node that cannot say who
             // somebody is has not answered the question it is there for.
             fetch_avatars: true,
@@ -286,6 +299,8 @@ impl Default for Settings {
             terminal_multiplexer: true,
             terminal_colours: true,
             calls: CallsSettings::default(),
+            // Beside the code, as Calls has always kept them.
+            calls_scope: crate::calls::Scope::Repository,
         }
     }
 }
@@ -431,6 +446,7 @@ mod tests {
             confirm_history_rewrite: false,
             show_git_commands: true,
             prune_on_fetch: true,
+            open_on_repositories: true,
             fetch_avatars: false,
             personality: Personality::FullSpagitty,
             sound: SoundLevel::Full,
@@ -458,6 +474,7 @@ mod tests {
                 follow_redirects: false,
                 ..CallsSettings::default()
             },
+            calls_scope: crate::calls::Scope::Global,
         };
         let text = serde_json::to_string_pretty(&written).expect("serialising");
 

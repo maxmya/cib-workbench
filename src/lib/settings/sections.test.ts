@@ -93,8 +93,8 @@ beforeEach(async () => {
 	settingsCall.mockResolvedValue({
 		checkForUpdates: true,
 		confirmHistoryRewrite: true,
-		showGitCommands: false, pruneOnFetch: false,
-fetchAvatars: false,
+		showGitCommands: false, pruneOnFetch: false, openOnRepositories: false,
+		fetchAvatars: false,
 			personality: 'balanced',
 			sound: 'off',
 			notifyPullRequests: false,
@@ -286,6 +286,7 @@ describe('BehaviourSection', () => {
 			confirmHistoryRewrite: false,
 			showGitCommands: false,
 			pruneOnFetch: false,
+			openOnRepositories: false,
 			fetchAvatars: false,
 			personality: 'balanced',
 			sound: 'off',
@@ -311,6 +312,7 @@ describe('BehaviourSection', () => {
 			confirmHistoryRewrite: false,
 			showGitCommands: true,
 			pruneOnFetch: false,
+			openOnRepositories: true,
 			fetchAvatars: false,
 			personality: 'balanced',
 			sound: 'off',
@@ -330,15 +332,17 @@ describe('BehaviourSection', () => {
 		await settings.load();
 		const mounted = render(BehaviourSection, {});
 
-		// Six toggles, in the order they are declared: FEAT-018 added pruning,
+		// Seven toggles, in the order they are declared: FEAT-018 added pruning,
 		// FEAT-019 took signing away — it is now `commit.gpgsign` under You
 		// rather than a preference here — FEAT-079 added the author pictures,
-		// FEAT-130 the terminal's multiplexer and FEAT-157 its colours.
+		// FEAT-172 opening on All repositories, FEAT-130 the terminal's
+		// multiplexer and FEAT-157 its colours.
 		expect(mounted.all('button.chip').map((chip) => chip.textContent?.trim())).toEqual([
 			'off',
 			'on',
 			'off',
 			'off',
+			'on',
 			'on',
 			'on'
 		]);

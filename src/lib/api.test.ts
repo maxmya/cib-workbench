@@ -128,6 +128,7 @@ describe('command names and arguments', () => {
 			confirmHistoryRewrite: false,
 			showGitCommands: true,
 			pruneOnFetch: false,
+			openOnRepositories: false,
 			fetchAvatars: false,
 			personality: 'fullSpagitty' as const,
 			sound: 'subtle' as const,

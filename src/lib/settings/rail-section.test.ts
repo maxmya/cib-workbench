@@ -44,6 +44,7 @@ function stored(rail: Partial<RailSettings> = {}): Settings {
 		confirmHistoryRewrite: true,
 		showGitCommands: false,
 		pruneOnFetch: false,
+		openOnRepositories: false,
 		fetchAvatars: true,
 		personality: 'off',
 		sound: 'off',
@@ -107,6 +108,9 @@ describe('Settings › Rail', () => {
 			'Home',
 			'Farm',
 			'Repository',
+			'Collaboration',
+			'Workspace',
+			'History',
 			'Tools',
 			PRODUCT_NAME
 		]);

@@ -64,6 +64,8 @@ export const builder = {
 		finally { if (ticket === epoch) loading = false; }
 	},
 	detach() { unlisten?.(); unlisten = null; },
+	/** Read everything again: after a hook file was written from the screen (FEAT-171). */
+	async reread() { const repo = path; path = null; await this.load(repo); },
 	clear() {
 		epoch++; reading++; picking++; matching++; unlisten?.(); unlisten = null; path = null;
 		data = null; draft = null; saved = ''; selected = null; current = null; selectedStep = null;

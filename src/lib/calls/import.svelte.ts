@@ -15,6 +15,7 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { describe, notice } from '$lib/ui/notice.svelte';
 import * as api from './api';
+import type { Scope } from './api';
 import { calls } from './store.svelte';
 import type { BroughtIn, Endpoint, Found, ScanDone, ScanProgress, SourceKind } from './types';
 
@@ -54,6 +55,17 @@ let choices = $state<BringChoices>({
 let dismissed = $state(false);
 
 let repoPath: string | null = null;
+/** The scope and repository what is found belongs to (FEAT-170). */
+let place: string | null = null;
+let importScope = $state<Scope>('repository');
+/**
+ * What is being read right now, said on screen (BUG-105): a file, a folder,
+ * a WSDL or a pasted command. Reading a large collection took seconds and
+ * nothing moved, so it looked as if the click had done nothing.
+ */
+let reading = $state<string | null>(null);
+/** What the last read found, said until the next one: how many calls, from where. */
+let lastRead = $state<string | null>(null);
 let listening: Promise<void> | null = null;
 let unlisten: UnlistenFn[] = [];
 /** Scanned once on arrival when Settings says *Always*. */
@@ -83,7 +95,7 @@ function take(next: Found | null, from: string | null = null): void {
 		if (!choices.into) choices.as = 'new';
 	}
 	if (!choices.name) {
-		const name = repoPath?.split(/[\\/]/).filter(Boolean).pop() ?? 'calls';
+		const name = (importScope === 'repository' ? repoPath?.split(/[\\/]/).filter(Boolean).pop() : null) ?? 'calls';
 		choices.name = name.toLowerCase().replace(/[^a-z0-9._-]+/g, '-') || 'calls';
 	}
 }
@@ -139,6 +151,18 @@ export const importer = {
 	get dismissed(): boolean {
 		return dismissed;
 	},
+	/** Where what is brought in goes (FEAT-170). */
+	get scope(): Scope {
+		return importScope;
+	},
+	/** What is being read now, or null (BUG-105). */
+	get reading(): string | null {
+		return reading;
+	},
+	/** What the last read found. */
+	get lastRead(): string | null {
+		return lastRead;
+	},
 
 	/** The endpoints the filters leave. */
 	get visible(): Endpoint[] {
@@ -166,9 +190,14 @@ export const importer = {
 	},
 
 	/** What this repository's last scan found; a scan when Settings says *Always*. */
-	async load(path: string): Promise<void> {
-		if (path !== repoPath) {
+	async load(path: string | null, scope: Scope = 'repository'): Promise<void> {
+		// What was found is kept per place: a file read into Workbench-wide
+		// calls is not offered in a repository's, nor the other way round.
+		const key = scope === 'global' ? 'global' : `repository\u0000${path}`;
+		if (key !== place) {
+			place = key;
 			repoPath = path;
+			importScope = scope;
 			found = null;
 			selected = [];
 			source = null;
@@ -183,7 +212,8 @@ export const importer = {
 		} catch (cause) {
 			error = describe(cause);
 		}
-		if (!found && calls.settings?.scanOnOpen === 'always' && !autoScanned.has(path)) {
+		// Only a repository has code to scan.
+		if (path && scope === 'repository' && !found && calls.settings?.scanOnOpen === 'always' && !autoScanned.has(path)) {
 			autoScanned.add(path);
 			await this.scan();
 		}
@@ -216,42 +246,45 @@ export const importer = {
 	},
 
 	async importFile(path: string): Promise<boolean> {
-		try {
-			const next = await api.importFile(path);
-			const added = next.sources.at(-1)?.id ?? null;
-			take(next, added);
-			source = added;
-			return true;
-		} catch (cause) {
-			notice.failed('Could not read that file', cause);
-			return false;
-		}
+		const name = path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+		return this.read(`Reading ${name}…`, () => api.importFile(path), 'Could not read that file');
 	},
 
 	/** A WSDL from a URL the person typed (FEAT-163). */
 	async importWsdlUrl(url: string): Promise<boolean> {
-		try {
-			const next = await api.importWsdlUrl(url);
-			const added = next.sources.at(-1)?.id ?? null;
-			take(next, added);
-			source = added;
-			return true;
-		} catch (cause) {
-			notice.failed('Could not read that WSDL', cause);
-			return false;
-		}
+		return this.read('Fetching the WSDL…', () => api.importWsdlUrl(url), 'Could not read that WSDL');
 	},
 
 	async importText(text: string): Promise<boolean> {
+		return this.read('Reading the cURL command…', () => api.importText(text), 'Could not read that cURL command');
+	},
+
+	/**
+	 * Read one source, saying so while it is read and what it found after
+	 * (BUG-105). One at a time: a second click while one reads is ignored.
+	 */
+	async read(label: string, ask: () => Promise<Found>, failure: string): Promise<boolean> {
+		if (reading) return false;
+		reading = label;
+		lastRead = null;
 		try {
-			const next = await api.importText(text);
-			const added = next.sources.at(-1)?.id ?? null;
-			take(next, added);
-			source = added;
+			const next = await ask();
+			const added = next.sources.at(-1) ?? null;
+			take(next, added?.id ?? null);
+			source = added?.id ?? null;
+			if (added) {
+				const count = next.endpoints.filter((endpoint) => endpoint.source === added.id).length;
+				lastRead =
+					count === 0
+						? `Nothing to bring in from ${added.label}.`
+						: `${count} ${count === 1 ? 'call' : 'calls'} read from ${added.label}. Choose where they go, then bring them in.`;
+			}
 			return true;
 		} catch (cause) {
-			notice.failed('Could not read that cURL command', cause);
+			notice.failed(failure, cause);
 			return false;
+		} finally {
+			reading = null;
 		}
 	},
 
@@ -295,7 +328,8 @@ export const importer = {
 				done.environments ? `${done.environments} environment${done.environments === 1 ? '' : 's'} made` : ''
 			].filter(Boolean);
 			notice.ok(`Brought into ${done.stem}: ${parts.join(', ') || 'nothing new'}`);
-			if (repoPath) await calls.load(repoPath);
+			lastRead = null;
+			await calls.reload();
 			selected = [];
 			take(await api.found());
 			choices = { ...choices, as: 'into', into: done.stem };
@@ -314,6 +348,10 @@ export const importer = {
 		unlisten = [];
 		listening = null;
 		repoPath = null;
+		place = null;
+		importScope = 'repository';
+		reading = null;
+		lastRead = null;
 		autoScanned = new Set();
 		found = null;
 		scanning = null;

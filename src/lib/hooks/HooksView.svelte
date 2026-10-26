@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	import Icon from '$lib/ui/Icon.svelte';
 	import Loader from '$lib/ui/Loader.svelte';
+	import HookScript from './HookScript.svelte';
 	import { hooks, MANAGER_LABEL } from './store.svelte';
 
 	/**
@@ -76,8 +77,7 @@
 								{#if hook.onCommit && !info.enabled}<span class="tag">skipped</span>{/if}
 							</button>
 							{#if open[hook.name]}
-								<pre class="script mono">{hook.script}{#if hook.truncated}<span class="quiet">
-… cut at 64 KiB</span>{/if}</pre>
+								<HookScript path={hook.path} text={hook.script} truncated={hook.truncated} />
 							{/if}
 						</li>
 					{/each}
@@ -87,7 +87,7 @@
 
 		{#if info.config}
 			<span class="label">The steps · <span class="mono">{info.config.path}</span></span>
-			<pre class="script mono">{info.config.text}</pre>
+			<HookScript path={info.config.path} text={info.config.text} />
 		{/if}
 	{/if}
 </div>
@@ -228,27 +228,6 @@
 		border-radius: var(--r-pill);
 		border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
 		color: var(--danger);
-	}
-
-	.script {
-		margin: 0;
-		max-height: 320px;
-		overflow: auto;
-		padding: 10px 14px;
-		background: var(--sunken);
-		border-top: 1px solid var(--pane-edge);
-		font-size: var(--fs-mono);
-		line-height: 1.55;
-		white-space: pre;
-	}
-
-	.hooks > .script {
-		border: 1px solid var(--pane-edge);
-		border-radius: 12px;
-	}
-
-	.quiet {
-		color: var(--muted);
 	}
 
 	.empty {

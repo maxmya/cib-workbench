@@ -371,8 +371,11 @@
 		background: color-mix(in srgb, var(--accent) 18%, transparent);
 	}
 
+	/* A line that can be seen, open or closed (FEAT-169): it is all that
+	   separates one group from the next while the labels are hidden. */
 	.hr {
-		margin: 5px 8px;
+		margin: 6px 8px;
+		background: var(--line);
 	}
 
 	.open {

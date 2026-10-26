@@ -11,7 +11,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EmulatorHooks } from './emulator';
-import { makeXterm, multiplexerStyle, SCROLLBACK } from './xterm';
+import { makeXterm, multiplexerStyle, SCROLLBACK, SYMBOLS_FONT, terminalFont } from './xterm';
 
 const hooks = (): EmulatorHooks => ({ onData: vi.fn(), links: vi.fn(async () => []), open: vi.fn() });
 const made: { dispose(): void }[] = [];
@@ -81,5 +81,27 @@ describe("the multiplexer's colours", () => {
 		const emulator = make();
 
 		expect(() => emulator.retheme()).not.toThrow();
+	});
+});
+
+/** BUG-103: a prompt's icons are in no code face, so the symbols come after it. */
+describe('the terminal font', () => {
+	it('puts the Nerd Font symbols behind the code face', () => {
+		expect(terminalFont("'JetBrains Mono', monospace")).toBe(
+			`'JetBrains Mono', monospace, '${SYMBOLS_FONT}'`
+		);
+	});
+
+	it('has a face when the theme gives none, and names the symbols once', () => {
+		expect(terminalFont('  ')).toBe(`monospace, '${SYMBOLS_FONT}'`);
+		const once = terminalFont('monospace');
+		expect(terminalFont(once)).toBe(once);
+	});
+
+	it('is bundled under the name the terminal asks for', async () => {
+		const { readFileSync } = await import('node:fs');
+		const css = readFileSync('src/app.css', 'utf8');
+		expect(css).toContain(`font-family: '${SYMBOLS_FONT}'`);
+		expect(css).toContain('assets/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf');
 	});
 });

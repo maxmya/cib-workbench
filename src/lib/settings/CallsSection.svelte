@@ -5,6 +5,7 @@
 	import * as appApi from '$lib/api';
 	import * as callsApi from '$lib/calls/api';
 	import type { CallsSettings, ClientCertFor } from '$lib/calls/types';
+	import ScopeSwitch from '$lib/calls/ScopeSwitch.svelte';
 	import { repo } from '$lib/repo.svelte';
 	import Icon from '$lib/ui/Icon.svelte';
 	import { settings } from './store.svelte';
@@ -176,6 +177,23 @@
 		<div class="groups">
 			<div class="group">
 				<h3>Where calls live</h3>
+				<!--
+					FEAT-170. Not overridable by a repository: whether to keep calls
+					in one is not the repository's choice. Calls' head has the same
+					switch.
+				-->
+				<div
+					class="row"
+					title={`In the repository, beside its code, to be committed; or in ${PRODUCT_NAME}, the same with any repository open or none, and never committed. With no repository open, Calls is in ${PRODUCT_NAME}.`}
+				>
+					<span class="label">Keep collections</span>
+					<ScopeSwitch
+						scope={settings.settings.callsScope ?? 'repository'}
+						repository="In the repository"
+						onchoose={(next) => void settings.choose('callsScope', next)}
+						label="Keep collections"
+					/>
+				</div>
 				<div class="row" title="Collections and shared environments, as plain JSON you can review.">
 					<span class="label">Folder in the repository{@render over('folder')}</span>
 					<input
