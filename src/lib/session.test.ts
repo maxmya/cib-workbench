@@ -220,3 +220,35 @@ describe('a shell torn down mid-resume', () => {
 		]);
 	});
 });
+
+/** FEAT-172: Settings › Behaviour can start on All repositories, with nothing open. */
+describe('starting on All repositories', () => {
+	it('opens no tab and lands on All repositories', async () => {
+		const { port, calls } = recorder({ active: '/tmp/last-session' });
+		port.startOnRepositories = async () => true;
+		port.rest = () => void calls.push('rest');
+
+		await resumeSession(port);
+
+		expect(calls).toEqual(['launchPath', 'rest', 'goto /repos']);
+	});
+
+	it('still opens a path given on the command line', async () => {
+		const { port, calls } = recorder({ launch: '/tmp/asked-for' });
+		port.startOnRepositories = async () => true;
+
+		await resumeSession(port);
+
+		expect(calls).toContain('open /tmp/asked-for');
+		expect(calls).not.toContain('goto /repos');
+	});
+
+	it('resumes the last tab when it is off, as before', async () => {
+		const { port, calls } = recorder({ active: '/tmp/last-session' });
+		port.startOnRepositories = async () => false;
+
+		await resumeSession(port);
+
+		expect(calls).toContain('open /tmp/last-session');
+	});
+});

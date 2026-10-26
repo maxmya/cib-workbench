@@ -14,6 +14,8 @@
  * `docs/`-shaped, not corner-of-the-screen-shaped.
  */
 
+import { failureDetail } from './git-error';
+
 export type Tone = 'ok' | 'error';
 
 export interface Notice {
@@ -21,8 +23,13 @@ export interface Notice {
 	tone: Tone;
 	/** One line. The headline of what happened. */
 	title: string;
-	/** git's own words, when there are any. Shown small, wrapped, selectable. */
+	/**
+	 * What went wrong, in a sentence, or git's own first lines when nothing
+	 * knows a better one (BUG-107). Shown small, wrapped, selectable.
+	 */
 	detail: string | null;
+	/** git's whole text, cleaned, when it says more than `detail`. Shown on request. */
+	output?: string | null;
 }
 
 /** How long a success stays up. Failures stay until dismissed. */
@@ -37,11 +44,11 @@ let timer: ReturnType<typeof setTimeout> | null = null;
  */
 const listeners = new Set<(notice: Notice) => void>();
 
-function show(tone: Tone, title: string, detail: string | null): void {
+function show(tone: Tone, title: string, detail: string | null, output: string | null = null): void {
 	if (timer) clearTimeout(timer);
 	timer = null;
 
-	current = { id: ++nextId, tone, title, detail };
+	current = { id: ++nextId, tone, title, detail, output };
 	for (const listener of listeners) listener(current);
 
 	// A failure is something to read and act on, so it waits to be dismissed. A
@@ -71,9 +78,14 @@ export const notice = {
 		show('ok', title, detail);
 	},
 
-	/** Report a failure with git's own message under the headline. */
+	/**
+	 * Report a failure: what went wrong under the headline, in a sentence when
+	 * git's text is one people meet every day, and git's own lines behind it
+	 * (BUG-107).
+	 */
 	failed(title: string, error: unknown): void {
-		show('error', title, describe(error));
+		const { detail, output } = failureDetail(describe(error));
+		show('error', title, detail, output);
 	},
 
 	/** Hear every notice as it is said. Returns the way to stop. */

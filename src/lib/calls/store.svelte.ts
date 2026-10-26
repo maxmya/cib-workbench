@@ -27,6 +27,7 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { describe, notice } from '$lib/ui/notice.svelte';
 import * as api from './api';
+import type { Scope } from './api';
 import {
 	addCall,
 	blankCall,
@@ -76,7 +77,7 @@ export interface Outcome {
 	raw: boolean;
 }
 
-const EMPTY_STATE: PersonState = { active: null, open: [], current: null, collapsed: [], filter: '' };
+const EMPTY_STATE: PersonState = { active: null, open: [], current: null, collapsed: [], filter: '', hidden: [] };
 
 let loaded = $state(false);
 let loadError = $state<string | null>(null);
@@ -106,6 +107,10 @@ let foundFiles = $state<Stored<Collection>[]>([]);
 const FOUND = 'found:';
 
 let repoPath: string | null = null;
+/** Where the collections on screen live (FEAT-170). */
+let scope = $state<Scope>('repository');
+/** The scope and repository last read, so a second read of the same one keeps what is in flight. */
+let place: string | null = null;
 let privateSeq = 0;
 const envTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let unlisten: UnlistenFn[] = [];
@@ -331,6 +336,7 @@ async function listenOnce(): Promise<void> {
 
 /** A name for a new collection: the repository's folder name, or `calls`. */
 function collectionName(): string {
+	if (scope === 'global') return 'calls';
 	const name = repoPath?.split(/[\\/]/).filter(Boolean).pop() ?? '';
 	const clean = name.toLowerCase().replace(/[^a-z0-9._-]+/g, '-');
 	return clean || 'calls';
@@ -412,9 +418,33 @@ export const calls = {
 		return refusals[keyOf(opened)] ?? null;
 	},
 
-	/** Read the repository's calls. Edits waiting for the last one are written first. */
-	async load(path: string): Promise<void> {
-		if (path !== repoPath) {
+	/** Where the collections on screen live (FEAT-170). */
+	get scope(): Scope {
+		return scope;
+	},
+
+	/** Collections taken off the list, by stem (BUG-106). */
+	get hidden(): string[] {
+		return person.hidden ?? [];
+	},
+
+	/** The collections on the list: every one but those taken off it. */
+	get shown(): Stored<Collection>[] {
+		const hidden = person.hidden ?? [];
+		return hidden.length ? collections.filter((stored) => !hidden.includes(stored.stem)) : collections;
+	},
+
+	/**
+	 * Read the calls `wanted` names: the repository at `path`, or the
+	 * Workbench-wide ones, which are what there is with no repository open
+	 * (FEAT-170). Edits waiting for the last place read are written there first.
+	 */
+	async load(path: string | null, wanted: Scope = scope): Promise<void> {
+		const next: Scope = path ? wanted : 'global';
+		// Workbench-wide calls are the same whichever repository is open.
+		const key = next === 'global' ? 'global' : `repository\u0000${path}`;
+		if (key !== place) {
+			// Written to the place they were made in, before the scope moves.
 			await flush();
 			sending = {};
 			outcomes = {};
@@ -422,11 +452,14 @@ export const calls = {
 			asking = null;
 			history = null;
 		}
+		place = key;
 		repoPath = path;
+		scope = next;
+		api.setScope(next);
 		try {
 			await listenOnce();
 			const read: Loaded = await api.load();
-			if (repoPath !== path) return;
+			if (place !== key) return;
 			folder = read.folder;
 			collections = read.collections;
 			environments = read.environments;
@@ -437,11 +470,12 @@ export const calls = {
 			if (person.active && !environments.some((stored) => stored.stem === person.active)) person.active = null;
 			if (!person.active && environments[0]?.value) person.active = environments[0].stem;
 			loadError = read.sharedError ? `shared.json: ${read.sharedError}` : null;
-			if (read.settings?.openFound) {
+			// Files found in a repository are that repository's: not Workbench-wide.
+			if (read.settings?.openFound && next === 'repository') {
 				void api
 					.foundFiles()
 					.then((files) => {
-						if (repoPath === path) foundFiles = asCollection(files);
+						if (place === key) foundFiles = asCollection(files);
 					})
 					.catch(() => (foundFiles = []));
 			} else {
@@ -453,6 +487,56 @@ export const calls = {
 		} finally {
 			loaded = true;
 		}
+	},
+
+	/** Read the place on screen again: after an import, or a switch made elsewhere. */
+	reload(): Promise<void> {
+		return this.load(repoPath, scope);
+	},
+
+	/**
+	 * Delete a collection's file (BUG-106). Its open calls close, and it
+	 * leaves the list. A file found in the repository is someone else's and
+	 * is only ever hidden.
+	 */
+	async deleteCollection(stem: string): Promise<boolean> {
+		const stored = collections.find((candidate) => candidate.stem === stem);
+		if (!stored || isFound(stem)) return false;
+		const timer = saveTimers.get(stem);
+		if (timer) clearTimeout(timer);
+		saveTimers.delete(stem);
+		try {
+			await api.deleteCollection(stem);
+		} catch (cause) {
+			notice.failed(`Could not delete ${stored.value?.name ?? stem}`, cause);
+			return false;
+		}
+		collections = collections.filter((candidate) => candidate.stem !== stem);
+		this.forgetCollection(stem);
+		notice.ok(`Deleted ${stored.value?.name ?? stem}`, stored.file);
+		return true;
+	},
+
+	/** Take a collection off the list, keeping its file (BUG-106). */
+	hideCollection(stem: string): void {
+		if (!(person.hidden ?? []).includes(stem)) person.hidden = [...(person.hidden ?? []), stem];
+		const open = person.open.filter((opened) => opened.stem === stem);
+		for (const opened of open) this.close(opened);
+		saveState();
+	},
+
+	/** Put a hidden collection back on the list. */
+	showCollection(stem: string): void {
+		person.hidden = (person.hidden ?? []).filter((other) => other !== stem);
+		saveState();
+	},
+
+	/** The open calls, the closed state and the hidden mark of a collection that is gone. */
+	forgetCollection(stem: string): void {
+		for (const opened of person.open.filter((other) => other.stem === stem)) this.close(opened);
+		person.hidden = (person.hidden ?? []).filter((other) => other !== stem);
+		person.collapsed = person.collapsed.filter((id) => id !== `c:${stem}`);
+		saveState();
 	},
 
 	open(opened: Opened): void {
@@ -512,7 +596,7 @@ export const calls = {
 	 * repository.
 	 */
 	async create(stem: string | null = null, folderName: string | null = null, call: Call = blankCall()): Promise<void> {
-		let target = stem ?? collections.find((stored) => stored.value)?.stem ?? null;
+		let target = stem ?? this.shown.find((stored) => stored.value)?.stem ?? null;
 		if (!target) {
 			const collection: Collection = { v: 1, name: collectionName(), items: [call] };
 			try {
@@ -847,6 +931,9 @@ export const calls = {
 		unlisten = [];
 		listening = null;
 		repoPath = null;
+		place = null;
+		scope = 'repository';
+		api.setScope('repository');
 		loaded = false;
 		loadError = null;
 		collections = [];

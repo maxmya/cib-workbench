@@ -20,10 +20,17 @@
 	interface Props {
 		/** The repository being opened, by name; none when there is nothing to open. */
 		repository: string | null;
+		/**
+		 * A click or a key: let it go as soon as the repository is open,
+		 * rather than at two seconds (FEAT-168).
+		 */
+		onskip?: () => void;
 	}
 
-	let { repository }: Props = $props();
+	let { repository, onskip }: Props = $props();
 </script>
+
+<svelte:window onkeydown={() => onskip?.()} onpointerup={() => onskip?.()} />
 
 <div
 	class="launch"

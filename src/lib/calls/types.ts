@@ -127,6 +127,8 @@ export interface PersonState {
 	current: Opened | null;
 	collapsed: string[];
 	filter: string;
+	/** Collections taken off the list without deleting their files (BUG-106). */
+	hidden?: string[];
 }
 
 export type Proxy = { kind: 'system' } | { kind: 'none' } | { kind: 'custom'; url: string };

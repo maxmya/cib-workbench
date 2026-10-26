@@ -38,7 +38,10 @@
 	}
 
 	async function switchTo(path: string): Promise<void> {
-		if (workspace.isActive(path)) return;
+		// Active *and* open. Closing a tab marks its neighbour active before
+		// anything opens it, so the strip alone said "already there" and the
+		// closed repository stayed loaded behind the new tab (BUG-102).
+		if (workspace.isActive(path) && repo.info?.path === path) return;
 
 		const leaving = repo.info?.path;
 		if (leaving) workspace.remember(leaving, here());

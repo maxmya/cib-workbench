@@ -3,9 +3,14 @@
 	import { untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import * as appApi from '$lib/api';
+	import { PRODUCT_NAME } from '$lib/brand';
 	import { isMac } from '$lib/platform';
 	import { repo } from '$lib/repo.svelte';
+	import { settings } from '$lib/settings/store.svelte';
+	import { dialog } from '$lib/ui/dialog.svelte';
 	import EmptyState from '$lib/ui/EmptyState.svelte';
+	import type { Scope } from './api';
+	import ScopeSwitch from './ScopeSwitch.svelte';
 	import Menu from '$lib/ui/Menu.svelte';
 	import type { MenuItem } from '$lib/ui/menu';
 	import CollectionTree from './CollectionTree.svelte';
@@ -39,28 +44,66 @@
 	let url = $state<HTMLInputElement | HTMLTextAreaElement | null>(null);
 	let envMenu = $state<{ x: number; y: number; anchor: HTMLElement } | null>(null);
 
-	/** This repository's calls: on arrival, and when another is opened. */
+	/**
+	 * Where collections are kept (FEAT-170): the choice in Settings, and
+	 * Workbench-wide with no repository open, so Calls works without one.
+	 */
+	const wanted = $derived<Scope>(settings.settings.callsScope ?? 'repository');
+
+	/** The calls of the place chosen: on arrival, when another repository is opened, and on a switch. */
 	$effect(() => {
 		const path = info?.path ?? null;
+		const scope = wanted;
 		void repo.generation;
 		untrack(() => {
-			if (!path || !appApi.inTauri()) return;
+			if (!appApi.inTauri()) return;
 			void (async () => {
-				await calls.load(path);
-				await importer.load(path);
+				await calls.load(path, scope);
+				await importer.load(path, calls.scope);
 			})();
 		});
 	});
 
+	/** The switch in the head writes the setting, which the effect above reads. */
+	function chooseScope(next: Scope) {
+		if (next === 'repository' && !info) return;
+		void settings.choose('callsScope', next);
+	}
+
+	const where = $derived(
+		calls.scope === 'global'
+			? `in ${PRODUCT_NAME}, for every repository, and never committed`
+			: 'in this repository, as JSON, so they can be committed'
+	);
+	const hiddenCollections = $derived(calls.collections.filter((stored) => calls.hidden.includes(stored.stem)));
+
+	/** Delete a collection's file, after saying which file and that it is for good (BUG-106). */
+	async function deleteCollection(stem: string) {
+		const stored = calls.collections.find((candidate) => candidate.stem === stem);
+		if (!stored) return;
+		const name = stored.value?.name ?? stem;
+		const agreed = await dialog.confirm({
+			title: `Delete ${name}`,
+			body:
+				calls.scope === 'repository'
+					? `${stored.file} is deleted from the working tree, with its calls. A version already committed stays in history. To take it off the list and keep the file, hide it instead.`
+					: `${name} and its calls are deleted from ${PRODUCT_NAME}. To take it off the list and keep it, hide it instead.`,
+			confirmLabel: 'Delete',
+			danger: true
+		});
+		if (agreed) await calls.deleteCollection(stem);
+	}
+
 	/** FEAT-162: endpoints the code declares that no collection has, as a card. */
 	const card = $derived.by(() => {
+		if (calls.scope !== 'repository') return null;
 		const missing = importer.notInACollection;
 		if (!missing.length) return null;
 		const files = [...new Set(missing.map((endpoint) => endpoint.file?.split('/').pop() ?? endpoint.group))];
 		return { count: missing.length, files };
 	});
 	const askScan = $derived(
-		calls.settings?.scanOnOpen === 'ask' && !importer.found && !importer.scanning && !importer.dismissed
+		calls.scope === 'repository' && calls.settings?.scanOnOpen === 'ask' && !importer.found && !importer.scanning && !importer.dismissed
 	);
 
 	/** Every name a field can offer: what each scope defines. */
@@ -115,7 +158,7 @@
 	}
 
 	function onkey(event: KeyboardEvent) {
-		if (!info || !(event.ctrlKey || event.metaKey) || event.altKey) {
+		if (!(event.ctrlKey || event.metaKey) || event.altKey) {
 			if (event.key === 'Escape' && calls.asking) calls.dismissAsk();
 			return;
 		}
@@ -159,14 +202,11 @@
 
 <svelte:window onkeydown={onkey} />
 
-{#if !info}
-	<div class="screen">
-		<EmptyState message="Open a repository to keep calls beside its code." />
-	</div>
-{:else}
+<!-- With no repository open, Calls is Workbench-wide (FEAT-170): it no longer waits for one. -->
 	<div class="screen">
 		<header class="head">
 			<span class="title">Calls</span>
+			<ScopeSwitch scope={calls.scope} repository={info?.name ?? null} onchoose={chooseScope} />
 			<div class="chips" role="tablist" aria-label="Open calls">
 				{#each calls.tabs as { opened, call } (keyOf(opened))}
 					{@const on = current !== null && keyOf(current.opened) === keyOf(opened)}
@@ -234,7 +274,7 @@
 
 		<div class="body">
 			<CollectionTree
-				collections={calls.collections}
+				collections={calls.shown}
 				filter={calls.person.filter}
 				collapsed={calls.person.collapsed}
 				current={calls.person.current}
@@ -257,6 +297,11 @@
 				onscan={() => importer.scan()}
 				onreview={() => goto('/calls/import')}
 				ondismiss={() => importer.dismiss()}
+				hidden={hiddenCollections}
+				onhide={(stem) => calls.hideCollection(stem)}
+				onshow={(stem) => calls.showCollection(stem)}
+				ondelete={deleteCollection}
+				{where}
 			/>
 
 			<main class="middle">
@@ -355,7 +400,6 @@
 			/>
 		</div>
 	</div>
-{/if}
 
 {#if curling && current}
 	<CurlWindow

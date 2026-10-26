@@ -1438,6 +1438,11 @@ export interface Settings {
 	 */
 	pruneOnFetch: boolean;
 	/**
+	 * Open on All repositories with nothing open, rather than on the last
+	 * session's tab (FEAT-172). Off by default.
+	 */
+	openOnRepositories: boolean;
+	/**
 	 * Fetch each author's real picture for the graph's nodes (FEAT-079).
 	 *
 	 * On by default, and the second preference here to change what the
@@ -1487,6 +1492,11 @@ export interface Settings {
 	terminalColours: boolean;
 	/** Settings › Calls (FEAT-160, FEAT-165); a repository can override some. */
 	calls?: import('./calls/types').CallsSettings;
+	/**
+	 * Where Calls keeps collections (FEAT-170). No repository open is always
+	 * Workbench-wide. Absent is the repository.
+	 */
+	callsScope?: import('./calls/api').Scope;
 }
 
 // --- Terminal (FEAT-130)---------------------------------------------------

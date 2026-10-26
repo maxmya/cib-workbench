@@ -14,6 +14,8 @@ const { notice } = vi.hoisted(() => ({ notice: { ok: vi.fn(), failed: vi.fn() } 
 vi.mock('$lib/ui/notice.svelte', () => ({ notice, describe: (error: unknown) => String(error) }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ save: vi.fn(async () => null) }));
 vi.mock('./api', () => ({
+	setScope: vi.fn(),
+	currentScope: vi.fn(() => 'repository'),
 	wsdl: vi.fn(async () => ({
 		services: [
 			{

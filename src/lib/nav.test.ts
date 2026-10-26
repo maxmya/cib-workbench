@@ -104,38 +104,38 @@ describe('NAV_ITEMS', () => {
 			// FEAT-073. Next, because supervising the farm is the day's work
 			// and everything below it is where the farm's output is read.
 			'/farm',
+			// FEAT-169. The everyday git work.
 			'/',
 			'/changes',
 			'/conflicts',
-			// FEAT-130. A terminal, after where conflicts are settled.
-			'/terminal',
-			// FEAT-131. Reading any file at any revision.
-			'/files',
-			// FEAT-100. Where a merge starts, beside where one that stopped is finished.
-			'/merge',
 			'/branches',
+			// FEAT-100. Where a merge starts, after the branches it joins.
+			'/merge',
+			// FEAT-169. What the hosting service holds.
 			'/requests',
 			// FEAT-087. Reading a pull request comes after browsing them.
 			'/review',
-			// FEAT-133. Git steps in blocks.
-			'/recipes',
-			// FEAT-160. Calls, after Recipes.
-			'/calls',
 			'/issues',
-			'/hooks',
 			'/pipelines',
 			'/releases',
-			// TASK-056. The tools are always on the rail again, and Stash, Tags
-			// and Reflog are rows of their own, as the author asked (reversing
+			// FEAT-169. The workbench's own tools: FEAT-130's terminal,
+			// FEAT-131's files, FEAT-160's calls, FEAT-133's recipes, and hooks.
+			'/terminal',
+			'/files',
+			'/calls',
+			'/recipes',
+			'/hooks',
+			// FEAT-169. Reading history. FEAT-132's Investigate was File history.
+			'/search',
+			'/investigate',
+			'/reflog',
+			// TASK-056. The tools are always on the rail again, and Stash and
+			// Tags are rows of their own, as the author asked (reversing
 			// TASK-045, which had made them tabs of Branches).
 			'/rebase',
-			// FEAT-132. What was File history, on the rail.
-			'/investigate',
-			'/search',
 			'/stash',
 			'/tags',
-			'/reflog',
-			// FEAT-155. Stopping tracking files, a tool after the Reflog.
+			// FEAT-155. Stopping tracking files.
 			'/untrack',
 			'/badges',
 			'/repos',
@@ -143,11 +143,13 @@ describe('NAV_ITEMS', () => {
 		]);
 	});
 
-	/** FEAT-030 put Log after Rebase; FEAT-132 put Investigate between them. */
-	it('puts Investigate after Rebase, and Log after that', () => {
-		const hrefs = NAV_ITEMS.map((item) => item.href);
-		expect(hrefs.indexOf('/investigate')).toBe(hrefs.indexOf('/rebase') + 1);
-		expect(hrefs.indexOf('/search')).toBe(hrefs.indexOf('/rebase') + 2);
+	/** FEAT-169: Log, Investigate and the Reflog read history, and are a group. */
+	it('puts Log, Investigate and the Reflog together under History', () => {
+		expect(NAV_ITEMS.filter((item) => item.group === 'history').map((item) => item.href)).toEqual([
+			'/search',
+			'/investigate',
+			'/reflog'
+		]);
 	});
 
 	it('has no File history off the rail: it is Investigate, and on it (FEAT-132)', () => {
@@ -199,12 +201,15 @@ describe('grouping', () => {
 
 	it('starts a group exactly at each boundary', () => {
 		const starts = rows.filter((row) => row.startsGroup).map((row) => row.item.href);
-		expect(starts).toEqual(['/home', '/farm', '/', '/rebase', '/settings']);
+		expect(starts).toEqual(['/home', '/farm', '/', '/requests', '/terminal', '/search', '/rebase', '/settings']);
 	});
 
 	it('heads every group but the first', () => {
 		expect(rows.filter((row) => row.heading !== null).map((row) => row.heading)).toEqual([
 			'Repository',
+			'Collaboration',
+			'Workspace',
+			'History',
 			'Tools',
 			PRODUCT_NAME
 		]);
@@ -249,24 +254,24 @@ describe('isShown', () => {
 			'/farm',
 			'/',
 			'/changes',
-			'/terminal',
-			'/files',
-			'/merge',
 			'/branches',
+			'/merge',
 			'/requests',
 			'/review',
-			'/recipes',
-			'/calls',
 			'/issues',
-			'/hooks',
 			'/pipelines',
 			'/releases',
-			'/rebase',
-			'/investigate',
+			'/terminal',
+			'/files',
+			'/calls',
+			'/recipes',
+			'/hooks',
 			'/search',
+			'/investigate',
+			'/reflog',
+			'/rebase',
 			'/stash',
 			'/tags',
-			'/reflog',
 			'/untrack',
 			'/repos',
 			'/settings'
@@ -485,12 +490,12 @@ describe('the rail a person chose', () => {
 		});
 
 		it('drops a row onto another of its own group, and not onto another group', () => {
-			const order = moveOnto(code('/reflog'), code('/rebase'), []);
+			const order = moveOnto(code('/tags'), code('/rebase'), []);
 			const tools = arranged(order).filter((href) => groupOf(href) === 'tools');
 
-			expect(tools[0]).toBe('/reflog');
+			expect(tools[0]).toBe('/tags');
 			expect(tools[1]).toBe('/rebase');
-			expect(moveOnto(code('/reflog'), code('/changes'), [])).toEqual([]);
+			expect(moveOnto(code('/tags'), code('/changes'), [])).toEqual([]);
 		});
 
 		it('keeps every group one run, in the same place, whatever the order says', () => {
@@ -502,6 +507,9 @@ describe('the rail a person chose', () => {
 				'home',
 				'farm',
 				'work',
+				'forge',
+				'bench',
+				'history',
 				'tools',
 				'app'
 			]);

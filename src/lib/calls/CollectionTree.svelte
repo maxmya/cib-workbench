@@ -39,6 +39,15 @@
 		onscan?: () => void;
 		onreview?: () => void;
 		ondismiss?: () => void;
+		/** Collections taken off the list, to bring back (BUG-106). */
+		hidden?: Stored<Collection>[];
+		/** Take a collection off the list, keeping its file. */
+		onhide?: (stem: string) => void;
+		onshow?: (stem: string) => void;
+		/** Delete a collection's file; the caller asks first. */
+		ondelete?: (stem: string) => void;
+		/** Where the collections are kept, for the empty list to say (FEAT-170). */
+		where?: string;
 	}
 
 	let {
@@ -61,10 +70,42 @@
 		askScan = false,
 		onscan,
 		onreview,
-		ondismiss
+		ondismiss,
+		hidden = [],
+		onhide,
+		onshow,
+		ondelete,
+		where = 'in this repository, as JSON, so they can be committed'
 	}: Props = $props();
 
 	let menu = $state<{ x: number; y: number; items: MenuItem[] } | null>(null);
+	/** The hidden collections are listed under the rest (BUG-106). */
+	let showingHidden = $state(false);
+
+	/**
+	 * A collection's own menu (BUG-106): from its `⋯`, or a right-click on
+	 * its head. There was only *New call*, so nothing could take a collection
+	 * away.
+	 */
+	function collectionItems(stem: string, readable: boolean): MenuItem[] {
+		return [
+			...(readable ? [{ id: 'new', label: 'New call', run: () => oncreate(stem, null) }] : []),
+			...(readable ? [{ separator: true } as const] : []),
+			{ id: 'hide', label: 'Hide from the list', note: 'the file stays', run: () => onhide?.(stem) },
+			{ id: 'delete', label: 'Delete collection…', danger: true, run: () => ondelete?.(stem) }
+		];
+	}
+
+	function collectionMenu(event: MouseEvent, stem: string, readable: boolean, at: 'pointer' | 'anchor') {
+		event.preventDefault();
+		event.stopPropagation();
+		const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
+		menu = {
+			x: at === 'pointer' ? event.clientX : box.left,
+			y: at === 'pointer' ? event.clientY : box.bottom + 4,
+			items: collectionItems(stem, readable)
+		};
+	}
 	const searchKeys = isMac() ? '⌘ K' : 'Ctrl K';
 
 	/** What a collection is, for when it is collapsed: REST, SOAP or both. */
@@ -130,22 +171,32 @@
 				{@const count = callsIn(stored.value.items).length}
 				{#if !filter.trim() || items.length}
 					<section class="collection">
-						<button
-							type="button"
-							class="head"
-							aria-expanded={!shut}
-							title={stored.file}
-							onclick={() => ontoggle(id)}
-							oncontextmenu={(event) => folderMenu(event, stored.stem, null)}
-						>
-							{#if shut}<span class="arrow" aria-hidden="true">▸</span>{/if}
-							<span class="name">{stored.value.name}</span>
-							<span class="gap"></span>
-							{#if shut}
-								<span class="kind mono">{kindOf(stored.value)}</span>
-							{/if}
-							<span class="count">{count} {shut ? '' : count === 1 ? 'call' : 'calls'}</span>
-						</button>
+						<div class="head-row">
+							<button
+								type="button"
+								class="head"
+								aria-expanded={!shut}
+								title={stored.file}
+								onclick={() => ontoggle(id)}
+								oncontextmenu={(event) => collectionMenu(event, stored.stem, true, 'pointer')}
+							>
+								{#if shut}<span class="arrow" aria-hidden="true">▸</span>{/if}
+								<span class="name">{stored.value.name}</span>
+								<span class="gap"></span>
+								{#if shut}
+									<span class="kind mono">{kindOf(stored.value)}</span>
+								{/if}
+								<span class="count">{count} {shut ? '' : count === 1 ? 'call' : 'calls'}</span>
+							</button>
+							<button
+								type="button"
+								class="more"
+								aria-label={`${stored.value.name}: more`}
+								title="New call, hide or delete"
+								onclick={(event) => collectionMenu(event, stored.stem, true, 'anchor')}
+								><Icon name="more" size={14} /></button
+							>
+						</div>
 						{#if !shut}
 							<p class="file mono">{stored.file}</p>
 							{@render tree(stored.stem, items, 0)}
@@ -157,14 +208,25 @@
 				{/if}
 			{:else}
 				<section class="collection broken" title={stored.error ?? ''}>
-					<div class="head"><span class="name">{stored.stem}</span></div>
+					<div class="head-row">
+						<div class="head"><span class="name">{stored.stem}</span></div>
+						<!-- A file that cannot be read can still be taken away (BUG-106). -->
+						<button
+							type="button"
+							class="more"
+							aria-label={`${stored.stem}: more`}
+							title="Hide or delete"
+							onclick={(event) => collectionMenu(event, stored.stem, false, 'anchor')}
+							><Icon name="more" size={14} /></button
+						>
+					</div>
 					<p class="file mono">{stored.file}</p>
 					<p class="why">Not read: {stored.error}</p>
 				</section>
 			{/if}
 		{:else}
 			<div class="none">
-				<p>No collections yet. They are kept in this repository, as JSON, so they can be committed.</p>
+				<p>No collections {hidden.length ? 'on the list' : 'yet'}. They are kept {where}.</p>
 				<button type="button" class="empty" onclick={() => oncreate(null, null)}>+ New call</button>
 			</div>
 		{/each}
@@ -217,6 +279,29 @@
 			</div>
 		{/if}
 	</div>
+
+	<!-- BUG-106: what was hidden can be brought back, or deleted for good. -->
+	{#if hidden.length}
+		<div class="hidden">
+			<button
+				type="button"
+				class="hidden-head"
+				aria-expanded={showingHidden}
+				onclick={() => (showingHidden = !showingHidden)}
+				><span class="arrow" aria-hidden="true">{showingHidden ? '▾' : '▸'}</span>{hidden.length}
+				{hidden.length === 1 ? 'collection' : 'collections'} hidden</button
+			>
+			{#if showingHidden}
+				{#each hidden as stored (stored.stem)}
+					<div class="hidden-row">
+						<span class="label" title={stored.file}>{stored.value?.name ?? stored.stem}</span>
+						<button type="button" class="empty" onclick={() => onshow?.(stored.stem)}>Show</button>
+						<button type="button" class="empty danger" onclick={() => ondelete?.(stored.stem)}>Delete…</button>
+					</div>
+				{/each}
+			{/if}
+		</div>
+	{/if}
 
 	<button type="button" class="history" class:on={historyOpen} aria-pressed={historyOpen} onclick={onhistory}>
 		<Icon name="history" size={15} />
@@ -337,6 +422,78 @@
 		padding: 4px 8px;
 		border-radius: var(--r-row);
 		text-align: left;
+	}
+
+	/* The head and its `⋯`, side by side; the `⋯` shows on hover or focus. */
+	.head-row {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+	}
+
+	.head-row .head {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.more {
+		flex: none;
+		width: 24px;
+		height: 24px;
+		display: grid;
+		place-items: center;
+		border-radius: var(--r-row);
+		color: var(--muted);
+		opacity: 0;
+		transition: opacity var(--t-fast) var(--ease);
+	}
+
+	.head-row:hover .more,
+	.more:focus-visible,
+	.broken .more {
+		opacity: 1;
+	}
+
+	.more:hover {
+		background: var(--hover);
+		color: var(--ink);
+	}
+
+	.hidden {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		padding-top: 6px;
+		border-top: 1px solid var(--soft);
+	}
+
+	.hidden-head {
+		display: flex;
+		gap: 6px;
+		padding: 2px 8px;
+		color: var(--muted);
+		font-size: var(--fs-secondary);
+		text-align: left;
+	}
+
+	.hidden-row {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		padding: 0 4px 0 22px;
+		font-size: var(--fs-secondary);
+	}
+
+	.hidden-row .label {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.danger {
+		color: var(--danger);
 	}
 
 	.head:hover,

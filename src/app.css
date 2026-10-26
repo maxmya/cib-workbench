@@ -79,6 +79,18 @@
 	font-display: swap;
 }
 
+/*
+ * The Terminal's icons (BUG-103): Nerd Fonts' symbols alone, behind the code
+ * face, so a prompt's powerline arrows, branch marks and file icons draw
+ * instead of boxes. No reading face has them.
+ */
+@font-face {
+	font-family: 'Symbols Nerd Font Mono';
+	src: url('../assets/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf') format('truetype');
+	font-weight: 400;
+	font-display: swap;
+}
+
 :root {
 	--bg: #ffffff;
 	--panel: #f2f3f5;

@@ -27,6 +27,19 @@ import { kept, pressedOf } from './keys';
 /** Lines kept above the screen. */
 export const SCROLLBACK = 10_000;
 
+/** The face behind the code face that has a prompt's icons (BUG-103), bundled in `app.css`. */
+export const SYMBOLS_FONT = 'Symbols Nerd Font Mono';
+
+/**
+ * The terminal's font: the code face, then the symbols. No code face has the
+ * Private Use Area glyphs Nerd Fonts put powerline arrows, branch marks and
+ * file icons at, so a prompt drew boxes (BUG-103).
+ */
+export function terminalFont(mono: string): string {
+	const face = mono.trim() || 'monospace';
+	return face.includes(SYMBOLS_FONT) ? face : `${face}, '${SYMBOLS_FONT}'`;
+}
+
 /**
  * A theme token as a colour xterm can read.
  *
@@ -127,10 +140,12 @@ export function makeXterm(hooks: EmulatorHooks): Emulator {
 	const style = getComputedStyle(document.documentElement);
 	const terminal = new Terminal({
 		scrollback: SCROLLBACK,
-		fontFamily: style.getPropertyValue('--font-mono').trim() || 'monospace',
+		fontFamily: terminalFont(style.getPropertyValue('--font-mono')),
 		fontSize: parseFloat(style.getPropertyValue('--fs-code')) || 14,
 		cursorBlink: true,
 		allowProposedApi: true,
+		// A wide icon is drawn inside its cell rather than over its neighbour.
+		rescaleOverlappingGlyphs: true,
 		theme: theme()
 	});
 	const fit = new FitAddon();
@@ -152,6 +167,17 @@ export function makeXterm(hooks: EmulatorHooks): Emulator {
 			// No WebGL here. The default renderer is already drawing.
 		}
 	}
+
+	// The symbols face loads on first use, and WebGL keeps what it drew before
+	// it arrived: a glyph drawn as a box stays a box. Once it is here, redraw.
+	void document.fonts
+		?.load(`${terminal.options.fontSize}px '${SYMBOLS_FONT}'`)
+		.then(() => {
+			if (!opened) return;
+			terminal.clearTextureAtlas();
+			terminal.refresh(0, terminal.rows - 1);
+		})
+		.catch(() => {});
 
 	terminal.onData((data) => hooks.onData(data));
 

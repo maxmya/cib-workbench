@@ -22,6 +22,8 @@ vi.mock('$lib/api', async (importOriginal) => ({
 }));
 vi.mock('$lib/ui/notice.svelte', () => ({ notice, describe: (error: unknown) => String(error) }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ save: vi.fn(async () => null) }));
+const { confirm } = vi.hoisted(() => ({ confirm: vi.fn(async () => true) }));
+vi.mock('$lib/ui/dialog.svelte', () => ({ dialog: { confirm } }));
 vi.mock('@tauri-apps/api/event', () => ({
 	listen: vi.fn(async (name: string, handler: (event: { payload: unknown }) => void) => {
 		handlers.set(name, handler);
@@ -29,6 +31,8 @@ vi.mock('@tauri-apps/api/event', () => ({
 	})
 }));
 vi.mock('./api', () => ({
+	setScope: vi.fn(),
+	currentScope: vi.fn(() => 'repository'),
 	CHUNK_EVENT: 'calls-chunk',
 	DONE_EVENT: 'calls-done',
 	load: vi.fn(),
@@ -407,5 +411,91 @@ describe('Calls', () => {
 		await settle();
 		expect(api.send).toHaveBeenCalledTimes(1);
 		expect(view!.find('[role="alertdialog"]')).toBeNull();
+	});
+});
+
+/** BUG-106: a collection can be taken off the list, brought back, or deleted. */
+describe('taking a collection away', () => {
+	const head = () => view!.all('.collection:not(.broken) .more')[0] as HTMLButtonElement;
+	const item = (label: string) =>
+		[...document.querySelectorAll('[role="menuitem"]')].find((entry) => entry.textContent?.includes(label)) as HTMLElement;
+
+	it('hides one from the list, keeping its file, and shows it again', async () => {
+		await show();
+		click(head());
+		flushSync();
+		click(item('Hide from the list'));
+		await settle();
+
+		expect(view!.all('.collection:not(.broken) .name').map((name) => name.textContent)).toEqual([]);
+		expect(chips()).toEqual([]);
+		expect(api.deleteCollection).not.toHaveBeenCalled();
+		expect(view!.text()).toContain('1 collection hidden');
+
+		click(view!.get('.hidden-head'));
+		flushSync();
+		click(button('Show'));
+		await settle();
+
+		expect(view!.text()).toContain('orders-api');
+		expect(view!.text()).not.toContain('collection hidden');
+	});
+
+	it('deletes one after asking, and its open calls close', async () => {
+		await show();
+		click(head());
+		flushSync();
+		click(item('Delete collection'));
+		await settle();
+
+		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(api.deleteCollection).toHaveBeenCalledWith('orders-api');
+		expect(chips()).toEqual([]);
+		expect(calls.collections.map((stored) => stored.stem)).toEqual(['broken']);
+	});
+
+	it('keeps the file when the question is answered no', async () => {
+		confirm.mockResolvedValueOnce(false);
+		await show();
+		click(head());
+		flushSync();
+		click(item('Delete collection'));
+		await settle();
+
+		expect(api.deleteCollection).not.toHaveBeenCalled();
+	});
+
+	it('can delete a file that could not be read', async () => {
+		await show();
+		click(view!.get('.broken .more'));
+		flushSync();
+		click(item('Delete collection'));
+		await settle();
+
+		expect(api.deleteCollection).toHaveBeenCalledWith('broken');
+	});
+});
+
+/** FEAT-170: Calls works with no repository open, Workbench-wide. */
+describe('where collections are kept', () => {
+	it('reads the Workbench-wide calls with no repository open', async () => {
+		control.setInfo(null);
+		await show();
+
+		expect(api.setScope).toHaveBeenLastCalledWith('global');
+		expect(api.load).toHaveBeenCalled();
+		expect(chips()).toEqual(['POST Log in']);
+		const repository = view!.get('.scope [role="radio"]') as HTMLButtonElement;
+		expect(repository.disabled).toBe(true);
+	});
+
+	it('reads the repository’s own with one open', async () => {
+		await show();
+
+		expect(api.setScope).toHaveBeenLastCalledWith('repository');
+		const [mine, everywhere] = view!.all('.scope [role="radio"]');
+		expect(mine.getAttribute('aria-checked')).toBe('true');
+		expect(mine.textContent).toContain('orders-service');
+		expect(everywhere.getAttribute('aria-checked')).toBe('false');
 	});
 });

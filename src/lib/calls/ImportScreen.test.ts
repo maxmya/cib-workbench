@@ -30,6 +30,8 @@ vi.mock('@tauri-apps/api/event', () => ({
 	})
 }));
 vi.mock('./api', () => ({
+	setScope: vi.fn(),
+	currentScope: vi.fn(() => 'repository'),
 	CHUNK_EVENT: 'calls-chunk',
 	DONE_EVENT: 'calls-done',
 	SCAN_EVENT: 'calls-scan',
@@ -247,5 +249,35 @@ describe('Import', () => {
 		click(button('Read it'));
 		await settle();
 		expect(notice.failed).toHaveBeenCalledWith('Could not read that cURL command', 'this is not a cURL command');
+	});
+});
+
+/** BUG-105: reading a collection says so while it reads, and what it found after. */
+describe('reading a file', () => {
+	it('says what it is reading, then how many calls came and what to do next', async () => {
+		await show();
+		const source = { id: 'file:C:/Downloads/big.json', kind: 'postman' as const, label: 'big.json', file: 'C:/Downloads/big.json', count: 2, error: null, inRepository: false };
+		let answer: (found: Found) => void = () => {};
+		vi.mocked(api.importFile).mockReturnValue(new Promise<Found>((resolve) => (answer = resolve)));
+		vi.mocked(openDialog).mockResolvedValueOnce('C:/Downloads/big.json');
+
+		click(button('Choose a file…'));
+		await settle();
+		expect(view!.text()).toContain('Reading big.json…');
+		expect(button('Choose a file…').disabled).toBe(true);
+
+		answer({
+			...FOUND,
+			sources: [...FOUND.sources, source],
+			endpoints: [
+				...FOUND.endpoints,
+				endpoint('b1', 'GET', '/a', { kind: 'new' }, { source: source.id, group: 'Requests' }),
+				endpoint('b2', 'GET', '/b', { kind: 'new' }, { source: source.id, group: 'Requests' })
+			]
+		});
+		await settle();
+		expect(view!.text()).not.toContain('Reading big.json…');
+		expect(view!.get('.read').textContent).toBe('2 calls read from big.json. Choose where they go, then bring them in.');
+		expect(button('Choose a file…').disabled).toBe(false);
 	});
 });

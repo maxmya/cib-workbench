@@ -121,17 +121,25 @@ export type ScreenCode =
  * a collapsed rail keeps the dividers, which is the same information at the
  * width available.
  */
-export type NavGroup = 'home' | 'farm' | 'work' | 'tools' | 'app';
+export type NavGroup = 'home' | 'farm' | 'work' | 'forge' | 'bench' | 'history' | 'tools' | 'app';
 
 /**
  * What each group is called in the rail. `home` and `farm` have none: each is
  * one row. Home (FEAT-140) is a group of its own above the Farm, with a
  * divider between them and no heading, as the handoff draws it.
+ *
+ * FEAT-169: Repository had grown to fifteen rows under one divider, so the
+ * rows that belong together are groups of their own, each below a line:
+ * the everyday git work; what the hosting service holds; the workbench's
+ * own tools; reading history; and the occasional operations.
  */
 export const GROUP_LABELS: Record<NavGroup, string | null> = {
 	home: null,
 	farm: null,
 	work: 'Repository',
+	forge: 'Collaboration',
+	bench: 'Workspace',
+	history: 'History',
 	tools: 'Tools',
 	app: PRODUCT_NAME
 };
@@ -215,13 +223,6 @@ export const NAV_ITEMS: NavItem[] = [
 		icon: 'conflict',
 		shows: 'conflicts'
 	},
-	// FEAT-130. A real terminal, so nobody leaves Spagitty for one.
-	{ code: '1T', label: 'Terminal', href: '/terminal', group: 'work', icon: 'terminal', since: '3.0' },
-	// FEAT-131. Any file at any revision, read and never written.
-	{ code: '1U', label: 'Files', href: '/files', group: 'work', icon: 'files', since: '3.0' },
-	// FEAT-100. Merging two branches, seen first. Always on the rail: it is
-	// where a merge starts, not something that happens to you.
-	{ code: '1S', label: 'Merger', href: '/merge', group: 'work', icon: 'merge' },
 	{
 		code: '1F',
 		label: 'Branches',
@@ -230,38 +231,46 @@ export const NAV_ITEMS: NavItem[] = [
 		group: 'work',
 		icon: 'branch'
 	},
-	{ code: '1H', label: 'Pull requests', href: '/requests', group: 'work', icon: 'request' },
+	// FEAT-100. Merging two branches, seen first. Always on the rail: it is
+	// where a merge starts, not something that happens to you.
+	{ code: '1S', label: 'Merger', href: '/merge', group: 'work', icon: 'merge' },
+	// FEAT-169: what the hosting service holds, together under a line.
+	{ code: '1H', label: 'Pull requests', href: '/requests', group: 'forge', icon: 'request' },
 	// FEAT-087. Reading a pull request, after browsing them.
-	{ code: '1R', label: 'Review', href: '/review', group: 'work', icon: 'review' },
-	// FEAT-133. Git steps in blocks, run a step at a time.
-	{ code: '1V', label: 'Recipes', href: '/recipes', group: 'work', icon: 'recipes', since: '3.0' },
+	{ code: '1R', label: 'Review', href: '/review', group: 'forge', icon: 'review' },
+	// FEAT-136 to FEAT-139, as the artboards drew them.
+	{ code: '1W', label: 'Issues', href: '/issues', group: 'forge', icon: 'issues', since: '3.1' },
+	{ code: '1Y', label: 'Pipelines', href: '/pipelines', group: 'forge', icon: 'pipelines', since: '3.1' },
+	{ code: '1Z', label: 'Releases', href: '/releases', group: 'forge', icon: 'releases', since: '3.1' },
+	// FEAT-169: the workbench's own tools, beside the code.
+	// FEAT-130. A real terminal, so nobody leaves Spagitty for one.
+	{ code: '1T', label: 'Terminal', href: '/terminal', group: 'bench', icon: 'terminal', since: '3.0' },
+	// FEAT-131. Any file at any revision, read and never written.
+	{ code: '1U', label: 'Files', href: '/files', group: 'bench', icon: 'files', since: '3.0' },
 	// FEAT-160. Requests to the service, kept beside its code.
-	{ code: '2C', label: 'Calls', href: '/calls', group: 'work', icon: 'calls', since: '4.0' },
-	// FEAT-136 to FEAT-139, after Recipes as the artboards drew them. They are
-	// about the open repository, so they are in its group rather than a fifth
-	// group of their own that lengthened the rail (2026-10-18).
-	{ code: '1W', label: 'Issues', href: '/issues', group: 'work', icon: 'issues', since: '3.1' },
-	{ code: '1X', label: 'Hooks', href: '/hooks', group: 'work', icon: 'hooks', since: '3.1' },
-	{ code: '1Y', label: 'Pipelines', href: '/pipelines', group: 'work', icon: 'pipelines', since: '3.1' },
-	{ code: '1Z', label: 'Releases', href: '/releases', group: 'work', icon: 'releases', since: '3.1' },
-	// TASK-056: the author wanted these back where they can be seen, so the
-	// tools are always on the rail again, and Stash, Tags and Reflog are rows
-	// of their own rather than tabs Branches stands for (reversing TASK-045).
-	{ code: '1E', label: 'Rebase', href: '/rebase', group: 'tools', icon: 'rebase' },
+	{ code: '2C', label: 'Calls', href: '/calls', group: 'bench', icon: 'calls', since: '4.0' },
+	// FEAT-133. Git steps in blocks, run a step at a time.
+	{ code: '1V', label: 'Recipes', href: '/recipes', group: 'bench', icon: 'recipes', since: '3.0' },
+	{ code: '1X', label: 'Hooks', href: '/hooks', group: 'bench', icon: 'hooks', since: '3.1' },
+	// FEAT-169: reading what happened, apart from changing it.
+	{ code: '1I', label: 'Log', href: '/search', group: 'history', icon: 'search' },
 	// FEAT-132. File history, which was off the rail and about one file, is
 	// the life of a file, a folder, a branch or a line, and on it.
 	{
 		code: '1O',
 		label: 'Investigate',
 		href: '/investigate',
-		group: 'tools',
+		group: 'history',
 		icon: 'investigate',
 		since: '3.0'
 	},
-	{ code: '1I', label: 'Log', href: '/search', group: 'tools', icon: 'search' },
+	{ code: '1M', label: 'Reflog', href: '/reflog', group: 'history', icon: 'history' },
+	// TASK-056: the author wanted these back where they can be seen, so the
+	// tools are always on the rail again, and Stash, Tags and Reflog are rows
+	// of their own rather than tabs Branches stands for (reversing TASK-045).
+	{ code: '1E', label: 'Rebase', href: '/rebase', group: 'tools', icon: 'rebase' },
 	{ code: '1G', label: 'Stash', href: '/stash', group: 'tools', icon: 'stash' },
 	{ code: '1N', label: 'Tags', href: '/tags', group: 'tools', icon: 'tag' },
-	{ code: '1M', label: 'Reflog', href: '/reflog', group: 'tools', icon: 'history' },
 	// FEAT-155. Stop tracking files on a branch, in a commit.
 	{ code: '2B', label: 'Untrack', href: '/untrack', group: 'tools', icon: 'untrack', since: '3.8' },
 	{

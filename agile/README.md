@@ -221,6 +221,11 @@ rather than an audit.
 | [FEAT-165](items/FEAT-165-settings-calls.md) | Settings › Calls | 1K | Open |
 | [FEAT-166](items/FEAT-166-copy-a-call-as-curl-and-paste-one-in.md) | Copy a call as cURL, and paste one in | 2C | Open |
 | [FEAT-167](items/FEAT-167-signed-ws-security.md) | Signed WS-Security for SOAP calls | 2C, 1K | Backlog |
+| [FEAT-168](items/FEAT-168-the-launch-screen-stays-long-enough-to-read.md) | The launch screen stays long enough to read | chrome | Done |
+| [FEAT-169](items/FEAT-169-the-rail-in-groups-of-related-screens.md) | The rail in groups of related screens | chrome, Settings | Done |
+| [FEAT-170](items/FEAT-170-calls-in-the-repository-or-workbench-wide.md) | Calls in the repository, or Workbench-wide | 2C, 1K | Done |
+| [FEAT-171](items/FEAT-171-hooks-a-manager-runs-read-explained-and-edited.md) | Hooks a manager runs, read, explained and edited | 1X, 1K | Done |
+| [FEAT-172](items/FEAT-172-open-on-all-repositories.md) | Open on All repositories | 1K, 1J | Done |
 
 ## Bugs
 
@@ -328,6 +333,12 @@ rather than an audit.
 | [BUG-099](items/BUG-099-the-hooks-side-panel-cards-do-nothing.md) | The Hooks screen's side panel cards do nothing when clicked | 1X | Fixed |
 | [BUG-100](items/BUG-100-bruno-yaml-collections-do-not-import.md) | Bruno collections in YAML do not import | 2C | Fixed |
 | [BUG-101](items/BUG-101-every-edit-in-calls-says-could-not-save.md) | Every edit in Calls says "Could not save … already exists" | 2C | Fixed |
+| [BUG-102](items/BUG-102-closing-the-tab-on-show-leaves-its-repository-loaded.md) | Closing the tab on show leaves its repository loaded | chrome | Fixed |
+| [BUG-103](items/BUG-103-the-terminal-draws-nerd-font-icons-as-boxes.md) | The Terminal draws Nerd Font icons as boxes | 1T | Fixed |
+| [BUG-104](items/BUG-104-the-review-controls-sit-off-the-windows-centre-and-move.md) | The review controls sit off the window's centre, and move | 1R | Fixed |
+| [BUG-105](items/BUG-105-importing-a-collection-shows-nothing-while-it-reads.md) | Importing a collection shows nothing while it reads | 2C | Fixed |
+| [BUG-106](items/BUG-106-a-calls-collection-cannot-be-removed.md) | A Calls collection cannot be removed | 2C | Fixed |
+| [BUG-107](items/BUG-107-git-failures-are-gits-text-not-what-went-wrong.md) | git's failures are git's text, not what went wrong | chrome, all | Fixed |
 
 `BUG-009b` carries a suffix rather than the next number because it is the same
 report, reopened on a corrected diagnosis, and BUG-009's own document keeps the
@@ -453,3 +464,14 @@ missing documents are not listed here, and fails again if a row here is stale.
 | FEAT-148 | plan, automated, sweep | Built in one session from a request, with no plan written ahead. Covered by `settings/home-section.test.ts`, the layout and screen cases in `home/home.test.ts` and `settings.rs`. The sweep is owed: the author is checking it. |
 | FEAT-149 | plan, automated, sweep | Built in one session from a request, with no plan written ahead. Covered by `files/kind.test.ts`. The sweep, in light and dark, is owed: the author is checking it. |
 | FEAT-150 | plan, automated, sweep | Built in one session from a request, with no plan written ahead. Covered by the click and double-click cases in `files/open.test.ts`. The sweep across the screens is owed: the author is checking it. |
+| BUG-102 | plan, automated, sweep | Fixed in one session from a report; covered by the tab-strip test. The sweep, closing tabs in the running application, is owed. |
+| BUG-103 | plan, automated, sweep | Fixed in one session from a report; covered by the font-stack tests. The sweep, with a Nerd Font prompt on Windows, macOS and Linux, is owed. |
+| BUG-104 | plan, automated, sweep | Fixed in one session from a report; covered by `review/pill.test.ts`. The sweep, with the panes either side at different widths, is owed. |
+| BUG-105 | plan, automated, sweep | Fixed in one session from a report; covered by the Import screen test. The sweep, with a large Postman collection, is owed. |
+| BUG-106 | plan, automated, sweep | Fixed in one session from a report; covered by the Calls screen tests. Verification records owed. |
+| BUG-107 | plan, automated, sweep | Fixed in one session from a report; covered by `ui/git-error.test.ts`. The sweep, against a real refused push, pull and stash, is owed. |
+| FEAT-168 | plan, automated, sweep | Built in one session from a request, with no plan written ahead. Covered by `chrome/launch-hold.test.ts`. The sweep is owed. |
+| FEAT-169 | plan, automated, sweep | Built in one session from a request, with no plan written ahead. Covered by `nav.test.ts` and the rail tests. The sweep, open and closed, in Day and Night, is owed. |
+| FEAT-170 | plan, automated, sweep | Built in one session from a request, with no plan written ahead. Covered by the Calls screen, store and import tests and `calls.rs`. The sweep, switching places with and without a repository open, is owed. |
+| FEAT-171 | plan, automated, sweep | Built in one session from a request, with no plan written ahead. Covered by the Hooks screen tests and `hooks.rs`. The sweep, with a Husky repository and a real agent, is owed. |
+| FEAT-172 | plan, automated, sweep | Built in one session from a request, with no plan written ahead. Covered by `session.test.ts`. The sweep, a launch with it on and off, is owed. |

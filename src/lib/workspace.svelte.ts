@@ -148,6 +148,14 @@ export const workspace = {
 		return active;
 	},
 
+	/**
+	 * Show no tab, keeping every one (FEAT-172). Not stored: a launch that
+	 * opened nothing on purpose does not lose which tab the session was on.
+	 */
+	rest(): void {
+		active = null;
+	},
+
 	/** Drop everything. The repositories themselves are untouched. */
 	clear(): void {
 		tabs = [];
