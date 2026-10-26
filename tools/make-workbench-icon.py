@@ -3,10 +3,15 @@
 """Generate Workbench's application icon and in-app marks from CIB's globe.
 
 Workbench's icon is CIB's round globe (`assets/brand/cib/cib-globe-round.png`,
-CIB's own file, never redrawn or recoloured) on a plate of CIB's primary blue,
-#1858A8 — the colour cibeg.com names `primary-blue`. The proportions are the
-handoff's (`design_handoff_cib_workbench/source/Mark.dc.html`): a 168 px
-plate with a 39 px corner radius holds a 96 px globe.
+CIB's own file, never redrawn, recoloured or covered) on a plate of CIB's
+primary blue, #1858A8 — the colour cibeg.com names `primary-blue` — with a
+white tools badge at the bottom right: a wrench crossed with a screwdriver.
+
+The badge is what makes it a developer tool rather than the bank: the globe
+alone on CIB blue is CIB's own mobile-app icon, which Workbench must not be
+mistaken for (the author, 2026-10-26). So the globe is moved up and left and
+made smaller, and the badge sits clear of it; nothing is drawn over the globe.
+The plate keeps the handoff's corner (39 px on a 168 px plate).
 
 This replaces `tools/make-icons.py` and the favicon part of
 `tools/make-brand.py` for Workbench; both draw Spagitty's mark.
@@ -29,7 +34,7 @@ import io
 import pathlib
 import sys
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CIB = ROOT / "assets" / "brand" / "cib"
@@ -37,12 +42,64 @@ GLOBE = CIB / "cib-globe-round.png"
 
 # CIB's primary blue, from cibeg.com's own stylesheet (`.bg-primary-blue`).
 PLATE = (0x18, 0x58, 0xA8, 255)
+BADGE = (255, 255, 255, 255)
 
-# The handoff's icon: plate 168, radius 39, globe 96.
+# Fractions of the plate. The handoff's corner: radius 39 on a 168 plate.
 RADIUS = 39 / 168
-GLOBE_SIZE = 96 / 168
+# The globe, up and left; the badge, bottom right, 0.03 clear of it.
+GLOBE_CENTRE, GLOBE_SIZE = 0.42, 0.50
+BADGE_CENTRE, BADGE_SIZE = 0.745, 0.36
 
 SUPERSAMPLE = 4
+
+
+def wrench(d: int) -> Image.Image:
+    """An open-ended wrench with a ring at the other end, lying flat, as a mask."""
+    m = Image.new("L", (d, d), 0)
+    g = ImageDraw.Draw(m)
+    c = d / 2
+    u = lambda f: f * d  # noqa: E731
+    g.rounded_rectangle((c - u(0.30), c - u(0.07), c + u(0.24), c + u(0.07)), radius=u(0.07), fill=255)
+    g.ellipse((c - u(0.45), c - u(0.15), c - u(0.15), c + u(0.15)), fill=255)
+    g.rectangle((c - u(0.47), c - u(0.06), c - u(0.32), c + u(0.06)), fill=0)
+    g.ellipse((c + u(0.17), c - u(0.105), c + u(0.38), c + u(0.105)), fill=255)
+    g.ellipse((c + u(0.225), c - u(0.05), c + u(0.325), c + u(0.05)), fill=0)
+    return m
+
+
+def screwdriver(d: int) -> Image.Image:
+    """A flat screwdriver lying flat, handle to the right, as a mask."""
+    m = Image.new("L", (d, d), 0)
+    g = ImageDraw.Draw(m)
+    c = d / 2
+    u = lambda f: f * d  # noqa: E731
+    g.rounded_rectangle((c + u(0.07), c - u(0.095), c + u(0.41), c + u(0.095)), radius=u(0.07), fill=255)
+    g.rectangle((c + u(0.03), c - u(0.06), c + u(0.07), c + u(0.06)), fill=255)
+    g.rectangle((c - u(0.31), c - u(0.034), c + u(0.03), c + u(0.034)), fill=255)
+    g.polygon(
+        [(c - u(0.31), c - u(0.034)), (c - u(0.39), c - u(0.016)), (c - u(0.39), c + u(0.016)), (c - u(0.31), c + u(0.034))],
+        fill=255,
+    )
+    return m
+
+
+def badge(d: int) -> Image.Image:
+    """The white disc with the two tools crossed on it, in CIB blue."""
+    out = Image.new("RGBA", (d, d), (0, 0, 0, 0))
+    ImageDraw.Draw(out).ellipse((0, 0, d - 1, d - 1), fill=BADGE)
+    blue = Image.new("RGBA", (d, d), PLATE)
+    white = Image.new("RGBA", (d, d), BADGE)
+    tools = round(d * 0.98)
+    at = ((d - tools) // 2, (d - tools) // 2)
+    under = screwdriver(tools).rotate(-45, resample=Image.BICUBIC)
+    over = wrench(tools).rotate(45, resample=Image.BICUBIC)
+    # A white gap round the wrench where it crosses the screwdriver.
+    gap = over.filter(ImageFilter.MaxFilter(2 * max(1, d // 90) + 1))
+    for mask, colour in ((under, blue), (gap, white), (over, blue)):
+        layer = Image.new("L", (d, d), 0)
+        layer.paste(mask, at)
+        out.paste(colour, (0, 0), layer)
+    return out
 
 
 def render(size: int) -> Image.Image:
@@ -54,7 +111,11 @@ def render(size: int) -> Image.Image:
     globe = Image.open(GLOBE).convert("RGBA")
     side = round(big * GLOBE_SIZE)
     globe = globe.resize((side, round(side * globe.height / globe.width)), Image.LANCZOS)
-    plate.alpha_composite(globe, ((big - globe.width) // 2, (big - globe.height) // 2))
+    centre = round(big * GLOBE_CENTRE)
+    plate.alpha_composite(globe, (centre - globe.width // 2, centre - globe.height // 2))
+    disc = badge(round(big * BADGE_SIZE))
+    centre = round(big * BADGE_CENTRE)
+    plate.alpha_composite(disc, (centre - disc.width // 2, centre - disc.height // 2))
     return plate.resize((size, size), Image.LANCZOS)
 
 

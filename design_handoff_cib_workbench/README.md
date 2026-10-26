@@ -12,6 +12,9 @@ These override the mockups and `WORKBENCH_PLAN.md` wherever they disagree.
 - **The globe in W🌐rkbench is a lowercase o.** The mockups size it to the capital
   W and stand it on the baseline, so it reads as a capital. It is as tall as the
   lowercase letters, with the small overshoot round letters have above and below.
+- **The app icon carries a tools badge.** The mockups' icon, the globe alone on
+  CIB blue, is CIB's own mobile-app icon. Workbench's adds a white badge with a
+  wrench and a screwdriver at the bottom right (`tools/make-workbench-icon.py`).
 - The images the mockups call `/_blob/…` are in `assets/brand/cib/`.
 
 The design for Workbench. `WORKBENCH_PLAN.md` (in this folder) says what to build. This

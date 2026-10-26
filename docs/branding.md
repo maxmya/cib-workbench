@@ -33,6 +33,10 @@ Rules:
   by a CSS filter.
 - **CIB blue is `#1858A8`**, the colour cibeg.com names `primary-blue`. CIB
   orange (`#F58420` on cibeg.com) appears only inside CIB's own images.
+- **The app icon is not CIB's app icon.** The globe alone on CIB blue is CIB's
+  mobile-app icon, so Workbench's carries a white tools badge (a wrench and a
+  screwdriver) at the bottom right, clear of the globe. Draw it only with
+  `tools/make-workbench-icon.py`.
 - **The wordmark's globe is a lowercase o**: 0.58em tall and 0.02em below the
   baseline, as Sora 600's own o, not a capital-height disc.
 - Never the Git logo or Git orange (`#F05133`), as for Spagitty.

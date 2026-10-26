@@ -23,7 +23,8 @@ development and provided as is.
 
 - **The Workbench identity.** The window, the installer and the title bar say
   Workbench, with CIB's logo and the W🌐rkbench wordmark, whose globe is set as
-  a lowercase o. The app has its own data folder and keychain group
+  a lowercase o. Its app icon is CIB's globe with a tools badge, so it is never
+  taken for CIB's own mobile app. The app has its own data folder and keychain group
   (`com.cibeg.workbench`), so it can sit beside Spagitty.
 - **The CIB palette, Day and Night,** built on CIB's primary blue `#1858A8`.
   Primary buttons are CIB blue with white text in both modes.
