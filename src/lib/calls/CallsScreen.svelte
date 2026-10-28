@@ -166,6 +166,13 @@
 		keyOf(current.opened);
 		strip?.querySelector('.chip.on')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
 	});
+	// The strip has no bar, so the mouse wheel scrolls it sideways.
+	function wheelStrip(event: WheelEvent) {
+		if (strip === null || event.deltaY === 0 || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+		if (strip.scrollWidth <= strip.clientWidth) return;
+		event.preventDefault();
+		strip.scrollLeft += event.deltaY;
+	}
 	/** FEAT-164: the Share dialog is open. */
 	let sharing = $state(false);
 	/** Share opened from a collection's `⋯`: that collection, and OpenAPI first (FEAT-179). */
@@ -251,7 +258,7 @@
 		<header class="head">
 			<span class="title">Calls</span>
 			<ScopeSwitch scope={calls.scope} repository={info?.name ?? null} onchoose={chooseScope} />
-			<div class="chips" role="tablist" aria-label="Open calls" bind:this={strip}>
+			<div class="chips" role="tablist" aria-label="Open calls" bind:this={strip} onwheel={wheelStrip}>
 				{#each calls.tabs as { opened, call } (keyOf(opened))}
 					{@const on = current !== null && keyOf(current.opened) === keyOf(opened)}
 					{@const method = methodOf(call)}
@@ -544,7 +551,7 @@
 		gap: 6px;
 		min-width: 0;
 		overflow-x: auto;
-		scrollbar-width: thin;
+		scrollbar-width: none;
 	}
 
 	.chip {

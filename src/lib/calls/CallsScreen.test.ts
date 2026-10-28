@@ -204,6 +204,8 @@ describe('Calls', () => {
 		expect(rule('.head')).not.toMatch(/flex-wrap/);
 		expect(rule('.chips')).not.toMatch(/flex-wrap/);
 		expect(rule('.chips')).toMatch(/overflow-x: auto/);
+		// It scrolls without showing a bar.
+		expect(rule('.chips')).toMatch(/scrollbar-width: none/);
 		expect(rule('.chip')).toMatch(/flex: none/);
 
 		const into = vi.fn();
