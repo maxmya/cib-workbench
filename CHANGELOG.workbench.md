@@ -14,6 +14,22 @@ versions follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-10-28
+
+### Fixed
+
+- **Calls tabs have no scroll bar.** The row of open calls still scrolls, by
+  the mouse wheel or a trackpad, but Windows' bar with arrows no longer shows
+  under it (BUG-114).
+
+### Downloads
+
+- **Windows, Linux and macOS on Apple silicon.** The Mac build is signed ad hoc
+  and is not notarized: on first open macOS says the developer cannot be
+  verified. Allow it under **System Settings › Privacy & Security ›
+  Open Anyway**, and macOS remembers the choice. If macOS says the app is
+  **damaged** instead, compare the download with `SHA256SUMS-*.txt`.
+
 ## [1.3.0] - 2026-10-28
 
 ### Added
