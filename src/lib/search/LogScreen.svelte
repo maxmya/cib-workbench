@@ -38,7 +38,7 @@
 			<span class="tile" aria-hidden="true"><Icon name="search" size="1.25em" weight={1.9} /></span>
 			<div class="titles">
 				<h1 class="title">Log</h1>
-				<span class="note">Find commits by who, what, where and when.</span>
+				
 			</div>
 			{#if status}
 				<span class="status tone-{status.tone}"><span class="pip" aria-hidden="true"></span>{status.text}</span>
@@ -62,7 +62,7 @@
 				{:else if !search.ran}
 					<div class="empty">
 						<span class="empty-mark" aria-hidden="true"><Icon name="history" size="1.6em" weight={1.6} /></span>
-						<span class="note">Ask above. Matches appear as history is walked.</span>
+						<span class="note">Matches appear here</span>
 					</div>
 				{:else if search.count === 0 && !search.running}
 					<div class="empty">

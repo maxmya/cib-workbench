@@ -96,7 +96,6 @@ describe('Share', () => {
 		await show('file');
 		click(button('Postman 2.1'));
 		await settle();
-		expect(document.body.textContent).toContain('pm.environment.set');
 		click(button('Save orders-api as Postman 2.1 JSON'));
 		await settle();
 		expect(save).toHaveBeenCalledWith({ defaultPath: 'orders-api.postman_collection.json' });

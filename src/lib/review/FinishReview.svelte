@@ -2,6 +2,7 @@
 <script lang="ts">
 	import Btn from '$lib/ui/Btn.svelte';
 	import Chip from '$lib/ui/Chip.svelte';
+	import { dialog } from '$lib/ui/dialog.svelte';
 	import { untrack } from 'svelte';
 	import type { ReviewVerdict } from '$lib/types';
 	import { sendable } from './agent-drafts';
@@ -46,6 +47,23 @@
 		return n === 1 ? '1 line comment goes with it.' : `${n} line comments go with it.`;
 	}
 
+	/** FEAT-186: something written or ticked that Discard would throw away. */
+	const pending = $derived(room.currentDrafts.length + older);
+	const anything = $derived(pending > 0 || room.body.trim() !== '' || room.viewedCount > 0);
+
+	async function discard() {
+		const agreed = await dialog.confirm({
+			title: 'Discard review',
+			body:
+				pending === 0
+					? 'The summary and the viewed files are thrown away.'
+					: `${pending === 1 ? '1 pending comment' : `${pending} pending comments`}, the summary and the viewed files are thrown away.`,
+			confirmLabel: 'Discard',
+			danger: true
+		});
+		if (agreed && (await room.discard())) onclose();
+	}
+
 	async function send() {
 		if (await room.finish(verdict)) {
 			onsent?.();
@@ -84,6 +102,8 @@
 			{older === 1 ? ' 1 written before the last push stays here.' : ` ${older} written before the last push stay here.`}{/if}
 	</p>
 	<div class="actions">
+		<Btn danger disabled={!anything || room.sending} onclick={discard}>Discard</Btn>
+		<span class="grow"></span>
 		<Btn onclick={onclose}>Cancel</Btn>
 		<Btn primary disabled={empty || room.sending} onclick={send}>{room.sending ? 'Sending…' : 'Send review'}</Btn>
 	</div>
@@ -129,5 +149,9 @@
 		display: flex;
 		justify-content: flex-end;
 		gap: 8px;
+	}
+
+	.grow {
+		flex: 1;
 	}
 </style>

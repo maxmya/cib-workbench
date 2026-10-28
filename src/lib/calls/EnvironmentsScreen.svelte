@@ -319,13 +319,12 @@
 						<span>This computer: secrets and kept values, in the system keychain</span>
 					</footer>
 				{:else if calls.loaded}
-					<EmptyState message="No environments yet. Make one on the left: its plain values are kept in the repository." />
+					<EmptyState message="No environments yet" />
 				{/if}
 			</main>
 
 			<aside class="kept" aria-label="Kept from responses">
 				<h2>Kept from responses</h2>
-				<p class="hint">Values Calls fills in for you after a call. Turn one off to freeze its value.</p>
 				{#if env && chosen}
 					{#each env.vars.filter((variable) => variable.kept) as variable (variable.name)}
 						{@const view = envPrivate?.kept.find((kept) => kept.name === variable.name)}
@@ -336,6 +335,7 @@
 									type="checkbox"
 									role="switch"
 									aria-label={`Update ${variable.name} after each call`}
+									title="Update after each call; off keeps the value as it is"
 									checked={!variable.frozen}
 									onchange={(event) => {
 										const on = event.currentTarget.checked;

@@ -102,7 +102,7 @@
 		<span class="mono">{files.usages.name}</span> · {counted} in {files.usages.files}
 		{files.usages.files === 1 ? 'file' : 'files'}{#if files.usages.more}, and more{/if}
 	</span>
-	<span class="note said small">By name, not by type: anything else called this is listed too.</span>
+	<span class="note said small">Matched by name</span>
 
 	{#each sections as section (section.role)}
 		{#if section.count > 0}

@@ -233,6 +233,13 @@ rather than an audit.
 | [FEAT-177](items/FEAT-177-a-scanned-endpoint-says-which-service-it-is-in.md) | A scanned endpoint says which service it is in | 2C | Done |
 | [FEAT-178](items/FEAT-178-import-as-a-sheet-over-calls-with-a-way-back.md) | Import as a sheet over Calls, with a way back | 2C | Done |
 | [FEAT-179](items/FEAT-179-a-call-s-rules-and-answers-from-its-code-and-openapi-out.md) | A call's rules and answers, from its code, and OpenAPI out | 2C | Done |
+| [FEAT-180](items/FEAT-180-first-launch-onboarding.md) | First-launch onboarding | 2D, 1K | Backlog |
+| [FEAT-181](items/FEAT-181-cib-gitlab-built-in-and-the-token-in-the-keychain.md) | CIB GitLab built in, and the token kept in the keychain | 2D, 1K | Backlog |
+| [FEAT-182](items/FEAT-182-follow-repositories-on-cib-gitlab.md) | Follow repositories on CIB GitLab | 2D, 1K, 2A | Backlog |
+| [FEAT-183](items/FEAT-183-home-across-followed-repositories.md) | Home across followed repositories | 2A | Backlog |
+| [FEAT-184](items/FEAT-184-load-repository-instead-of-tabs.md) | Load repository instead of tabs | 2E, chrome | Backlog |
+| [FEAT-185](items/FEAT-185-merge-requests-pipelines-and-issues-across-followed-repositories.md) | Merge requests, Pipelines and Issues across followed repositories | 1H, 1Y, 1W | Backlog |
+| [FEAT-186](items/FEAT-186-discard-a-review-before-it-is-sent.md) | Discard a review before it is sent | Review | Done |
 
 ## Bugs
 
@@ -352,6 +359,9 @@ rather than an audit.
 | [BUG-111](items/BUG-111-the-terminal-is-slow-to-show-output.md) | The Terminal is slow to show output | 1T | Fixed |
 | [BUG-112](items/BUG-112-checkboxes-are-the-platform-s-not-the-theme-s.md) | Checkboxes are the platform's, not the theme's | 2B, all | Fixed |
 | [BUG-113](items/BUG-113-calls-fields-and-panes-are-a-different-colour.md) | Calls' fields and panes are a different colour | 2C | Fixed |
+| [BUG-114](items/BUG-114-calls-open-calls-wrap-onto-a-second-row.md) | Calls' open calls wrap onto a second row | 2C | Fixed |
+| [BUG-115](items/BUG-115-recipes-panels-cannot-be-resized-and-the-right-one-scrolls-sideways.md) | Recipes' panels cannot be resized, and the right one scrolls sideways | 1V | Fixed |
+| [BUG-116](items/BUG-116-the-launch-screen-s-globe-sits-on-a-glow-and-cib-is-off-centre.md) | The launch screen's globe sits on a glow, and "CIB" is off centre | Launch | Fixed |
 
 `BUG-009b` carries a suffix rather than the next number because it is the same
 report, reopened on a corrected diagnosis, and BUG-009's own document keeps the
@@ -435,6 +445,7 @@ of its own.
 | [TASK-074](items/TASK-074-pull-requests-no-longer-list-gates-5-and-6.md) | Pull requests no longer list gates 5 and 6 | — | Done |
 | [TASK-075](items/TASK-075-remove-coderabbit.md) | Remove CodeRabbit | 1Q, 1A, Settings | Done |
 | [TASK-076](items/TASK-076-recipes-right-panel-says-less.md) | Recipes' right panel says less | 1V | Done |
+| [TASK-077](items/TASK-077-the-screens-say-less.md) | The screens say less | all | Done |
 
 ## Skipped identifiers
 
@@ -496,10 +507,15 @@ missing documents are not listed here, and fails again if a row here is stale.
 | FEAT-177 | plan, automated, sweep | Built in one session from a request, with no plan written ahead. Covered by `import/service.rs`. The sweep, on a Maven multi-module and a Nest monorepo, is owed. |
 | FEAT-178 | plan, automated, sweep | Built in one session from a request, with no plan written ahead. Covered by `calls/ImportSheet.test.ts`. The sweep is owed. |
 | FEAT-179 | plan, automated, sweep | Built over two sessions from a request, with no plan written ahead. Covered by the import, contract, agent and OpenAPI tests in Rust and the Docs, Share and Import tests. The sweep, with real Spring and Nest services, a real agent, and the export opened in Swagger UI, is owed. |
+| FEAT-186 | plan, automated, sweep | Built in one session from a request, with no plan written ahead. Covered by `routes/review/room.test.ts`. The sweep, discarding with comments, a summary and ticked files, is owed. |
 | BUG-108 | plan, automated, sweep | Fixed in one session from a report; covered by `forge/gitlab.rs` with simulated answers. The sweep, against the GitLab server that answered 500, is owed. |
 | BUG-109 | plan, automated, sweep | Fixed in one session from a report; covered by `review/pill.test.ts`. The sweep, zoomed in and with a wide side panel, is owed. |
 | BUG-110 | plan, automated, sweep | Fixed in one session from a screenshot; covered by `pipelines/pipelines.test.ts`. The sweep, on the pipeline in the screenshot, is owed. |
 | BUG-111 | plan, automated, sweep | Fixed in one session from a report; covered by `terminal.rs` and the batch and store tests. The sweep, on Windows with and without the multiplexer, is owed. |
 | BUG-112 | plan, automated, sweep | Fixed in one session from a report; a stylesheet change the test DOM cannot see. The sweep, in Day and Night, is owed. |
 | BUG-113 | plan, automated, sweep | Fixed in one session from a report; covered by `calls/varfield-paint.test.ts`. The sweep, in Day and Night, is owed. |
+| BUG-114 | plan, automated, sweep | Fixed in one session from a report; covered by `calls/CallsScreen.test.ts`. The sweep, with a dozen calls open at a narrow width, is owed. |
+| BUG-115 | plan, automated, sweep | Fixed in one session from a report; covered by `routes/recipes/page.test.ts` and `panels.test.ts`. The sweep, dragging both sides and an agent with a long name, is owed. |
+| BUG-116 | plan, automated, sweep | Fixed in one session from a report, with no test of its own; a stylesheet change the test DOM cannot see. The sweep, in Day and Night, is owed. |
 | TASK-076 | plan, automated, sweep | Done in one session from a report; covered by `routes/recipes/page.test.ts`. The sweep is owed. |
+| TASK-077 | plan, automated, sweep | Done in one session from a report, in two passes; copy only, covered by the screens' existing tests. The sweep is owed. |

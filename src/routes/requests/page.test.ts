@@ -78,7 +78,7 @@ it('distinguishes an empty queue and validates a new pull request before sending
 	vi.mocked(api.pullRequests).mockResolvedValue([]);
 	view = render(Page, {});
 	await vi.waitFor(() => expect(requests.connected).toBe(true));
-	expect(view.text()).toContain('Nothing open');
+	expect(view.text()).toContain('No open pull requests');
 	click(button('+ Create PR'));
 	expect(view.find('[role="dialog"]')).not.toBeNull();
 	type('#pr-title', ' Fix checks ');

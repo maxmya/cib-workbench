@@ -103,7 +103,7 @@
 		<span class="tile" aria-hidden="true"><Icon name="merge" size="1.25em" weight={1.9} /></span>
 		<div class="titles">
 			<h1 class="title">Merger</h1>
-			<span class="note">Pick two branches and where the result goes. You see the outcome, and every conflict, before anything is written.</span>
+			
 		</div>
 		<span class="dry"><span class="pip" aria-hidden="true"></span>Dry run · nothing written yet</span>
 	</header>

@@ -99,7 +99,7 @@ describe('restore points', () => {
 		await show();
 
 		expect(view!.get('.points').getAttribute('aria-label')).toBe('Restore points');
-		expect(view!.get('h3').textContent).toContain('the newest 20, for 7 days');
+		expect(view!.get('h3').textContent).toContain('Restore points');
 		expect(rows()).toEqual([
 			'sync-and-ship on feature/avatars at 9d02b7f 2 minutes ago undo to here drop',
 			'squash-for-pr on a detached HEAD at 9d02b7f 2 minutes ago undo to here drop'

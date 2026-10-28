@@ -56,7 +56,7 @@
 		{#if info.hooks.length === 0}
 			<div class="empty">
 				<span class="empty-mark" aria-hidden="true"><Icon name="check" size="1.4em" weight={1.8} /></span>
-				<span class="note">This repository has no hooks. Commits run nothing extra.</span>
+				<span class="note">No hooks</span>
 			</div>
 		{/if}
 

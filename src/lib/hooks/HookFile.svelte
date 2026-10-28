@@ -90,7 +90,7 @@
 			</select>
 		{/if}
 		{#if editing === null}
-			<Btn busy={explaining} title="An agent reads this file and says what it does. It runs nothing." onclick={explain}
+			<Btn busy={explaining} title="An agent explains this file; it runs nothing" onclick={explain}
 				>Explain</Btn
 			>
 			<Btn

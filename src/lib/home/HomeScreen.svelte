@@ -185,7 +185,7 @@
 				<Btn
 					busy={refreshing}
 					disabled={refreshing}
-					title="Fetch, then read the working copy, branches, commits, pull requests and pipelines again"
+					title="Fetch and reload everything"
 					onclick={refresh}
 				>
 					Refresh

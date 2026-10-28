@@ -76,7 +76,7 @@
 		{/each}
 		<Chip
 			active={following}
-			title="Follow the desktop's light and dark setting, and keep following it"
+			title="Follow the desktop's light or dark setting"
 			onclick={() => theme.followSystem()}
 		>
 			Follow system
@@ -95,7 +95,7 @@
 		<div class="row">
 			<Chip
 				active={desktop}
-				title="Take the colours from the desktop's own theme, and follow it as it changes"
+				title="Use the desktop theme's colours"
 				onclick={() => theme.followDesktop()}
 			>
 				Follow Omarchy

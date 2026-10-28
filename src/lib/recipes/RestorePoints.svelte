@@ -82,7 +82,7 @@
 	<section class="points" aria-label="Restore points">
 		<h3 class="note">
 			Restore points
-			<span class="muted">· made before each recipe ran · the newest 20, for 7 days</span>
+			
 		</h3>
 		{#each points as point (point.id)}
 			<div class="row">
@@ -95,7 +95,7 @@
 				<span class="acts">
 					<Chip
 						disabled={busy}
-						title="Put HEAD, the branches, the working tree, the index and the stashes back as they were"
+						title="Put everything back as it was"
 						onclick={() => back(point)}>undo to here</Chip
 					>
 					<Chip danger disabled={busy} title="Forget this restore point" onclick={() => drop(point)}>drop</Chip>

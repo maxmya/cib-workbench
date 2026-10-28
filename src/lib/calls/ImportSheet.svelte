@@ -234,16 +234,16 @@
 					{/if}
 					<button type="button" class="way" disabled={importer.reading !== null} onclick={chooseFile}>
 						<strong>A file</strong>
-						<span class="note">Postman, Insomnia, OpenAPI, .http, HAR, a Bruno .bru, or a script of cURL commands.</span>
+						<span class="note">Postman, Insomnia, OpenAPI, .http, HAR, Bruno or cURL</span>
 					</button>
 					<button type="button" class="way" disabled={importer.reading !== null} onclick={chooseFolder}>
 						<strong>A Bruno collection folder</strong>
-						<span class="note">The folder with bruno.json or opencollection.yml in it.</span>
+						<span class="note">With bruno.json or opencollection.yml</span>
 					</button>
 					<div class="way" class:open={pasting}>
 						<button type="button" class="way-head" onclick={() => (pasting = !pasting)}>
 							<strong>Paste a cURL command</strong>
-							<span class="note">One request, as copied from a browser’s network panel or a terminal.</span>
+							<span class="note">From a browser or a terminal</span>
 						</button>
 						{#if pasting}
 							<textarea class="mono" rows="4" aria-label="A cURL command" placeholder="curl https://…" spellcheck="false" bind:value={pasted}
@@ -363,7 +363,7 @@
 							{/if}
 							<Btn busy={importer.agentReading} onclick={() => importer.askAgent()}>Ask {agentName}</Btn>
 						{:else}
-							<span class="note">To have an agent read the controllers too, set one up in Settings › Agents and allow it here.</span>
+							<span class="note">No agent set up. Add one in Settings › Agents.</span>
 						{/if}
 					</div>
 					{#if importer.agentReading}
@@ -460,7 +460,6 @@
 							</label>
 						{/if}
 					</fieldset>
-					<p class="note">A changed call gains its new fields and loses the old ones; what you typed stays.</p>
 				</div>
 			{/if}
 		</div>

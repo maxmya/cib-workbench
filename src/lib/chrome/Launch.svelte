@@ -41,7 +41,7 @@
 >
 	<div class="centre" data-tauri-drag-region>
 		<span class="org">{ORG}</span>
-		<h1 class="mark"><Wordmark size={104} glow /></h1>
+		<h1 class="mark"><Wordmark size={104} /></h1>
 		<p class="line">{SPLASH_LINE}</p>
 
 		<div class="progress">
@@ -87,7 +87,12 @@
 		text-align: center;
 	}
 
+	/*
+	 * Letter-spacing also follows the last letter, which put "CIB" 0.16em left
+	 * of the wordmark under it (BUG-116). The same space before it centres it.
+	 */
 	.org {
+		padding-left: 0.32em;
 		font-size: 0.96em;
 		font-weight: 600;
 		letter-spacing: 0.32em;

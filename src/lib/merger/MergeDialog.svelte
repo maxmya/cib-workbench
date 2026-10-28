@@ -99,7 +99,7 @@
 						<Btn primary onclick={() => merger.finishFarmTask()}>Tell the Farm again</Btn>
 					</div>
 				{:else}
-					<span class="note">The Farm has been told, and the task is finished.</span>
+					<span class="note">Task finished in Farm</span>
 				{/if}
 			{/if}
 			{#if merger.origin?.kind === 'pullRequest' && merger.origin.local}
@@ -206,9 +206,7 @@
 						oninput={(event) => merger.setMessage((event.currentTarget as HTMLTextAreaElement).value)}
 					></textarea>
 				</div>
-			{:else if strategy === 'rebase'}
-				<span class="note">Each replayed commit keeps its own message.</span>
-			{:else}
+			{:else if strategy !== 'rebase'}
 				<span class="note">{who.targetName} moves forward to {who.sourceName}. No commit is written.</span>
 			{/if}
 			{#if merger.landError}<p class="note error" role="alert">{merger.landError}</p>{/if}

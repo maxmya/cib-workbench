@@ -20,6 +20,13 @@
 	 * Either way Spagitty runs every command itself, a step at a time, after a
 	 * restore point is made.
 	 */
+	interface Props {
+		/** Put the panel away (BUG-115); Ctrl+Enter still runs. */
+		onhide?: () => void;
+	}
+
+	let { onhide }: Props = $props();
+
 	const draft = $derived(recipes.draft);
 	const check = $derived(recipes.check);
 	const on = $derived(draft?.agentHelp ?? false);
@@ -35,16 +42,23 @@
 {#if draft}
 	<aside class="panel" aria-label="How it runs">
 		<section class="part">
-			<div class="levels" role="radiogroup" aria-label="Level">
-				{#each LEVELS as each (each.id)}
-					<button
-						role="radio"
-						class:on={draft.level === each.id}
-						aria-checked={draft.level === each.id}
-						title={each.label}
-						onclick={() => recipes.setLevel(each.id as Level)}>{each.short}</button
-					>
-				{/each}
+			<div class="row">
+				<div class="levels" role="radiogroup" aria-label="Level">
+					{#each LEVELS as each (each.id)}
+						<button
+							role="radio"
+							class:on={draft.level === each.id}
+							aria-checked={draft.level === each.id}
+							title={each.label}
+							onclick={() => recipes.setLevel(each.id as Level)}>{each.short}</button
+						>
+					{/each}
+				</div>
+				{#if onhide}
+					<button type="button" class="hide" aria-label="Put the panel away" title="Put the panel away" onclick={onhide}>
+						<Icon name="chevron-right" size={13} weight={2} />
+					</button>
+				{/if}
 			</div>
 			<p class="note small">{levelWords(level).says}</p>
 			<Btn
@@ -61,7 +75,7 @@
 		<section class="part">
 			<label
 				class="row switch-row"
-				title="An agent proposes the blocks from a sentence, and can write a commit message. It never runs a command."
+				title="An agent proposes the blocks; it never runs a command"
 			>
 				<span class="hex" aria-hidden="true"><Icon name="agent" size={15} /></span>
 				<span class="label">Agent help</span>
@@ -111,7 +125,7 @@
 							recipes.sentence.trim() === '' ||
 							recipes.sentence.length > MAX_SENTENCE}
 						busy={recipes.proposing}
-						title="The agent proposes the blocks. Nothing runs until you press Run."
+						title="Nothing runs until you press Run"
 						onclick={() => recipes.propose()}>Propose blocks</Btn
 					>
 					{#if recipes.said}
@@ -158,7 +172,9 @@
 
 <style>
 	.panel {
-		flex: 0 0 300px;
+		flex: none;
+		width: var(--recipes-run-w, 300px);
+		min-width: 0;
 		min-height: 0;
 		display: flex;
 		flex-direction: column;
@@ -174,6 +190,33 @@
 		display: flex;
 		flex-direction: column;
 		gap: 8px;
+	}
+
+	/*
+	 * No part is wider than the panel (BUG-115). A flex item is as wide as its
+	 * content by default, so one long line of the script, or an agent's long
+	 * name in the select, scrolled the whole panel sideways.
+	 */
+	.panel > *,
+	.part > *,
+	select {
+		min-width: 0;
+		max-width: 100%;
+	}
+
+	.hide {
+		flex: none;
+		display: grid;
+		place-items: center;
+		width: 22px;
+		height: 22px;
+		border-radius: var(--r-button);
+		color: var(--muted);
+	}
+
+	.hide:hover {
+		color: var(--ink);
+		background: var(--hover);
 	}
 
 	.part + .part {
@@ -212,6 +255,8 @@
 	}
 
 	.levels {
+		flex: 1;
+		min-width: 0;
 		display: flex;
 		padding: 3px;
 		border-radius: var(--r-pill);
@@ -220,6 +265,9 @@
 
 	.levels button {
 		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
 		padding: 5px 6px;
 		border-radius: var(--r-pill);
 		font-size: var(--fs-secondary);
@@ -308,6 +356,7 @@
 		background: var(--sunken);
 		font-size: var(--fs-mono);
 		white-space: pre-wrap;
+		overflow-wrap: anywhere;
 		overflow: auto;
 		user-select: text;
 	}

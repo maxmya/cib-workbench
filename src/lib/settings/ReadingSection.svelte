@@ -53,7 +53,7 @@
 <section class="reading">
 	<div class="controls">
 		<h2 class="heading">Reading</h2>
-		<span class="note lead">How code, diffs and comments are set on Review, Diff, Working copy and History.</span>
+		
 
 		<div class="row">
 			<span class="note label">Code font</span>

@@ -435,6 +435,12 @@ export const CALLS_TREE_W = 260;
 /** Calls' variables, on the right (FEAT-175), widened by dragging or put away. */
 export const CALLS_VARS_W = 250;
 
+/** Recipes' blocks, on the left (BUG-115), widened by dragging. */
+export const RECIPES_BLOCKS_W = 244;
+
+/** Recipes' run panel, on the right (BUG-115), widened by dragging or put away. */
+export const RECIPES_RUN_W = 300;
+
 // --- Stash screen columns -------------------------------------------------
 
 /**

@@ -67,7 +67,7 @@
 			<div class="preview"><label>Try a message<textarea class="mono" aria-label="Try a message" rows="3" bind:value={message}></textarea></label><Btn disabled={!message.trim() || builder.readonly} busy={builder.running} onclick={() => builder.tryMessage(message)}>Try message</Btn>{#if builder.tried}<p class:error={!builder.tried.passed}>{builder.tried.passed ? 'Passed' : 'Blocked'}</p><pre class="mono">{builder.tried.output}</pre>{/if}</div>
 		{/if}
 	{:else}
-		<p class="note empty">Choose a block to edit it, or add one from the catalogue.</p>
+		<p class="note empty">Choose a block</p>
 	{/if}
 </section>
 

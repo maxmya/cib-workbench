@@ -152,7 +152,7 @@
 			</button>
 			<Btn
 				disabled={!terminal.has(key)}
-				title="Let go of this session. It carries on, and can be attached to again"
+				title="Detach; it keeps running"
 				onclick={() => terminal.act({ kind: 'detach' })}>Detach</Btn
 			>
 			<Btn

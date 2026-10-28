@@ -6,6 +6,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { click, fire, flushSync, press, render, type Mounted } from '../../testing/mount';
 import { control } from '../../testing/repo-store.svelte';
 import type { Done, Loaded } from './types';
@@ -196,6 +197,28 @@ describe('Calls', () => {
 		expect(view!.all('.pill').map((pill) => pill.textContent)).toContain('{{baseUrl}}');
 	});
 
+	/** BUG-114: many open calls scroll in one row rather than wrapping onto a second. */
+	it('keeps the open calls in one row that scrolls, with the shown call in view', async () => {
+		const css = readFileSync('src/lib/calls/CallsScreen.svelte', 'utf8').split('<style>')[1] ?? '';
+		const rule = (selector: string) => new RegExp(`\\n\\t${selector.replace(/[.>]/g, '\\$&')} \\{([^}]*)\\}`).exec(css)?.[1] ?? '';
+		expect(rule('.head')).not.toMatch(/flex-wrap/);
+		expect(rule('.chips')).not.toMatch(/flex-wrap/);
+		expect(rule('.chips')).toMatch(/overflow-x: auto/);
+		expect(rule('.chip')).toMatch(/flex: none/);
+
+		const into = vi.fn();
+		Element.prototype.scrollIntoView = into;
+		try {
+			await show();
+			into.mockClear();
+			click(view!.all('.call').find((call) => call.textContent?.includes('Get user'))!);
+			expect(into).toHaveBeenCalled();
+			expect((into.mock.contexts.at(-1) as Element).textContent).toContain('Get user');
+		} finally {
+			delete (Element.prototype as Partial<Element>).scrollIntoView;
+		}
+	});
+
 	it('opens a call as a chip, and closes it with ✕, Ctrl+W and a middle-click', async () => {
 		await show();
 		click(view!.all('.call').find((call) => call.textContent?.includes('Get user'))!);
@@ -213,7 +236,7 @@ describe('Calls', () => {
 
 		click(view!.get('button[aria-label="Close Log in"]'));
 		expect(chips()).toEqual([]);
-		expect(view!.text()).toContain('Open a call on the left');
+		expect(view!.text()).toContain('No call open');
 		await new Promise((done) => setTimeout(done, SAVE_DELAY + 50));
 		expect(vi.mocked(api.saveState).mock.calls.at(-1)?.[0]).toMatchObject({ open: [], current: null });
 	});

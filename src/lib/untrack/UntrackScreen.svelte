@@ -80,7 +80,7 @@
 >
 	<ScreenHead title="Untrack">
 		{#snippet detail()}
-			<span class="note">Stop tracking files on a branch. They stay on disk.</span>
+			<span class="note">Files stay on disk</span>
 		{/snippet}
 	</ScreenHead>
 
@@ -179,7 +179,7 @@
 			<section class="pane plan" aria-label="Untrack">
 				<span class="label">Untracking</span>
 				{#if untrack.chosen.length === 0}
-					<p class="note">Tick the files and folders to stop tracking on {untrack.branch || 'the branch'}.</p>
+					<p class="note">Tick files to stop tracking</p>
 				{:else}
 					<ul class="chosen">
 						{#each untrack.chosen as target (target.path)}
@@ -235,7 +235,7 @@
 					/>
 					<span>
 						<span class="strong">Push after committing</span>
-						<span class="note small">To the branch's remote, creating the branch there if it is not yet.</span>
+						
 					</span>
 				</label>
 

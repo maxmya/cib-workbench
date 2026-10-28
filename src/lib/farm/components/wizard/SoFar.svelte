@@ -28,7 +28,6 @@
 			{/if}
 		</div>
 	{/each}
-	<p class="note">Crew and rules are remembered for this repository.</p>
 </aside>
 
 <style>
@@ -60,8 +59,7 @@
 		justify-content: space-between;
 	}
 
-	.label,
-	.note {
+	.label {
 		color: var(--muted);
 		font-size: var(--fs-mono);
 	}
@@ -86,10 +84,5 @@
 		display: flex;
 		gap: 3px;
 		margin-top: 2px;
-	}
-
-	.note {
-		margin: 8px 0 0;
-		line-height: 1.5;
 	}
 </style>

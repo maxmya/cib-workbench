@@ -83,7 +83,7 @@
 			{#if staleness}
 				<span
 					class="note"
-					title="Ahead and behind are counted against what the last fetch brought down"
+					title="Counted against the last fetch"
 				>
 					· drift {staleness}
 				</span>
@@ -94,7 +94,7 @@
 			{#if branches.loading}<Loader size="inline" label="Reading…" />{/if}
 			<Btn
 				disabled={branches.busy || network.running}
-				title="Bring the remote-tracking refs up to date, so the drift is current"
+				title="Fetch, so the drift is current"
 				onclick={() => network.fetch()}
 			>
 				Fetch

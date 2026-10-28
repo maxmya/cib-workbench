@@ -14,6 +14,41 @@ versions follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-28
+
+### Added
+
+- **Discard a review.** Finish review has *Discard*, which throws away the
+  pending comments, the summary and the viewed files after asking. Nothing
+  has reached the host by then (FEAT-186).
+
+### Changed
+
+- **The screens say less.** Sentences that explained how things work are
+  gone across the application, empty screens say only what is missing, and
+  long tooltips are shorter. Errors and warnings stay as they were
+  (TASK-077).
+
+### Fixed
+
+- **Calls' open calls stay on one row.** When more calls are open than the
+  header can hold, the strip scrolls sideways instead of wrapping onto a
+  second row, and the call shown scrolls into view (BUG-114).
+- **Recipes' panels resize, and the right one goes away.** Both sides drag
+  wider or narrower, the run panel can be put away and brought back, and it
+  no longer scrolls sideways (BUG-115).
+- **The launch screen's globe is clean, and "CIB" is centred.** The orange
+  glow that filled the globe's gaps is gone, and "CIB" sits over the
+  wordmark (BUG-116).
+
+### Downloads
+
+- **Windows, Linux and macOS on Apple silicon.** The Mac build is signed ad hoc
+  and is not notarized: on first open macOS says the developer cannot be
+  verified. Allow it under **System Settings › Privacy & Security ›
+  Open Anyway**, and macOS remembers the choice. If macOS says the app is
+  **damaged** instead, compare the download with `SHA256SUMS-*.txt`.
+
 ## [1.2.0] - 2026-10-28
 
 ### Added

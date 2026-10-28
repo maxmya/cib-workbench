@@ -40,7 +40,7 @@
 				</button>
 			{/each}
 		{:else}
-			<p class="note">No hook runs yet. Make a commit in {PRODUCT_NAME} or a terminal, or use Dry run on staged.</p>
+			<p class="note">No hook runs yet</p>
 		{/if}
 		<div class="earlier"><span class="label">Earlier</span>{#each builder.data?.runs ?? [] as earlier (earlier.id)}<button class:active={run?.id === earlier.id} onclick={() => { following = true; void builder.openRun(earlier.id); }}><span class="mark" class:passed={earlier.exit === 0} class:failed={earlier.exit !== null && earlier.exit !== 0}>{earlier.exit === null ? '●' : earlier.exit === 0 ? '✓' : '×'}</span><span><span class="mono date">{earlier.at.replace('T', ' ').replace('Z', '')}</span><span class="earlier-subject">{earlier.subject || earlier.stage}</span></span></button>{:else}<p class="note">The newest 50 runs appear here.</p>{/each}</div>
 	</aside>

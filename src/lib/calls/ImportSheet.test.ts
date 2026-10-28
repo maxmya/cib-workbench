@@ -397,7 +397,7 @@ describe('asking an agent too', () => {
 	it('says where to set one up when none may be asked', async () => {
 		vi.mocked(api.agents).mockResolvedValue([]);
 		await show();
-		expect(view!.text()).toContain('set one up in Settings › Agents');
+		expect(view!.text()).toContain('Add one in Settings › Agents');
 		expect(button('Ask')).toBeUndefined();
 	});
 });

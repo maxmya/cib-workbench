@@ -7,6 +7,8 @@ import { control } from '../../testing/repo-store.svelte';
 vi.mock('$lib/api');
 vi.mock('$lib/repo.svelte', async () => await import('../../testing/repo-store.svelte'));
 vi.mock('$app/navigation', () => ({ goto: vi.fn() }));
+const { confirm } = vi.hoisted(() => ({ confirm: vi.fn(async () => true) }));
+vi.mock('$lib/ui/dialog.svelte', () => ({ dialog: { confirm } }));
 vi.mock('$lib/agents/api', () => ({
 	control: vi.fn(() => Promise.resolve()),
 	start: vi.fn(),
@@ -647,6 +649,28 @@ it('sends the review with its verdict, the pending comments and the words for th
 	expect(lastSaved().drafts).toEqual([]);
 	expect(lastSaved().body).toBe('');
 	expect(api.reviewComments).toHaveBeenCalledTimes(2);
+});
+
+/** FEAT-186: a review can be thrown away before it is sent. */
+it('discards the review: its pending comments, its words and its viewed files', async () => {
+	await openRoom();
+	click(button('Finish review · 0'));
+	expect(button('Discard').hasAttribute('disabled')).toBe(true);
+	click(button('Cancel'));
+
+	await vi.waitFor(() => expect(view.find('.line.focused .plus')).not.toBeNull());
+	click(view.get('.line.focused .plus'));
+	typeInto(view.get('#composer'), 'Fall through?');
+	click(button('Add to review'));
+	await vi.waitFor(() => expect(button('Finish review · 1')).toBeTruthy());
+
+	click(button('Finish review · 1'));
+	click(button('Discard'));
+	expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ title: 'Discard review', danger: true }));
+	await vi.waitFor(() => expect(button('Finish review · 0')).toBeTruthy());
+	expect(vi.mocked(api.setReviewState).mock.calls.at(-1)![1]).toBeNull();
+	expect(view.all('.pending .body')).toHaveLength(0);
+	expect(api.submitReview).not.toHaveBeenCalled();
 });
 
 it('will not send changes asked for with nothing said', async () => {

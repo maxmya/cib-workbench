@@ -116,7 +116,7 @@
 						{/snippet}
 					</EmptyState>
 				{:else if requests.all.length === 0}
-					<EmptyState message="Nothing open. Every pull request on this repository is closed." />
+					<EmptyState message="No open pull requests" />
 				{:else}
 					{#if found.length === 0}
 						<EmptyState message="No pull request matches." />

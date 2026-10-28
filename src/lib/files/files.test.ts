@@ -929,7 +929,7 @@ describe('usages (FEAT-154)', () => {
 
 		const said = view.text().replace(/\s+/g, ' ');
 		expect(said).toContain('two · 1 definition, 2 uses, 1 mention in 3 files');
-		expect(said).toContain('By name, not by type');
+		expect(said).toContain('Matched by name');
 		expect(view.all('.section .head').map((head) => head.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
 			'Defined 1',
 			'Used 2',

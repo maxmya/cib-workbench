@@ -108,7 +108,7 @@
 			</div>
 		</form>
 		{#if pipelines.local?.changesWarning}
-			<p class="hint" role="status">{pipelines.local.changesWarning} Path conditions are decided on the host.</p>
+			<p class="hint" role="status">{pipelines.local.changesWarning}</p>
 		{/if}
 		{#if notStarted}
 			<p class="hint" role="status">No pipeline: {notStarted.charAt(0).toLowerCase()}{notStarted.slice(1)}</p>

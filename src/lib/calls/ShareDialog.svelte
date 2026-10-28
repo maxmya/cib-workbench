@@ -163,10 +163,8 @@
 					<button type="button" role="radio" class="choice" class:on={flavour === id} aria-checked={flavour === id} onclick={() => (flavour = id as typeof flavour)}>{way.title}</button>
 				{/each}
 			</div>
-			{#if flavour === 'postman'}
-				<p class="hint">Keep rules become <code>pm.environment.set</code> lines; a SOAP call is a raw POST of its envelope.</p>
-			{:else if flavour === 'openapi' || flavour === 'openapi-yaml'}
-				<p class="hint">For Swagger UI, gateways and other tools. Each call's field rules and answers go in; SOAP calls are left out, as WSDL describes them.</p>
+			{#if flavour === 'openapi' || flavour === 'openapi-yaml'}
+				<p class="hint">SOAP calls are left out</p>
 			{/if}
 		{:else}
 			<fieldset>
@@ -345,9 +343,5 @@
 
 	.act:disabled {
 		opacity: 0.5;
-	}
-
-	code {
-		font-family: var(--font-mono);
 	}
 </style>

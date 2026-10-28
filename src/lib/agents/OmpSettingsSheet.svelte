@@ -31,10 +31,8 @@
 <FarmSheet title="Oh My Pi settings" {onclose}>
 	<label for="omp-model">Model</label>
 	<input id="omp-model" class="field mono" bind:value={model} disabled={busy} placeholder="provider/model" spellcheck="false" />
-	<p class="note">The model you choose with OMP’s --model option. Leave empty to use OMP’s default.</p>
 	<label for="omp-profile">Profile</label>
 	<input id="omp-profile" class="field mono" bind:value={profile} disabled={busy} spellcheck="false" />
-	<p class="note">Optional OMP profile for your login and configuration. These choices apply to Test, Review and Merger.</p>
 	<div class="actions">
 		<Btn disabled={busy} onclick={onclose}>Cancel</Btn>
 		<Btn primary quiet {busy} onclick={save}>Save</Btn>

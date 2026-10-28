@@ -48,8 +48,6 @@
 		ondelete?: (stem: string) => void;
 		/** Open Share on a collection; `openapi` chooses OpenAPI first (FEAT-179). */
 		onshare?: (stem: string, openapi: boolean) => void;
-		/** Where the collections are kept, for the empty list to say (FEAT-170). */
-		where?: string;
 		/** The `+` menu (FEAT-178): a new collection, and Import. */
 		onnewcollection?: () => void;
 		onimport?: () => void;
@@ -81,7 +79,6 @@
 		onshow,
 		ondelete,
 		onshare,
-		where = 'in this repository, as JSON, so they can be committed',
 		onnewcollection,
 		onimport
 	}: Props = $props();
@@ -264,12 +261,12 @@
 			{/if}
 		{:else}
 			<div class="none">
-				<p>No collections {hidden.length ? 'on the list' : 'yet'}. They are kept {where}.</p>
+				<p>No collections {hidden.length ? 'on the list' : 'yet'}</p>
 				<button type="button" class="empty" onclick={() => oncreate(null, null)}>+ New call</button>
 			</div>
 		{/each}
 
-		{#if found.length || card || askScan}
+		{#if found.length}
 			<h3 class="found-head">Found in this repository</h3>
 		{/if}
 		{#each found as stored (stored.stem)}
@@ -308,11 +305,10 @@
 			</button>
 		{:else if askScan}
 			<div class="card ask">
-				<span class="card-line">Look for endpoints in this repository's code?</span>
-				<span class="card-note">Reads the source files only. Nothing is built or run.</span>
+				<span class="card-line">Scan this repository for endpoints?</span>
 				<span class="card-actions">
 					<button type="button" class="empty" onclick={ondismiss}>Not now</button>
-					<button type="button" class="empty" onclick={onscan}>Scan</button>
+					<button type="button" class="empty" title="Reads the source files only. Nothing is built or run." onclick={onscan}>Scan</button>
 				</span>
 			</div>
 		{/if}

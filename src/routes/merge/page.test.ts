@@ -213,7 +213,7 @@ describe('landing a merge with no conflicts (FEAT-101)', () => {
 		click(view.all('button.strategy').find((b) => text(b).startsWith('Rebase'))!);
 		click(button('Merge now'));
 		await vi.waitFor(() => expect(api.mergerRebaseOpen).toHaveBeenCalled());
-		await vi.waitFor(() => expect(view.text()).toContain('Each replayed commit keeps its own message.'));
+		await vi.waitFor(() => expect(button('Finish the rebase')).toBeTruthy());
 		expect(view.all('#merger-message')).toHaveLength(0);
 		click(button('Finish the rebase'));
 		await vi.waitFor(() => expect(api.mergerRebaseFinish).toHaveBeenCalled());

@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Workbench — Home</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&amp;family=Sora:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="position: relative; min-height: 100vh; box-sizing: border-box; padding: 16px; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px; color: #ECEEF1; font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; font-size: 14.5px; line-height: 1.4; background-color: #0B0B0C; background-image: radial-gradient(1200px 700px at 30% -10%, rgba(12,82,154,0.22), rgba(11,11,12,0) 70%)">
+
+  <nav aria-label="Screens" style="flex: 0 0 88px; box-sizing: border-box; padding: 14px 0; border-radius: 30px; background: #111214; border: 1px solid rgba(236,238,241,0.1); display: flex; flex-direction: column; align-items: center; gap: 6px; color: rgba(236,238,241,0.72)">
+    <a href="Home.dc.html" aria-label="Home" aria-current="page" title="Home" style="position: relative; width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; color: #4D8FD6; background: rgba(77,143,214,0.18); box-shadow: inset 0 0 0 1px rgba(77,143,214,0.4)"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 10.5 12 3.5l8.5 7V20a1 1 0 0 1-1 1H15v-6H9v6H4.5a1 1 0 0 1-1-1z"></path></svg></a>
+    <button type="button" aria-label="Calls" title="Calls" style="width: 48px; height: 48px; border-radius: 50%; border: 0; background: transparent; color: inherit; display: grid; place-items: center; cursor: pointer"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h6l2-5 3 10 2-5h3"></path></svg></button>
+    <button type="button" aria-label="Pipelines" title="Pipelines" style="width: 48px; height: 48px; border-radius: 50%; border: 0; background: transparent; color: inherit; display: grid; place-items: center; cursor: pointer"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="5" cy="12" r="2.2"></circle><circle cx="12" cy="12" r="2.2"></circle><circle cx="19" cy="12" r="2.2"></circle><path d="M7.2 12h2.6M14.2 12h2.6"></path></svg></button>
+    <button type="button" aria-label="Merge requests" title="Merge requests" style="width: 48px; height: 48px; border-radius: 50%; border: 0; background: transparent; color: inherit; display: grid; place-items: center; cursor: pointer"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2"></circle><circle cx="6" cy="18" r="2"></circle><circle cx="18" cy="18" r="2"></circle><path d="M6 8v8M18 16V9a3 3 0 0 0-3-3h-4M13 4l-2 2 2 2"></path></svg></button>
+    <button type="button" aria-label="Issues" title="Issues" style="width: 48px; height: 48px; border-radius: 50%; border: 0; background: transparent; color: inherit; display: grid; place-items: center; cursor: pointer"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.5"></circle><circle cx="12" cy="12" r="2"></circle></svg></button>
+    <button type="button" aria-label="Farm" title="Farm" style="width: 48px; height: 48px; border-radius: 50%; border: 0; background: transparent; color: inherit; display: grid; place-items: center; cursor: pointer"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2"></circle><circle cx="5" cy="19" r="2"></circle><circle cx="12" cy="19" r="2"></circle><circle cx="19" cy="19" r="2"></circle><path d="M12 7v10M12 12H5v5M12 12h7v5"></path></svg></button>
+
+    <span aria-hidden="true" style="width: 40px; height: 1px; background: rgba(236,238,241,0.16); margin: 8px 0 2px"></span>
+    <span style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: {{ repoCaption }}">Repo</span>
+
+    <button type="button" onClick="{{ repoTool }}" aria-disabled="{{ repoDisabled }}" aria-label="{{ tGraph }}" title="{{ tGraph }}" style="{{ repoBtn }}"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="6" cy="6" r="2"></circle><circle cx="6" cy="18" r="2"></circle><circle cx="18" cy="9" r="2"></circle><path d="M6 8v8M18 11c0 4-6 3-10 6"></path></svg></button>
+    <button type="button" onClick="{{ repoTool }}" aria-disabled="{{ repoDisabled }}" aria-label="{{ tWork }}" title="{{ tWork }}" style="{{ repoBtn }}"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"></path></svg></button>
+    <button type="button" onClick="{{ repoTool }}" aria-disabled="{{ repoDisabled }}" aria-label="{{ tBranches }}" title="{{ tBranches }}" style="{{ repoBtn }}"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="6" cy="5" r="2"></circle><circle cx="6" cy="19" r="2"></circle><circle cx="18" cy="7" r="2"></circle><path d="M6 7v10M18 9c0 5-12 3-12 8"></path></svg></button>
+    <button type="button" onClick="{{ repoTool }}" aria-disabled="{{ repoDisabled }}" aria-label="{{ tMerger }}" title="{{ tMerger }}" style="{{ repoBtn }}"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="6" cy="5" r="2"></circle><circle cx="6" cy="19" r="2"></circle><circle cx="18" cy="12" r="2"></circle><path d="M6 7v10M6 7c0 4 5 5 10 5"></path></svg></button>
+    <button type="button" onClick="{{ repoTool }}" aria-disabled="{{ repoDisabled }}" aria-label="{{ tReview }}" title="{{ tReview }}" style="{{ repoBtn }}"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+    <button type="button" onClick="{{ repoTool }}" aria-disabled="{{ repoDisabled }}" aria-label="{{ tTerminal }}" title="{{ tTerminal }}" style="{{ repoBtn }}"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="m7 9 3 3-3 3M13 15h4"></path></svg></button>
+
+    <span aria-hidden="true" style="width: 40px; height: 1px; background: rgba(236,238,241,0.16); margin: 8px 0"></span>
+    <button type="button" aria-label="Settings" title="Settings" style="width: 48px; height: 48px; border-radius: 50%; border: 0; background: transparent; color: inherit; display: grid; place-items: center; cursor: pointer"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"></path></svg></button>
+  </nav>
+
+  <div style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+
+    <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; min-height: 64px; box-sizing: border-box; padding: 10px 12px 10px 20px; border-radius: 18px; background: #111214; border: 1px solid rgba(236,238,241,0.1)">
+      <span role="img" aria-label="Workbench" style="display: inline-flex; align-items: baseline; font-family: 'Sora', 'Segoe UI', sans-serif; font-size: 18px; font-weight: 600; letter-spacing: -0.02em; color: #FFFFFF"><span aria-hidden="true">W</span><img src="/_blob/8ed2904807391f8815df61b310da6e3b" alt="" style="height: 0.58em; width: auto; position: relative; top: 0.02em; margin: 0 0.03em"><span aria-hidden="true">rkbench</span></span>
+      <span aria-hidden="true" style="width: 1px; height: 24px; background: rgba(236,238,241,0.14)"></span>
+
+      <sc-if value="{{ noRepo }}" hint-placeholder-val="{{ true }}">
+        <button type="button" onClick="{{ openPicker }}" style="display: inline-flex; align-items: center; gap: 10px; height: 40px; padding: 0 10px 0 14px; border-radius: 10px; border: 1px dashed rgba(236,238,241,0.28); background: transparent; color: #ECEEF1; font: inherit; cursor: pointer">
+          <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="rgba(236,238,241,0.66)" stroke-width="1.9" stroke-linejoin="round"><path d="M3 6.5h6l2 2h10V19H3z"></path></svg>
+          <span style="color: rgba(236,238,241,0.66)">No repository loaded</span>
+          <span style="font-weight: 600; color: #4D8FD6">Load repository</span>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; padding: 2px 7px; border-radius: 5px; border: 1px solid rgba(236,238,241,0.2); color: rgba(236,238,241,0.7)">Ctrl+O</span>
+        </button>
+      </sc-if>
+      <sc-if value="{{ hasRepo }}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+          <div style="display: inline-flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px; border-radius: 10px; background: rgba(77,143,214,0.12); border: 1px solid rgba(77,143,214,0.4)">
+            <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#4D8FD6" stroke-width="1.9" stroke-linejoin="round"><path d="M3 6.5h6l2 2h10V19H3z"></path></svg>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 13.5px; color: #FFFFFF">{{ repo.path }}</span>
+            <span style="display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 6px; background: rgba(236,238,241,0.08); font-family: 'JetBrains Mono', monospace; font-size: 12px"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="6" cy="5" r="2"></circle><circle cx="6" cy="19" r="2"></circle><circle cx="18" cy="7" r="2"></circle><path d="M6 7v10M18 9c0 5-12 3-12 8"></path></svg>{{ repo.branch }}</span>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: rgba(236,238,241,0.66)">↑{{ repo.ahead }} ↓{{ repo.behind }}</span>
+          </div>
+          <button type="button" onClick="{{ openPicker }}" style="height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid rgba(236,238,241,0.2); background: transparent; color: #ECEEF1; font: inherit; cursor: pointer">Switch</button>
+          <button type="button" onClick="{{ unload }}" aria-label="{{ unloadLabel }}" title="{{ unloadLabel }}" style="width: 40px; height: 40px; border-radius: 10px; border: 1px solid rgba(236,238,241,0.2); background: transparent; color: rgba(236,238,241,0.8); display: grid; place-items: center; cursor: pointer"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+        </div>
+      </sc-if>
+
+      <span style="flex: 1 1 0"></span>
+      <button type="button" style="display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid rgba(236,238,241,0.2); background: transparent; color: #ECEEF1; font: inherit; cursor: pointer"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"></path></svg>Refresh</button>
+      <button type="button" aria-label="Notifications, 4 new" title="Notifications" style="position: relative; width: 40px; height: 40px; border-radius: 10px; border: 0; background: transparent; color: rgba(236,238,241,0.8); display: grid; place-items: center; cursor: pointer"><svg aria-hidden="true" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg><span aria-hidden="true" style="position: absolute; top: 8px; right: 9px; width: 8px; height: 8px; border-radius: 50%; background: #4D8FD6; box-shadow: 0 0 0 2px #111214"></span></button>
+      <span aria-label="Signed in as Nour Hassan" role="img" style="width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: #1E3550; color: #CFE2F6; font-size: 13px; font-weight: 600">NH</span>
+    </header>
+
+    <div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 24px; padding: 6px 4px 0">
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <h1 style="margin: 0; font-family: 'Sora', 'Segoe UI', sans-serif; font-size: 30px; line-height: 1.15; font-weight: 600; letter-spacing: -0.02em; color: #FFFFFF">Home</h1>
+        <p style="margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: rgba(236,238,241,0.68)">{{ followLine }}<button type="button" style="border: 0; padding: 0 2px; background: transparent; color: #4D8FD6; font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px">Change</button></p>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+        <sc-if value="{{ hasRepo }}" hint-placeholder-val="{{ false }}">
+          <div role="group" aria-label="Show" style="display: inline-flex; padding: 3px; border-radius: 10px; background: #111214; border: 1px solid rgba(236,238,241,0.12)">
+            <button type="button" aria-pressed="{{ scopeAllPressed }}" onClick="{{ scopeAll }}" style="{{ scopeAllStyle }}">All followed</button>
+            <button type="button" aria-pressed="{{ scopeRepoPressed }}" onClick="{{ scopeRepo }}" style="{{ scopeRepoStyle }}">{{ repo.short }} only</button>
+          </div>
+        </sc-if>
+        <button type="button" style="display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 14px; border-radius: 10px; border: 1px solid rgba(236,238,241,0.2); background: transparent; color: #ECEEF1; font: inherit; cursor: pointer"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"></path><circle cx="16" cy="6" r="2"></circle><circle cx="10" cy="12" r="2"></circle><circle cx="18" cy="18" r="2"></circle></svg>Customise Home</button>
+      </div>
+    </div>
+
+    <sc-if value="{{ hasRepo }}" hint-placeholder-val="{{ false }}">
+      <section aria-labelledby="thisrepo" style="display: flex; flex-direction: column; gap: 12px; padding: 18px; border-radius: 18px; background: #111214; border: 1px solid rgba(77,143,214,0.35); box-shadow: inset 0 1px 0 rgba(77,143,214,0.25)">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px">
+          <h2 id="thisrepo" style="margin: 0; display: flex; align-items: center; gap: 10px; font-family: 'Sora', sans-serif; font-size: 16px; font-weight: 600"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #4D8FD6; font-family: 'Segoe UI', system-ui, sans-serif">Loaded</span>{{ repo.path }}</h2>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px">
+            <button type="button" style="height: 36px; padding: 0 14px; border-radius: 9px; border: 1px solid rgba(236,238,241,0.2); background: transparent; color: #ECEEF1; font: inherit; cursor: pointer">Open graph</button>
+            <button type="button" style="height: 36px; padding: 0 14px; border-radius: 9px; border: 0; background: #0C529A; color: #FFFFFF; font: inherit; font-weight: 600; cursor: pointer">Commit…</button>
+          </div>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 12px">
+          <div style="flex: 1 1 300px; min-width: 0; padding: 14px; border-radius: 12px; background: #17181B; display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; justify-content: space-between; align-items: baseline"><span style="font-weight: 600">Working copy</span><span style="font-size: 12.5px; color: rgba(236,238,241,0.66)">3 changed · 1 staged</span></div>
+            <div style="display: flex; gap: 10px; align-items: center; font-family: 'JetBrains Mono', monospace; font-size: 12px"><span style="width: 16px; color: #E2A64E">M</span><span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">ack/AckRetryPolicy.java</span></div>
+            <div style="display: flex; gap: 10px; align-items: center; font-family: 'JetBrains Mono', monospace; font-size: 12px"><span style="width: 16px; color: #5DBE8A">A</span><span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">ack/AckRetryPolicyTest.java</span><span style="margin-left: auto; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 11.5px; color: rgba(236,238,241,0.62)">staged</span></div>
+            <div style="display: flex; gap: 10px; align-items: center; font-family: 'JetBrains Mono', monospace; font-size: 12px"><span style="width: 16px; color: #E2A64E">M</span><span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">application-uat.yml</span></div>
+          </div>
+          <div style="flex: 1 1 220px; min-width: 0; padding: 14px; border-radius: 12px; background: #17181B; display: flex; flex-direction: column; gap: 8px">
+            <span style="font-weight: 600">Branch</span>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px">{{ repo.branch }} <span style="color: rgba(236,238,241,0.62)">→ origin/{{ repo.branch }}</span></span>
+            <span style="font-size: 13px; color: rgba(236,238,241,0.7)">{{ repo.ahead }} to push, {{ repo.behind }} to pull · fetched 2 min ago</span>
+            <button type="button" style="align-self: flex-start; margin-top: auto; height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid rgba(236,238,241,0.2); background: transparent; color: #ECEEF1; font: inherit; font-size: 13.5px; cursor: pointer">Push</button>
+          </div>
+          <div style="flex: 2 1 380px; min-width: 0; padding: 14px; border-radius: 12px; background: #17181B; display: flex; flex-direction: column; gap: 8px">
+            <span style="font-weight: 600">Latest commits</span>
+            <div style="display: flex; gap: 12px; align-items: baseline; font-size: 13px"><span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #4D8FD6">a41c9e2</span><span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Retry SWIFT acknowledgements with backoff</span><span style="font-size: 12px; color: rgba(236,238,241,0.62); white-space: nowrap">Omar Saleh · 18 min</span></div>
+            <div style="display: flex; gap: 12px; align-items: baseline; font-size: 13px"><span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #4D8FD6">9be0713</span><span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Log the acknowledgement correlation id</span><span style="font-size: 12px; color: rgba(236,238,241,0.62); white-space: nowrap">Omar Saleh · 1 h</span></div>
+            <div style="display: flex; gap: 12px; align-items: baseline; font-size: 13px"><span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #4D8FD6">5d2f8c1</span><span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Merge branch release/2.14</span><span style="font-size: 12px; color: rgba(236,238,241,0.62); white-space: nowrap">Karim Mostafa · 3 d</span></div>
+          </div>
+        </div>
+      </section>
+    </sc-if>
+
+    <sc-if value="{{ empty }}" hint-placeholder-val="{{ false }}">
+      <section aria-labelledby="emptyh" style="display: flex; flex-wrap: wrap; align-items: center; gap: 24px 40px; padding: 36px; border-radius: 18px; background: #111214; border: 1px dashed rgba(236,238,241,0.22)">
+        <span aria-hidden="true" style="flex: none; width: 72px; height: 72px; border-radius: 20px; display: grid; place-items: center; background: rgba(77,143,214,0.14); color: #4D8FD6"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 10.5 12 3.5l8.5 7V20a1 1 0 0 1-1 1H15v-6H9v6H4.5a1 1 0 0 1-1-1z"></path></svg></span>
+        <div style="flex: 1 1 360px; display: flex; flex-direction: column; gap: 8px">
+          <h2 id="emptyh" style="margin: 0; font-family: 'Sora', sans-serif; font-size: 22px; font-weight: 600; color: #FFFFFF">You’re not following any repositories</h2>
+          <p style="margin: 0; max-width: 620px; color: rgba(236,238,241,0.72)">Home fills in once you follow projects on CIB GitLab: reviews, pipelines and issues from all of them. Calls work now — they don’t need a repository.</p>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 10px">
+          <button type="button" onClick="{{ follow }}" style="height: 44px; padding: 0 18px; border-radius: 9px; border: 0; background: #0C529A; color: #FFFFFF; font: inherit; font-weight: 600; cursor: pointer">Choose repositories</button>
+          <button type="button" onClick="{{ openPicker }}" style="height: 44px; padding: 0 16px; border-radius: 9px; border: 1px solid rgba(236,238,241,0.22); background: transparent; color: #ECEEF1; font: inherit; cursor: pointer">Load a repository</button>
+        </div>
+      </section>
+    </sc-if>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 16px">
+      <sc-for list="{{ sections }}" as="sec" hint-placeholder-count="6">
+        <section aria-label="{{ sec.title }}" style="{{ sec.cardStyle }}">
+          <div style="display: flex; align-items: center; gap: 10px">
+            <h2 style="margin: 0; font-family: 'Sora', sans-serif; font-size: 16px; font-weight: 600; color: #FFFFFF">{{ sec.title }}</h2>
+            <span style="padding: 1px 8px; border-radius: 999px; background: rgba(236,238,241,0.08); font-size: 12px; color: rgba(236,238,241,0.75)">{{ sec.count }}</span>
+            <span style="font-size: 12.5px; color: rgba(236,238,241,0.62)">{{ sec.sub }}</span>
+            <button type="button" style="margin-left: auto; border: 0; background: transparent; color: #4D8FD6; font: inherit; font-size: 13.5px; cursor: pointer">{{ sec.more }}</button>
+          </div>
+
+          <sc-if value="{{ sec.isEmpty }}" hint-placeholder-val="{{ false }}"><p style="margin: 6px 0; font-size: 13.5px; color: rgba(236,238,241,0.66)">{{ sec.emptyText }}</p></sc-if>
+
+          <sc-if value="{{ sec.isNeeds }}" hint-placeholder-val="{{ true }}">
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <sc-for list="{{ sec.rows }}" as="row" hint-placeholder-count="4">
+                <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 12px; border-radius: 10px; background: #17181B">
+                  <span aria-hidden="true" style="{{ row.dotStyle }}"></span>
+                  <span style="flex: 0 0 150px; font-size: 13px; font-weight: 600; color: {{ row.kindColor }}">{{ row.kind }}</span>
+                  <span style="flex: 1 1 240px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ row.title }}</span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; padding: 3px 8px; border-radius: 6px; background: rgba(236,238,241,0.08); color: rgba(236,238,241,0.82)">{{ row.repo }}</span>
+                  <span style="width: 70px; text-align: right; font-size: 12.5px; color: rgba(236,238,241,0.62)">{{ row.when }}</span>
+                  <button type="button" style="height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid rgba(236,238,241,0.2); background: transparent; color: #ECEEF1; font: inherit; font-size: 13.5px; cursor: pointer">{{ row.action }}</button>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ sec.isMrs }}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; flex-direction: column">
+              <sc-for list="{{ sec.rows }}" as="row" hint-placeholder-count="4">
+                <div style="display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-top: 1px solid rgba(236,238,241,0.07)">
+                  <span aria-hidden="true" style="flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: #1E3550; color: #CFE2F6; font-size: 11px; font-weight: 600">{{ row.who }}</span>
+                  <span style="flex: 1; min-width: 0; display: flex; flex-direction: column"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap"><span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: rgba(236,238,241,0.66)">{{ row.iid }}</span> {{ row.title }}</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: rgba(236,238,241,0.62)">{{ row.repo }}</span></span>
+                  <span style="{{ row.stateStyle }}">{{ row.state }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ sec.isPipes }}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; flex-direction: column">
+              <sc-for list="{{ sec.rows }}" as="row" hint-placeholder-count="4">
+                <div style="display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-top: 1px solid rgba(236,238,241,0.07)">
+                  <span role="img" aria-label="{{ row.status }}" style="{{ row.iconStyle }}">{{ row.glyph }}</span>
+                  <span style="flex: 1; min-width: 0; display: flex; flex-direction: column"><span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ row.repo }}</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: rgba(236,238,241,0.62); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ row.ref }}</span></span>
+                  <span aria-hidden="true" style="display: flex; gap: 3px">
+                    <sc-for list="{{ row.stages }}" as="st" hint-placeholder-count="5"><span style="{{ st.style }}"></span></sc-for>
+                  </span>
+                  <span style="width: 64px; text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: rgba(236,238,241,0.7)">{{ row.dur }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ sec.isIssues }}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; flex-direction: column">
+              <sc-for list="{{ sec.rows }}" as="row" hint-placeholder-count="3">
+                <div style="display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-top: 1px solid rgba(236,238,241,0.07)">
+                  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5DBE8A" stroke-width="2" style="flex: none"><circle cx="12" cy="12" r="8.5"></circle><circle cx="12" cy="12" r="2"></circle></svg>
+                  <span style="flex: 1; min-width: 0; display: flex; flex-direction: column"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap"><span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: rgba(236,238,241,0.66)">{{ row.iid }}</span> {{ row.title }}</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: rgba(236,238,241,0.62)">{{ row.repo }}</span></span>
+                  <span style="padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(236,238,241,0.2); font-size: 12px; color: rgba(236,238,241,0.8)">{{ row.label }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ sec.isCalls }}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; flex-direction: column">
+              <sc-for list="{{ sec.rows }}" as="row" hint-placeholder-count="3">
+                <div style="display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-top: 1px solid rgba(236,238,241,0.07)">
+                  <span aria-hidden="true" style="flex: none; width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: rgba(77,143,214,0.14); color: #4D8FD6"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h6l2-5 3 10 2-5h3"></path></svg></span>
+                  <span style="flex: 1; min-width: 0; display: flex; flex-direction: column"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ row.name }}</span><span style="font-size: 12px; color: rgba(236,238,241,0.62)">{{ row.count }} · {{ row.when }}</span></span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; padding: 2px 7px; border-radius: 5px; background: rgba(236,238,241,0.08)">{{ row.env }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ sec.isReleases }}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; flex-wrap: wrap; gap: 10px">
+              <sc-for list="{{ sec.rows }}" as="row" hint-placeholder-count="3">
+                <div style="flex: 1 1 220px; display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 10px; background: #17181B">
+                  <span style="display: flex; align-items: center; gap: 8px"><span style="font-family: 'JetBrains Mono', monospace; font-size: 13.5px; font-weight: 500; color: #FFFFFF">{{ row.tag }}</span><span style="{{ row.badgeStyle }}">{{ row.badge }}</span></span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: rgba(236,238,241,0.62)">{{ row.repo }} · {{ row.when }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+        </section>
+      </sc-for>
+    </div>
+  </div>
+
+  <sc-if value="{{ picker }}" hint-placeholder-val="{{ false }}">
+    <div style="position: absolute; inset: 0; z-index: 10; background: rgba(0,0,0,0.62)">
+      <button type="button" onClick="{{ closePicker }}" aria-label="Close" style="position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: transparent; cursor: default"></button>
+      <div role="dialog" aria-modal="true" aria-labelledby="pickh" style="position: absolute; top: 96px; left: 50%; transform: translateX(-50%); width: 680px; max-width: calc(100% - 32px); box-sizing: border-box; border-radius: 16px; background: #17181B; border: 1px solid rgba(236,238,241,0.16); box-shadow: 0 40px 100px rgba(0,0,0,0.6); overflow: hidden">
+        <h2 id="pickh" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); margin: 0">Load a repository</h2>
+        <div style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid rgba(236,238,241,0.1)">
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(236,238,241,0.66)" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
+          <label for="pq" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Find a repository</label>
+          <input id="pq" type="search" value="{{ pq }}" onChange="{{ onPq }}" placeholder="Find a repository on this machine or on CIB GitLab" autocomplete="off" style="flex: 1; min-width: 0; height: 32px; border: 0; outline: 0; background: transparent; color: #FFFFFF; font: inherit; font-size: 16px">
+          <button type="button" onClick="{{ closePicker }}" style="height: 28px; padding: 0 8px; border-radius: 6px; border: 1px solid rgba(236,238,241,0.2); background: transparent; color: rgba(236,238,241,0.75); font-family: 'JetBrains Mono', monospace; font-size: 11.5px; cursor: pointer">Esc</button>
+        </div>
+        <div style="max-height: 520px; overflow-y: auto; padding: 8px">
+          <sc-for list="{{ groups }}" as="g" hint-placeholder-count="3">
+            <div style="display: flex; flex-direction: column; gap: 2px; padding-bottom: 6px">
+              <span style="padding: 10px 10px 4px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(236,238,241,0.62)">{{ g.title }}</span>
+              <sc-for list="{{ g.items }}" as="it" hint-placeholder-count="2">
+                <button type="button" onClick="{{ it.load }}" disabled="{{ it.busy }}" style="{{ it.rowStyle }}">
+                  <span aria-hidden="true" style="{{ it.iconBox }}">
+                    <sc-if value="{{ it.local }}" hint-placeholder-val="{{ true }}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M3 6.5h6l2 2h10V19H3z"></path></svg></sc-if>
+                    <sc-if value="{{ it.remote }}" hint-placeholder-val="{{ false }}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"></path></svg></sc-if>
+                  </span>
+                  <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left">
+                    <span style="display: flex; align-items: center; gap: 8px"><span style="font-family: 'JetBrains Mono', monospace; font-size: 13.5px; color: #FFFFFF">{{ it.path }}</span><sc-if value="{{ it.isLoaded }}" hint-placeholder-val="{{ false }}"><span style="padding: 1px 7px; border-radius: 999px; background: rgba(77,143,214,0.18); color: #9CC3EC; font-size: 11px; font-weight: 600">Loaded</span></sc-if><sc-if value="{{ it.followed }}" hint-placeholder-val="{{ false }}"><span style="padding: 1px 7px; border-radius: 999px; border: 1px solid rgba(236,238,241,0.22); color: rgba(236,238,241,0.75); font-size: 11px">Followed</span></sc-if></span>
+                    <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: rgba(236,238,241,0.62); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ it.sub }}</span>
+                    <sc-if value="{{ it.busy }}" hint-placeholder-val="{{ false }}">
+                      <span style="display: flex; align-items: center; gap: 10px; margin-top: 4px"><span role="progressbar" aria-label="{{ it.busyText }}" style="flex: 1; height: 3px; border-radius: 2px; background: rgba(236,238,241,0.12); overflow: hidden"><span style="display: block; width: 46%; height: 100%; border-radius: 2px; background: #4D8FD6"></span></span><span style="font-size: 12px; color: #9CC3EC">{{ it.busyText }}</span></span>
+                    </sc-if>
+                  </span>
+                  <span style="{{ it.actionStyle }}">{{ it.action }}</span>
+                </button>
+              </sc-for>
+            </div>
+          </sc-for>
+          <sc-if value="{{ noHits }}" hint-placeholder-val="{{ false }}"><p style="margin: 16px 12px; color: rgba(236,238,241,0.7)">Nothing on this machine or on CIB GitLab matches “{{ pq }}”.</p></sc-if>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 12px 16px; border-top: 1px solid rgba(236,238,241,0.1); background: #131417">
+          <button type="button" style="display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid rgba(236,238,241,0.2); background: transparent; color: #ECEEF1; font: inherit; font-size: 13.5px; cursor: pointer"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M3 6.5h6l2 2h10V19H3z"></path></svg>Open a folder…</button>
+          <span style="font-size: 12.5px; color: rgba(236,238,241,0.66)">Loading replaces the repository you have loaded. Home keeps what you follow.</span>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"start":{"editor":"enum","options":["following","empty","picker","loaded"],"default":"following"},"$preview":{"width":1440,"height":1200}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    const start = props.start ?? 'following';
+    this.state = {
+      following: start !== 'empty',
+      loaded: start === 'loaded' ? 'crx' : null,
+      picker: start === 'picker',
+      pq: '',
+      busy: null,
+      scope: 'all'
+    };
+  }
+  componentWillUnmount() { clearTimeout(this.t); }
+  load(id, clone) {
+    if (this.state.busy) return;
+    if (id === this.state.loaded) { this.setState({ picker: false }); return; }
+    this.setState({ busy: id });
+    clearTimeout(this.t);
+    this.t = setTimeout(() => this.setState({ busy: null, loaded: id, picker: false, pq: '', scope: 'all' }), clone ? 1800 : 900);
+  }
+  renderVals() {
+    const s = this.state;
+    const REPOS = {
+      crx: { id: 'crx', path: 'payments/crx-transfers', short: 'crx-transfers', dir: 'C:\\Projects\\crx-transfers', branch: 'main', ahead: 2, behind: 0, when: 'loaded yesterday', followed: true },
+      cards: { id: 'cards', path: 'cards/card-issuing-api', short: 'card-issuing-api', dir: 'C:\\Projects\\card-issuing-api', branch: 'develop', ahead: 0, behind: 3, when: 'loaded 3 d ago', followed: true },
+      ci: { id: 'ci', path: 'platform/ci-templates', short: 'ci-templates', dir: 'C:\\Work\\ci-templates', branch: 'main', ahead: 0, behind: 0, when: 'loaded last week', followed: false },
+      mobile: { id: 'mobile', path: 'channels/mobile-gateway', short: 'mobile-gateway', dir: 'C:\\Projects\\mobile-gateway', branch: 'main', ahead: 0, behind: 0, clone: true, followed: true },
+      profile: { id: 'profile', path: 'core/customer-profile', short: 'customer-profile', dir: 'C:\\Projects\\customer-profile', branch: 'main', ahead: 0, behind: 0, clone: true, followed: false },
+      ibweb: { id: 'ibweb', path: 'channels/internet-banking-web', short: 'internet-banking-web', dir: 'C:\\Projects\\internet-banking-web', branch: 'main', ahead: 0, behind: 0, clone: true, followed: false }
+    };
+    const repo = s.loaded ? REPOS[s.loaded] : { path: '', short: '', branch: '', ahead: 0, behind: 0 };
+    const hasRepo = !!s.loaded;
+    const onlyRepo = hasRepo && s.scope === 'repo';
+    const keep = (rows) => onlyRepo ? rows.filter((r) => r.repo === repo.short) : rows;
+
+    const C = { acc: '#4D8FD6', ok: '#5DBE8A', bad: '#EC6A82', warn: '#E2A64E', purple: '#B3A1EE', muted: 'rgba(236,238,241,0.66)' };
+
+    const needs = keep([
+      { kind: 'Review requested', c: C.acc, title: '!412 Retry failed SWIFT acknowledgements', repo: 'crx-transfers', when: '18 min', action: 'Review' },
+      { kind: 'Pipeline failed', c: C.bad, title: 'main · test:integration', repo: 'card-issuing-api', when: '41 min', action: 'Open' },
+      { kind: 'Changes requested', c: C.warn, title: '!97 Refresh token on cold start', repo: 'mobile-gateway', when: '2 h', action: 'Open' },
+      { kind: 'Assigned to you', c: C.purple, title: '#233 Mask account numbers in the audit log', repo: 'crx-transfers', when: 'Yesterday', action: 'Open' }
+    ]).map((r) => Object.assign({}, r, { kindColor: r.c, dotStyle: 'flex: none; width: 8px; height: 8px; border-radius: 50%; background: ' + r.c }));
+
+    const pill = (c, bg) => 'flex: none; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; color: ' + c + '; background: ' + bg;
+    const mrs = keep([
+      { iid: '!412', title: 'Retry failed SWIFT acknowledgements', repo: 'crx-transfers', who: 'OS', state: 'Review requested', st: pill('#9CC3EC', 'rgba(77,143,214,0.16)') },
+      { iid: '!1088', title: 'Bump Spring Boot to 3.3.5', repo: 'card-issuing-api', who: 'NH', state: 'Draft', st: pill('rgba(236,238,241,0.75)', 'rgba(236,238,241,0.08)') },
+      { iid: '!97', title: 'Refresh token on cold start', repo: 'mobile-gateway', who: 'NH', state: 'Changes requested', st: pill('#F1C98A', 'rgba(226,166,78,0.14)') },
+      { iid: '!409', title: 'Split fee calculation from routing', repo: 'crx-transfers', who: 'KM', state: 'Approved', st: pill('#A6E0C1', 'rgba(93,190,138,0.14)') }
+    ]).map((r) => Object.assign({}, r, { stateStyle: r.st }));
+
+    const stage = (k) => ({ style: 'display: block; width: 14px; height: 6px; border-radius: 3px; background: ' + ({ ok: C.ok, bad: C.bad, run: C.acc, idle: 'rgba(236,238,241,0.18)' })[k] });
+    const icon = (c, bg) => 'flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; color: ' + c + '; background: ' + bg;
+    const pipes = keep([
+      { status: 'Failed', glyph: '✕', ic: icon(C.bad, 'rgba(236,106,130,0.14)'), repo: 'card-issuing-api', ref: 'main · 41 min ago', st: ['ok', 'ok', 'bad', 'idle', 'idle'], dur: '7m 40s' },
+      { status: 'Running', glyph: '●', ic: icon(C.acc, 'rgba(77,143,214,0.16)'), repo: 'mobile-gateway', ref: 'feature/token-refresh · now', st: ['ok', 'ok', 'run', 'idle', 'idle'], dur: '3m 12s' },
+      { status: 'Passed', glyph: '✓', ic: icon(C.ok, 'rgba(93,190,138,0.14)'), repo: 'crx-transfers', ref: '!412 · 18 min ago', st: ['ok', 'ok', 'ok', 'ok', 'ok'], dur: '5m 58s' },
+      { status: 'Passed', glyph: '✓', ic: icon(C.ok, 'rgba(93,190,138,0.14)'), repo: 'crx-transfers', ref: 'main · 2 h ago', st: ['ok', 'ok', 'ok', 'ok', 'ok'], dur: '6m 05s' }
+    ]).map((r) => Object.assign({}, r, { iconStyle: r.ic, stages: r.st.map(stage) }));
+
+    const issues = keep([
+      { iid: '#233', title: 'Mask account numbers in the audit log', repo: 'crx-transfers', label: 'security' },
+      { iid: '#88', title: 'Token refresh fails on cold start', repo: 'mobile-gateway', label: 'bug' },
+      { iid: '#41', title: 'Document card replacement states', repo: 'card-issuing-api', label: 'docs' }
+    ]);
+
+    const calls = [
+      { name: 'Core banking sandbox', count: '14 calls', when: 'used today', env: 'UAT' },
+      { name: 'Card issuing — partner API', count: '9 calls', when: 'used yesterday', env: 'SIT' },
+      { name: 'Mobile gateway auth', count: '6 calls', when: 'used 3 d ago', env: 'UAT' }
+    ];
+
+    const releases = keep([
+      { tag: 'v2.14.0', repo: 'crx-transfers', when: '3 d ago', badge: 'Latest', b: pill('#A6E0C1', 'rgba(93,190,138,0.14)') },
+      { tag: 'v5.2.1', repo: 'card-issuing-api', when: 'last week', badge: 'Latest', b: pill('#A6E0C1', 'rgba(93,190,138,0.14)') },
+      { tag: 'v1.9.0-rc.2', repo: 'mobile-gateway', when: 'last week', badge: 'Pre-release', b: pill('#F1C98A', 'rgba(226,166,78,0.14)') }
+    ]).map((r) => Object.assign({}, r, { badgeStyle: r.b }));
+
+    const card = (full) => 'flex: ' + (full ? '1 1 100%' : '1 1 480px') + '; min-width: 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; padding: 16px 18px; border-radius: 18px; background: #111214; border: 1px solid rgba(236,238,241,0.1)';
+    const where = onlyRepo ? 'in ' + repo.short : 'across followed';
+    const none = onlyRepo ? 'Nothing here for ' + repo.short + '.' : 'Nothing here right now.';
+    const mk = (key, title, rows, sub, more, full) => ({
+      key: key, title: title, rows: rows, count: rows.length, sub: sub, more: more, cardStyle: card(full),
+      isEmpty: rows.length === 0, emptyText: none,
+      isNeeds: key === 'needs' && rows.length > 0, isMrs: key === 'mrs' && rows.length > 0, isPipes: key === 'pipes' && rows.length > 0,
+      isIssues: key === 'issues' && rows.length > 0, isCalls: key === 'calls', isReleases: key === 'releases' && rows.length > 0
+    });
+    let sections;
+    if (s.following) {
+      sections = [
+        mk('needs', 'Needs you', needs, where, 'All', true),
+        mk('mrs', 'Merge requests', mrs, where, 'Open Merge requests', false),
+        mk('pipes', 'Pipelines', pipes, where, 'Open Pipelines', false),
+        mk('issues', 'Issues', issues, 'assigned to you', 'Open Issues', false),
+        mk('calls', 'Calls', calls, 'Workbench-wide · no repository needed', 'Open Calls', false),
+        mk('releases', 'Releases', releases, where, 'Open Releases', true)
+      ];
+    } else {
+      sections = [mk('calls', 'Calls', calls, 'Workbench-wide · no repository needed', 'Open Calls', true)];
+    }
+
+    // picker
+    const q = (s.pq || '').trim().toLowerCase();
+    const match = (r) => !q || r.path.indexOf(q) >= 0;
+    const item = (r) => {
+      const busy = s.busy === r.id, isLoaded = s.loaded === r.id, remote = !!r.clone;
+      const hot = busy || (!s.busy && isLoaded);
+      return {
+        path: r.path, local: !remote, remote: remote, isLoaded: isLoaded, followed: remote && r.followed,
+        sub: remote ? 'Clones into ' + r.dir : r.dir + ' · ' + r.branch + ' · ' + r.when,
+        busy: busy, busyText: remote ? 'Cloning…' : 'Loading…',
+        action: isLoaded ? 'Loaded' : remote ? 'Clone and load' : 'Load',
+        load: () => this.load(r.id, remote),
+        rowStyle: 'display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; border-radius: 10px; border: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; background: ' + (hot ? 'rgba(77,143,214,0.14)' : 'transparent'),
+        iconBox: 'flex: none; width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; ' + (remote ? 'background: rgba(236,238,241,0.07); color: rgba(236,238,241,0.75)' : 'background: rgba(77,143,214,0.14); color: #4D8FD6'),
+        actionStyle: 'flex: none; font-size: 13px; font-weight: 600; color: ' + (isLoaded ? 'rgba(236,238,241,0.6)' : remote ? 'rgba(236,238,241,0.82)' : '#4D8FD6')
+      };
+    };
+    const groups = [
+      { title: 'On this machine', items: ['crx', 'cards', 'ci'].map((k) => REPOS[k]).filter(match).map(item) },
+      { title: 'On CIB GitLab', items: ['mobile', 'profile', 'ibweb'].map((k) => REPOS[k]).filter(match).map(item) }
+    ].filter((g) => g.items.length > 0);
+
+    const dim = !hasRepo;
+    const t = (n) => dim ? n + ' — load a repository first' : n;
+
+    return {
+      repo: repo, hasRepo: hasRepo, noRepo: !hasRepo, empty: !s.following,
+      followLine: s.following ? 'Following 3 repositories on CIB GitLab · updated 2 min ago ·' : 'Following nothing yet ·',
+      sections: sections,
+      follow: () => this.setState({ following: true }),
+      openPicker: () => this.setState({ picker: true }),
+      closePicker: () => this.setState({ picker: false, busy: null }),
+      unload: () => this.setState({ loaded: null, scope: 'all' }),
+      unloadLabel: 'Unload ' + (repo.short || 'repository'),
+      repoTool: () => { if (!this.state.loaded) this.setState({ picker: true }); },
+      repoDisabled: dim ? 'true' : 'false',
+      repoCaption: dim ? 'rgba(236,238,241,0.5)' : '#4D8FD6',
+      repoBtn: 'width: 48px; height: 48px; border-radius: 50%; border: 0; background: transparent; display: grid; place-items: center; cursor: pointer; color: ' + (dim ? 'rgba(236,238,241,0.32)' : 'rgba(236,238,241,0.8)'),
+      tGraph: t('Graph'), tWork: t('Working copy'), tBranches: t('Branches'), tMerger: t('Merger'), tReview: t('Review'), tTerminal: t('Terminal'),
+      scopeAll: () => this.setState({ scope: 'all' }), scopeRepo: () => this.setState({ scope: 'repo' }),
+      scopeAllPressed: s.scope === 'all' ? 'true' : 'false', scopeRepoPressed: s.scope === 'repo' ? 'true' : 'false',
+      scopeAllStyle: 'height: 32px; padding: 0 12px; border-radius: 7px; border: 0; font: inherit; font-size: 13.5px; cursor: pointer; ' + (s.scope === 'all' ? 'background: #0C529A; color: #FFFFFF; font-weight: 600' : 'background: transparent; color: rgba(236,238,241,0.75)'),
+      scopeRepoStyle: 'height: 32px; padding: 0 12px; border-radius: 7px; border: 0; font: inherit; font-size: 13.5px; cursor: pointer; ' + (s.scope === 'repo' ? 'background: #0C529A; color: #FFFFFF; font-weight: 600' : 'background: transparent; color: rgba(236,238,241,0.75)'),
+      picker: s.picker, pq: s.pq, onPq: (e) => this.setState({ pq: e.target.value }),
+      groups: groups, noHits: groups.length === 0
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -96,7 +96,7 @@ export const LEVELS: LevelWords[] = [
 		id: 'suggest',
 		label: 'Read-only',
 		short: 'Read-only',
-		says: 'Nothing runs. The commands are shown, and Copy as script is the way out.'
+		says: 'Nothing runs. Copy the script to use it.'
 	},
 	{ id: 'stepByStep', label: 'Ask every step', short: 'Every step', says: 'Stops before every step.' },
 	{
@@ -109,7 +109,7 @@ export const LEVELS: LevelWords[] = [
 		id: 'unattended',
 		label: 'Full access',
 		short: 'Full access',
-		says: 'Runs through. A conflict, a failure or a rejected push still stops it.'
+		says: 'Runs through; a conflict, failure or rejected push stops it.'
 	}
 ];
 
