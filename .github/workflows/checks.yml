@@ -139,6 +139,7 @@ jobs:
         run: |
           python3 -m pip install --quiet pillow
           python3 tools/make-workbench-icon.py --check
+          python3 tools/make-installer-art.py --check
           python3 tools/make-brand.py --check
 
       # Workbench is MIT. An upstream merge brings GPL headers with it.

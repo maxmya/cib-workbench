@@ -46,7 +46,9 @@ Resolve conflicts **towards upstream's structure with Workbench's values**.
 | Title bar, wordmark, mark | `TitleBar.svelte`, `Wordmark.svelte`, `BrandMark.svelte` | Keep Workbench's lockup. |
 | Launch screen | `src/lib/chrome/Launch.svelte`, the `launching` state in `src/routes/+layout.svelte` | Keep the `.finally(() => (launching = false))` on the startup block. |
 | Licence | `LICENSE`, `NOTICE` top, `deny.toml`, `version.ts`, `about.rs`, `LicenseSection.svelte`, SPDX headers | Run `tools/brand-spdx.mjs`. Third-party sections of `NOTICE` follow upstream. |
-| Update check | `crates/spagitty-core/src/update.rs` (`CHECKS_FOR_UPDATES`), `src-tauri/src/settings.rs` default | Keep the early return; it makes no request. |
+| Update check | `crates/spagitty-core/src/update.rs` (`CHECKS_FOR_UPDATES`, `RELEASES_PAGE` in `brand.rs`), `src-tauri/src/settings.rs` default | Workbench checks (FEAT-187). Keep `brand::RELEASES_PAGE` as the fallback link, never Spagitty's. |
+| Self-update | `src-tauri/src/self_update.rs`, `plugins.updater` in `tauri.conf.json`, `src/lib/updates/`, `tools/updater-manifest.mjs`, gates 5 and 6 | Workbench-only; `docs/self-update.md`. Keep the endpoint on this repository. |
+| Installer | `bundle.windows.nsis` and `bundle.macOS.dmg` in `tauri.conf.json`, `tauri.windows.conf.json`, `src-tauri/installer/` | Keep Workbench's. Regenerate the art with `python3 tools/make-installer-art.py`. |
 | Multiplexer mirror | `tools/multiplexer.ts` (`sourceOf`, `WORKBENCH_MULTIPLEXER_MIRROR`) | Keep `sourceOf` round the download. |
 | Extensions' Spagitty version | `src-tauri/src/extensions.rs` passes `BASED_ON_SPAGITTY` | Extensions name Spagitty's version in `engines`, so they are checked against it, not against Workbench's. |
 | App data and keychain | `com.cibeg.workbench` in `brand.rs` (`APP_ID`), `tools/extensions/cli.ts` | Keep. |
@@ -74,7 +76,10 @@ draft from a `draft/**` branch). Workbench's differences in them:
   caches are written only from `main`;
 - no Intel Mac build in any lane;
 - gate 2 checks `tools/make-workbench-icon.py` instead of Spagitty's
-  `tools/make-icons.py`, and runs `node tools/brand-spdx.mjs --check`;
+  `tools/make-icons.py`, and `tools/make-installer-art.py`, and runs
+  `node tools/brand-spdx.mjs --check`;
+- gate 5 signs the updater's downloads when `TAURI_SIGNING_PRIVATE_KEY` is
+  set, and gate 6 attaches `latest.json` (`docs/self-update.md`);
 - release notes come from `CHANGELOG.workbench.md`;
 - releases, tags and artefacts are named Workbench, the bare Windows binary is
   `cib-workbench-windows-x86_64.exe`, and the AppImage's update source is

@@ -240,6 +240,7 @@ rather than an audit.
 | [FEAT-184](items/FEAT-184-load-repository-instead-of-tabs.md) | Load repository instead of tabs | 2E, chrome | Backlog |
 | [FEAT-185](items/FEAT-185-merge-requests-pipelines-and-issues-across-followed-repositories.md) | Merge requests, Pipelines and Issues across followed repositories | 1H, 1Y, 1W | Backlog |
 | [FEAT-186](items/FEAT-186-discard-a-review-before-it-is-sent.md) | Discard a review before it is sent | Review | Done |
+| [FEAT-187](items/FEAT-187-workbench-installs-its-own-updates.md) | Workbench installs its own updates, from its own installer | 1K, chrome | Done |
 
 ## Bugs
 

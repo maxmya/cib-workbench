@@ -129,7 +129,7 @@ pub fn read(body: &str, current: Option<&str>) -> Result<Update> {
     let url = json["html_url"]
         .as_str()
         .filter(|url| url.starts_with("https://"))
-        .unwrap_or("https://github.com/spa-git-ty/spagitty/releases")
+        .unwrap_or(crate::brand::RELEASES_PAGE)
         .to_string();
 
     let channel = match current {
@@ -155,17 +155,17 @@ mod tests {
     fn answer(tag: &str) -> String {
         serde_json::json!({
             "tag_name": tag,
-            "html_url": format!("https://github.com/spa-git-ty/spagitty/releases/tag/{tag}")
+            "html_url": format!("https://github.com/maxmya/cib-workbench/releases/tag/{tag}")
         })
         .to_string()
     }
 
     #[test]
-    fn workbench_asks_for_no_release_and_says_why() {
-        // Answered before any request: a machine with no route to GitHub
-        // gets the answer at once rather than after a timeout.
-        let error = check().expect_err("no feed is configured").to_string();
-        assert!(error.contains("does not check for updates"), "{error}");
+    fn workbench_asks_its_own_releases() {
+        // FEAT-187 turned the check back on: Workbench updates from GitHub.
+        // The early return in `check` stays for a build that turns it off.
+        const { assert!(crate::brand::CHECKS_FOR_UPDATES) };
+        assert!(crate::brand::RELEASES_PAGE.starts_with("https://github.com/maxmya/cib-workbench/"));
     }
 
     #[test]
@@ -237,7 +237,7 @@ mod tests {
         let body = serde_json::json!({ "tag_name": "v9.9.9" }).to_string();
         let found = read(&body, Some("v0.1.0-preview.1")).unwrap();
 
-        assert_eq!(found.url, "https://github.com/spa-git-ty/spagitty/releases");
+        assert_eq!(found.url, crate::brand::RELEASES_PAGE);
     }
 
     #[test]
@@ -252,10 +252,7 @@ mod tests {
             let body = serde_json::json!({ "tag_name": "v9.9.9", "html_url": hostile }).to_string();
             let found = read(&body, None).unwrap();
 
-            assert_eq!(
-                found.url, "https://github.com/spa-git-ty/spagitty/releases",
-                "for {hostile}"
-            );
+            assert_eq!(found.url, crate::brand::RELEASES_PAGE, "for {hostile}");
         }
     }
 

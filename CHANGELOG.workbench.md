@@ -14,6 +14,30 @@ versions follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- **Workbench updates itself.** It looks for a newer release when it starts,
+  downloads it in the background, and offers **Restart to update** in the
+  status strip and in Settings → Behaviour → Updates. Nothing is uninstalled,
+  and nothing is installed until you restart. Updates come from Workbench's
+  GitHub releases and are refused unless they carry Workbench's signature.
+  Install this release once over the one you have; later ones arrive on their
+  own (FEAT-187).
+- **Workbench's own installer.** The Windows installer carries CIB's header,
+  sidebar and Workbench's icon, and installs for you alone, with no
+  administrator prompt. The macOS disk image opens on its own window
+  (FEAT-187).
+
+### Changed
+
+- **Windows has one installer**, the `*-setup.exe`. The `.msi` is no longer
+  built (FEAT-187).
+
+### Fixed
+
+- **The update notice links to Workbench's releases**, not Spagitty's, when
+  GitHub's answer carries no page of its own (FEAT-187).
+
 ## [1.3.1] - 2026-10-28
 
 ### Fixed

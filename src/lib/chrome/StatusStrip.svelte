@@ -9,6 +9,7 @@
 	import { repo } from '$lib/repo.svelte';
 	import { settings } from '$lib/settings/store.svelte';
 	import { profiles } from '$lib/profiles/store.svelte';
+	import { updates } from '$lib/updates/store.svelte';
 	import Menu from '$lib/ui/Menu.svelte';
 	import type { MenuItem } from '$lib/ui/menu';
 
@@ -187,6 +188,19 @@
 				<span class="sep" aria-hidden="true">·</span>
 				<span class="fact">Submodules {submodulesLabel}</span>
 			</span>
+		{/if}
+
+		<!-- A downloaded update waits for this (FEAT-187); nothing restarts unasked. -->
+		{#if updates.phase === 'ready' || updates.phase === 'restarting'}
+			<button
+				type="button"
+				class="update-btn"
+				title="{PRODUCT_NAME} {updates.version} is downloaded"
+				disabled={updates.phase === 'restarting'}
+				onclick={() => updates.restart()}
+			>
+				{updates.phase === 'restarting' ? 'Restarting…' : 'Restart to update'}
+			</button>
 		{/if}
 
 		<span class="note mono license" title="{PRODUCT_NAME} {settings.about?.version ?? version.number} · based on {BASED_ON.name} {BASED_ON.version} · {version.license}">
@@ -379,6 +393,23 @@
 	.walk.running .pulse {
 		background: var(--accent);
 		animation: pulse-breathe 1.6s ease-in-out infinite;
+	}
+
+	.update-btn {
+		flex: none;
+		border: none;
+		border-radius: 999px;
+		padding: 1px 10px;
+		font: inherit;
+		font-size: var(--fs-secondary);
+		color: var(--bg);
+		background: var(--accent);
+		cursor: pointer;
+	}
+
+	.update-btn:disabled {
+		opacity: 0.6;
+		cursor: default;
 	}
 
 	@keyframes pulse-breathe {

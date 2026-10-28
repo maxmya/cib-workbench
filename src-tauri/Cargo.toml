@@ -34,6 +34,15 @@ tauri-plugin-dialog = "2"
 # Held at 2.4: 2.5 needs tauri 2.12, and the CLI refuses a build whose
 # Rust crates and `@tauri-apps/api` differ in minor version.
 tauri-plugin-notification = "~2.4"
+# Installs a newer Workbench from this repository's GitHub releases, verified
+# against Workbench's own key (FEAT-187). Called from Rust only, like the
+# notification plugin, so the webview gets no updater permission. It keeps the
+# system proxy, which a bank's network routes through, and leaves out `zip`:
+# that feature only unpacks v1 `.nsis.zip` and `.AppImage.tar.gz` updates,
+# Workbench publishes the bare setup and AppImage, and the zip 4 it pulls in
+# has open advisories (RUSTSEC-2026-0367 to 0369).
+# Held at 2.12: 2.13 needs tauri 2.12, for the reason given above.
+tauri-plugin-updater = { version = "~2.12", default-features = false, features = ["rustls-tls", "system-proxy"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 notify = "8"

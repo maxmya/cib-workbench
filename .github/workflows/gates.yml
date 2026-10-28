@@ -146,7 +146,7 @@ jobs:
           apple-team-id: ${{ secrets.APPLE_TEAM_ID }}
           signing-identity: ${{ secrets.APPLE_SIGNING_IDENTITY }}
 
-      - run: bun run tauri build ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+      - run: bun run tauri build ${{ matrix.target && format('--target {0}', matrix.target) || '' }} ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' && format('--config "{0}/src-tauri/tauri.updater.conf.json"', github.workspace) || '' }}
         shell: bash
         env:
           # A release ships the terminal's multiplexer or does not ship (FEAT-130):
@@ -162,6 +162,16 @@ jobs:
           # from `main` reported itself as a development build and could never
           # say a newer one existed. The feature was shipped and inert.
           SPAGITTY_RELEASE: ${{ steps.release.outputs.tag }}
+          # Sign the updater's downloads (FEAT-187). The key is the private
+          # half of the public key in `tauri.conf.json` (`plugins.updater`),
+          # and the bundler refuses a pair that does not match. Without the
+          # secret the build is unsigned and gate 6 publishes no `latest.json`:
+          # installed copies are told a release exists, as before, but do not
+          # install it. Signing is switched on by `tauri.updater.conf.json` on
+          # the command line above, only with the secret, so a local build,
+          # which has no key, is never asked to sign.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       # The container, the signature, Gatekeeper's verdict and the
       # architecture, asked of the finished .dmg before it is uploaded.
@@ -262,6 +272,28 @@ jobs:
           printf '%s\n' "${files[@]}"
           echo "files=${files[*]}" >> "$GITHUB_OUTPUT"
 
+      # What an installed Workbench reads to update itself (FEAT-187), written
+      # from the signed downloads before the tag is pushed, like every other
+      # check here. No signed download means the signing secret is not set:
+      # the release goes out as before, without self-update, and says so.
+      - name: The update manifest
+        id: manifest
+        run: |
+          set -euo pipefail
+          status=0
+          bun tools/updater-manifest.mjs artifacts "${{ steps.version.outputs.tag }}" "${{ github.repository }}" notes.md > latest.json || status=$?
+          case "$status" in
+            0)
+              cat latest.json
+              echo "file=latest.json" >> "$GITHUB_OUTPUT"
+              ;;
+            3)
+              rm -f latest.json
+              echo "::warning::no download is signed, so installed copies will not update themselves to ${{ steps.version.outputs.tag }}. Set TAURI_SIGNING_PRIVATE_KEY (docs/self-update.md)."
+              ;;
+            *) exit "$status" ;;
+          esac
+
       # The runner has no git identity of its own, and an annotated tag needs
       # one — this failed the first main release with "empty ident name".
       # The bot identity is scoped to this repository, not set globally.
@@ -277,4 +309,4 @@ jobs:
           gh release create "${{ steps.version.outputs.tag }}" \
             --title "Workbench ${{ steps.version.outputs.tag }}" \
             --notes-file notes.md \
-            ${{ steps.assets.outputs.files }}
+            ${{ steps.assets.outputs.files }} ${{ steps.manifest.outputs.file }}

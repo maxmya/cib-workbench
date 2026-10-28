@@ -34,6 +34,7 @@ mod recipes;
 mod releases;
 mod review_state;
 mod search_worker;
+mod self_update;
 mod settings;
 mod terminal;
 #[cfg(test)]
@@ -51,6 +52,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(commands::AppState::default())
         // Terminals belong to the window, not to the repository that is open.
         .manage(terminal::TerminalState::default())
@@ -329,6 +331,8 @@ pub fn run() {
             commands::set_review_state,
             commands::set_pr_draft,
             commands::check_update,
+            self_update::update_prepare,
+            self_update::update_restart,
             commands::signing,
             commands::set_signing,
             commands::clear_signing,
@@ -471,6 +475,9 @@ pub fn run() {
             // Recipes' runs. Nothing runs until one is run.
             recipes::manage(app.handle());
             calls::manage(app.handle());
+
+            // Where a downloaded update waits for the restart (FEAT-187).
+            self_update::manage(app.handle());
             Ok(())
         })
         .build(tauri::generate_context!())

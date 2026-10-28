@@ -397,6 +397,19 @@ describe('the promises this screen makes', () => {
 		]);
 	});
 
+	it('makes one request outside the core: the self-updater, from one file', () => {
+		// FEAT-187. Workbench installs its own updates through Tauri's updater
+		// plugin, which reads `latest.json` and the download with the HTTP
+		// client Tauri already links. It is named here rather than hidden: one
+		// file in the Tauri layer, its endpoint fixed in `tauri.conf.json`.
+		const shell = join(process.cwd(), 'src-tauri/src');
+		const touching = readdirSync(shell)
+			.filter((name) => name.endsWith('.rs'))
+			.filter((name) => /tauri_plugin_updater::UpdaterExt/.test(readFileSync(join(shell, name), 'utf8')));
+
+		expect(touching).toEqual(['self_update.rs']);
+	});
+
 	it('names every state in words a user of any host would recognise', () => {
 		expect(Object.values(REVIEW_LABELS)).toEqual([
 			'awaiting review',

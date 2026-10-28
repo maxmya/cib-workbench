@@ -30,6 +30,8 @@ vi.mock('$lib/api', () => ({
 	clearSigning: vi.fn(),
 	forgeAccounts: vi.fn(() => Promise.resolve([])),
 	checkUpdate: vi.fn(),
+	prepareUpdate: vi.fn(),
+	restartToUpdate: vi.fn(),
 	forgeConnect: vi.fn(),
 	forgeDisconnect: vi.fn(),
 	licenses: vi.fn(),
@@ -47,6 +49,7 @@ import UpdateSection from './UpdateSection.svelte';
 import { SECTIONS } from './store.svelte';
 import IdentitySection from './IdentitySection.svelte';
 import { settings } from './store.svelte';
+import { resetUpdates, updates } from '$lib/updates/store.svelte';
 
 const identity = vi.mocked(api.identity);
 const forgeAccounts = vi.mocked(api.forgeAccounts);
@@ -588,10 +591,45 @@ describe('LicenseSection', () => {
 
 describe('UpdateSection', () => {
 	const checkUpdate = vi.mocked(api.checkUpdate);
+	const prepareUpdate = vi.mocked(api.prepareUpdate);
 
 	// The store is module state and outlives a test, so what the last check
 	// found would otherwise still be on screen for the next one.
-	beforeEach(() => settings.clearState());
+	beforeEach(() => {
+		settings.clearState();
+		resetUpdates();
+	});
+
+	// A build that cannot install updates gets the notice and its link
+	// (FEAT-187): these are the cases that predate self-update.
+	async function checkWithoutSelfUpdate() {
+		prepareUpdate.mockResolvedValueOnce({ state: 'unsupported', reason: 'Download the new release instead.' });
+		await updates.check();
+	}
+
+	it('offers a restart once a newer release is downloaded', async () => {
+		prepareUpdate.mockResolvedValueOnce({ state: 'ready', version: '1.4.0', current: '1.3.1' });
+		await updates.check();
+		const mounted = render(UpdateSection, {});
+
+		expect(mounted.text()).toContain('1.4.0');
+		expect(mounted.text()).toContain('is downloaded');
+		expect(mounted.all('button').some((button) => button.textContent?.includes('Restart now'))).toBe(true);
+		expect(checkUpdate).not.toHaveBeenCalled();
+
+		mounted.destroy();
+	});
+
+	it('says so when the running version is the latest', async () => {
+		prepareUpdate.mockResolvedValueOnce({ state: 'current', version: '1.3.1' });
+		await updates.check();
+		const mounted = render(UpdateSection, {});
+
+		expect(mounted.text()).toContain('Up to date');
+		expect(mounted.text()).toContain('1.3.1');
+
+		mounted.destroy();
+	});
 
 	it('shows no result before anything has been checked', () => {
 		const mounted = render(UpdateSection, {});
@@ -620,11 +658,12 @@ describe('UpdateSection', () => {
 			newer: true,
 			url: 'https://github.com/Spa-git-ty/spagitty/releases/tag/v0.1.0-preview.4'
 		});
-		await settings.checkForUpdate();
+		await checkWithoutSelfUpdate();
 		const mounted = render(UpdateSection, {});
 
 		expect(mounted.text()).toContain('v0.1.0-preview.4');
 		expect(mounted.text()).toContain('has been released');
+		expect(mounted.text()).toContain('Download the new release instead.');
 		expect(mounted.text()).toContain('https://github.com/Spa-git-ty/spagitty/releases/tag/');
 
 		mounted.destroy();
@@ -639,7 +678,7 @@ describe('UpdateSection', () => {
 			newer: false,
 			url: 'https://github.com/Spa-git-ty/spagitty/releases'
 		});
-		await settings.checkForUpdate();
+		await checkWithoutSelfUpdate();
 		const mounted = render(UpdateSection, {});
 
 		expect(readable(mounted)).toContain('Development build');
@@ -661,7 +700,7 @@ describe('UpdateSection', () => {
 			newer: false,
 			url: 'https://github.com/Spa-git-ty/spagitty/releases/tag/v0.1.0-preview.4'
 		});
-		await settings.checkForUpdate();
+		await checkWithoutSelfUpdate();
 		const mounted = render(UpdateSection, {});
 
 		expect(mounted.text()).toContain('Up to date');
@@ -671,7 +710,7 @@ describe('UpdateSection', () => {
 
 	it('shows the failure rather than a stale answer', async () => {
 		checkUpdate.mockRejectedValueOnce('could not reach api.github.com');
-		await settings.checkForUpdate();
+		await checkWithoutSelfUpdate();
 		const mounted = render(UpdateSection, {});
 
 		expect(mounted.text()).toContain('could not reach');

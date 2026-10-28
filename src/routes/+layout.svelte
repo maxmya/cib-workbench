@@ -59,7 +59,7 @@
 	import ExtensionHost from '$lib/extensions/ExtensionHost.svelte';
 	import NoticeToast from '$lib/ui/NoticeToast.svelte';
 	import SpeedSearchBox from '$lib/ui/SpeedSearchBox.svelte';
-	import { settings as settingsStore } from '$lib/settings/store.svelte';
+	import { updates } from '$lib/updates/store.svelte';
 	import { theme } from '$lib/theme.svelte';
 	import { resumeSession } from '$lib/session';
 	import { nameOf, workspace } from '$lib/workspace.svelte';
@@ -118,7 +118,7 @@
 
 		let cancelled = false;
 
-		// Whether there is a newer Spagitty, asked once at startup and only if
+		// Whether there is a newer Workbench, asked once at startup and only if
 		// the preference says so — which means reading the preference before
 		// asking, because a setting that stops a request has to stop it before
 		// it is made.
@@ -132,7 +132,9 @@
 			try {
 				const stored = await api.settings();
 				if (cancelled || !stored.checkForUpdates) return;
-				await settingsStore.checkForUpdate();
+				// Downloads a newer release in the background and waits for
+				// Restart; a build that cannot install one gets the notice.
+				await updates.check();
 			} catch {
 				// Settings unreadable, or the check failed. Neither is a reason
 				// to interrupt somebody opening a repository.
