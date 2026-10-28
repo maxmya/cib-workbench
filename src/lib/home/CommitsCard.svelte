@@ -2,12 +2,13 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { graph } from '$lib/graph/store.svelte';
+	import AuthorAvatar from '$lib/graph/AuthorAvatar.svelte';
 	import { laneColorVar } from '$lib/metrics';
 	import { age } from './needs';
 
 	/**
 	 * Latest commits (FEAT-140): seven rows from the graph's own walk, so each
-	 * dot is its lane's colour in the Graph.
+	 * dot is its lane's colour in the Graph, and each says who made it.
 	 */
 	let { now }: { now: number } = $props();
 
@@ -33,8 +34,12 @@
 			<div class="commit">
 				<span class="node" style:--lane="var({laneColorVar(row.color)})"></span>
 				<span class="text">
-					<span class="mono short">{row.short}</span>
-					<span class="home-ellipsis">{row.summary}</span>
+					<span class="home-ellipsis" title={row.summary}>{row.summary}</span>
+					<span class="by">
+						<AuthorAvatar email={row.authorEmail} name={row.authorName} letters={row.initials} />
+						<span class="home-ellipsis" title={row.authorEmail || row.authorName}>{row.authorName}</span>
+						<span class="mono short">{row.short}</span>
+					</span>
 				</span>
 				<span class="home-quiet">{age(row.time * 1000, now)}</span>
 			</div>
@@ -80,9 +85,20 @@
 	.text {
 		min-width: 0;
 		display: flex;
-		align-items: baseline;
-		gap: 10px;
+		flex-direction: column;
+		gap: 3px;
 		font-size: var(--fs-secondary);
+	}
+
+	/* Who, at the size of a line of quiet text. */
+	.by {
+		min-width: 0;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		color: var(--muted);
+		font-size: var(--fs-mono);
+		--avatar-d: 16px;
 	}
 
 	.short {

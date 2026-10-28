@@ -449,8 +449,43 @@ pub fn scan(
         found.endpoints.extend(endpoints);
     }
     prefer_wsdl(&mut found);
+    found.services = services_of(repo, &listed, &found.endpoints);
     progress(paths.len());
     Ok(found)
+}
+
+/// The services the code's endpoints are in (FEAT-177), each once, in the
+/// order their first endpoint was found.
+fn services_of(repo: &Path, listed: &str, endpoints: &[Endpoint]) -> Vec<super::service::Service> {
+    let every: std::collections::HashSet<&str> =
+        listed.split('\0').filter(|p| !p.is_empty()).collect();
+    let read = |path: &str| std::fs::read_to_string(repo.join(path)).ok();
+    let repository = repo
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let mut out: Vec<super::service::Service> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for file in endpoints
+        .iter()
+        .filter_map(|endpoint| endpoint.file.as_deref())
+        .filter(|file| file.ends_with(".java") || file.ends_with(".ts"))
+    {
+        // One look per folder: its files are in the same service.
+        if !seen.insert(
+            file.rsplit_once('/')
+                .map(|(folder, _)| folder)
+                .unwrap_or(""),
+        ) {
+            continue;
+        }
+        if let Some(found) = super::service::find(file, &every, &read, &repository) {
+            if !out.contains(&found) {
+                out.push(found);
+            }
+        }
+    }
+    out
 }
 
 /// An operation a WSDL in the repository has is taken from the WSDL, not

@@ -461,6 +461,18 @@ pub fn hooks_write(state: State<'_, AppState>, path: String, text: String) -> Re
     std::fs::write(&full, text).map_err(|e| format!("{path} could not be written: {e}"))
 }
 
+/// Add a template's command to the hook Husky runs (FEAT-176). Other
+/// managers' configurations are shown to copy instead, and hooks Spagitty
+/// writes are added as blocks.
+#[tauri::command(async)]
+pub fn hooks_add(state: State<'_, AppState>, hook: String, command: String) -> Result<String> {
+    let repo = repository(&state, "hooks_add")?;
+    if command.len() > MAX_WRITE {
+        return Err("That command is over 256 KiB".into());
+    }
+    hooks::add_to_husky(&repo, &hook, &command)
+}
+
 #[cfg(test)]
 mod managed_tests {
     use super::*;

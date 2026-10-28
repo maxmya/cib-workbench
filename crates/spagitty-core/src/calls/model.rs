@@ -135,6 +135,59 @@ pub struct Call {
     /// (FEAT-162).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+    /// What the code says each field of the body must be (FEAT-179).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rules: Vec<FieldRule>,
+    /// What the endpoint answers, a status at a time (FEAT-179).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub responses: Vec<Answer>,
+}
+
+/// A rule the code puts on one field of a call's body (FEAT-179): its type,
+/// whether it must be there, and the bounds a validator holds it to. What
+/// OpenAPI calls a schema, kept flat, a field per path.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldRule {
+    /// `email`, `customer.email`, `lines[].qty`.
+    pub path: String,
+    /// `string`, `integer`, `number`, `boolean`, `object` or `array`.
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub required: bool,
+    /// `email`, `uuid`, `date`, `date-time`, `uri`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minimum: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub maximum: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_length: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_length: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+    /// The only values it may take: an enum's.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub values: Vec<String>,
+}
+
+/// What an endpoint answers with one status (FEAT-179).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Answer {
+    pub status: u16,
+    /// What it means, in a few words: `Created`, `Order not found`.
+    pub says: String,
+    /// An example body, as JSON text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    /// How it is known: `the return type`, `@ResponseStatus`,
+    /// `throws OrderNotFoundException`, `@ApiResponse`, `an agent`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub from: String,
 }
 
 impl Call {

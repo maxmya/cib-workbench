@@ -24,13 +24,15 @@
 		stem: string | null;
 		/** Settings › Calls' *Share as*. */
 		shareAs: 'file' | 'zip' | 'commit';
+		/** The one file's format to start on: OpenAPI from a collection's `⋯` (FEAT-179). */
+		flavour?: 'spagitty' | 'postman' | 'openapi' | 'openapi-yaml';
 		onclose: () => void;
 	}
 
-	let { collections, environments, stem, shareAs, onclose }: Props = $props();
+	let { collections, environments, stem, shareAs, flavour: startOn, onclose }: Props = $props();
 
 	const WAYS: { id: 'file' | 'zip' | 'commit'; title: string; note: string }[] = [
-		{ id: 'file', title: 'One file', note: `${PRODUCT_NAME} or Postman JSON` },
+		{ id: 'file', title: 'One file', note: `${PRODUCT_NAME}, Postman or OpenAPI` },
 		{ id: 'zip', title: 'Zip bundle', note: 'With environments and examples' },
 		{ id: 'commit', title: 'Commit to the repository', note: 'On this branch; never pushed' }
 	];
@@ -38,7 +40,15 @@
 	const readable = $derived(collections.filter((stored) => stored.value));
 	let chosen = $state<string | null>(null);
 	let how = $state<'file' | 'zip' | 'commit'>('zip');
-	let flavour = $state<'spagitty' | 'postman'>('spagitty');
+	let flavour = $state<'spagitty' | 'postman' | 'openapi' | 'openapi-yaml'>('spagitty');
+
+	/** One file's formats: what the button says, and the file's name. */
+	const FLAVOURS = {
+		spagitty: { title: PRODUCT_NAME, saveAs: `${PRODUCT_NAME} JSON`, file: (stem: string) => `${stem}.json` },
+		postman: { title: 'Postman 2.1', saveAs: 'Postman 2.1 JSON', file: (stem: string) => `${stem}.postman_collection.json` },
+		openapi: { title: 'OpenAPI 3.1', saveAs: 'OpenAPI 3.1 JSON', file: (stem: string) => `${stem}.openapi.json` },
+		'openapi-yaml': { title: 'OpenAPI YAML', saveAs: 'OpenAPI 3.1 YAML', file: (stem: string) => `${stem}.openapi.yaml` }
+	} as const;
 	let envs = $state<string[]>([]);
 	let examples = $state(false);
 	let history = $state(false);
@@ -52,6 +62,7 @@
 		started = true;
 		chosen = stem ?? readable[0]?.stem ?? null;
 		how = shareAs;
+		if (startOn) flavour = startOn;
 		envs = environments.filter((stored) => stored.value).map((stored) => stored.stem);
 	});
 
@@ -83,7 +94,7 @@
 		const name = collection?.name ?? 'the collection';
 		if (how === 'commit') return `Commit ${plan?.files.length ?? ''} ${plan?.files.length === 1 ? 'file' : 'files'} to this branch`;
 		if (how === 'zip') return `Save ${name}.zip${plan ? ` · ${formatSize(plan.total)}` : ''}`;
-		return `Save ${name} as ${flavour === 'postman' ? 'Postman 2.1' : PRODUCT_NAME} JSON`;
+		return `Save ${name} as ${FLAVOURS[flavour].saveAs}`;
 	});
 
 	function toggleEnv(stem: string) {
@@ -94,7 +105,7 @@
 		if (!chosen || busy) return;
 		let path: string | null = null;
 		if (how !== 'commit') {
-			const defaultPath = how === 'zip' ? `${chosen}.zip` : flavour === 'postman' ? `${chosen}.postman_collection.json` : `${chosen}.json`;
+			const defaultPath = how === 'zip' ? `${chosen}.zip` : FLAVOURS[flavour].file(chosen);
 			path = await saveDialog({ defaultPath }).catch(() => null);
 			if (!path) return;
 		}
@@ -148,11 +159,14 @@
 
 		{#if how === 'file'}
 			<div class="choices" role="radiogroup" aria-label="Format">
-				<button type="button" role="radio" class="choice" class:on={flavour === 'spagitty'} aria-checked={flavour === 'spagitty'} onclick={() => (flavour = 'spagitty')}>{PRODUCT_NAME}</button>
-				<button type="button" role="radio" class="choice" class:on={flavour === 'postman'} aria-checked={flavour === 'postman'} onclick={() => (flavour = 'postman')}>Postman 2.1</button>
+				{#each Object.entries(FLAVOURS) as [id, way] (id)}
+					<button type="button" role="radio" class="choice" class:on={flavour === id} aria-checked={flavour === id} onclick={() => (flavour = id as typeof flavour)}>{way.title}</button>
+				{/each}
 			</div>
 			{#if flavour === 'postman'}
 				<p class="hint">Keep rules become <code>pm.environment.set</code> lines; a SOAP call is a raw POST of its envelope.</p>
+			{:else if flavour === 'openapi' || flavour === 'openapi-yaml'}
+				<p class="hint">For Swagger UI, gateways and other tools. Each call's field rules and answers go in; SOAP calls are left out, as WSDL describes them.</p>
 			{/if}
 		{:else}
 			<fieldset>

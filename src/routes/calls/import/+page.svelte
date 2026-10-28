@@ -1,6 +1,10 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script lang="ts">
-	import ImportScreen from '$lib/calls/ImportScreen.svelte';
-</script>
+	import { goto } from '$app/navigation';
+	import { onMount } from 'svelte';
 
-<ImportScreen />
+	/** Import is a sheet over Calls now (FEAT-178); the old address opens it. */
+	onMount(() => {
+		void goto('/calls?import', { replaceState: true });
+	});
+</script>

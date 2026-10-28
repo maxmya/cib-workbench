@@ -14,16 +14,26 @@
 		text: string;
 		/** Cut at 64 KiB when it was read. */
 		truncated?: boolean;
+		/** A line to mark and bring into view, from 1: the step chosen (FEAT-176). */
+		mark?: number | null;
 	}
 
-	let { path, text, truncated = false }: Props = $props();
+	let { path, text, truncated = false, mark = null }: Props = $props();
+
+	let pre = $state<HTMLPreElement | null>(null);
+	$effect(() => {
+		const line = mark;
+		if (!pre || !line) return;
+		const row = pre.querySelectorAll('.line')[line - 1] as HTMLElement | undefined;
+		row?.scrollIntoView?.({ block: 'nearest' });
+	});
 
 	const language = $derived(scriptLanguage(path, text));
 	const lines = $derived(tokenizeLines(text.replace(/\n$/, '').split('\n'), language));
 </script>
 
-<pre class="script mono" data-language={language}><code
-		>{#each lines as tokens, index (index)}<span class="line"
+<pre class="script mono" data-language={language} bind:this={pre}><code
+		>{#each lines as tokens, index (index)}<span class="line" class:marked={mark === index + 1}
 				><span class="number" aria-hidden="true">{index + 1}</span><span class="text"
 					>{#each tokens as token, at (at)}{#if token.type === 'plain'}{token.text}{:else}<span
 								class={`tok-${token.type}`}>{token.text}</span
@@ -54,6 +64,11 @@
 	.line {
 		display: flex;
 		padding-right: 14px;
+	}
+
+	.line.marked {
+		background: color-mix(in srgb, var(--accent) 14%, transparent);
+		box-shadow: inset 3px 0 0 var(--accent);
 	}
 
 	.number {

@@ -184,7 +184,7 @@ function open(key: string, session: string | null, title: string, cwd: string): 
 		title,
 		size: null,
 		early: [],
-		batcher: new Batcher((bytes) => created.emulator.write(bytes)),
+		batcher: new Batcher((bytes) => created.emulator.write(bytes), undefined, () => performance.now()),
 		emulator: make({
 			onData: (data) => {
 				if (created.id !== null) void api.terminalWrite(created.id, data);

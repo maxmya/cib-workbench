@@ -129,3 +129,38 @@ it('Stages draws only the lines of the job in focus; Needs draws them all', () =
 	all.destroy();
 });
 
+
+it('a line that jumps columns runs between the cards, never through one (BUG-110)', () => {
+	// Twenty package jobs need one build, two stages on: the screenshot.
+	const stages = ['build', 'test', 'scan', 'package'];
+	const jobs = [
+		job('build', { stage: 'build' }),
+		job('lint', { stage: 'test' }),
+		job('unit', { stage: 'test' }),
+		job('sonar', { stage: 'scan' }),
+		job('sast', { stage: 'scan' }),
+		...Array.from({ length: 20 }, (_, n) => job(`package-${n}`, { stage: 'package', depth: 1, needs: ['build'] }))
+	];
+	const arranged = layout(jobs, stages, 'stages', new Set(), false);
+	expect(arranged.edges).toHaveLength(20);
+	const between = arranged.cards.filter((c) => ['lint', 'unit', 'sonar', 'sast'].includes(c.job.id));
+	for (const edge of arranged.edges) {
+		// Every corner of the line, joined, as the segments the line is made of.
+		const points = [...edge.path.matchAll(/[MLQ](-?[\d.]+) (-?[\d.]+)(?:,(-?[\d.]+) (-?[\d.]+))?/g)].flatMap((m) =>
+			m[3] === undefined ? [[+m[1], +m[2]]] : [[+m[3], +m[4]]]
+		);
+		for (let i = 1; i < points.length; i++) {
+			const [ax, ay] = points[i - 1], [bx, by] = points[i];
+			for (let t = 0; t <= 1; t += 0.05) {
+				const x = ax + (bx - ax) * t, y = ay + (by - ay) * t;
+				for (const card of between) {
+					const inside = x > card.x && x < card.x + 160 && y > card.y && y < card.y + 56;
+					expect(inside, `${edge.key} crosses ${card.job.id} at ${x},${y}`).toBe(false);
+				}
+			}
+		}
+	}
+	// One way out: every line leaves build along the same trunk.
+	const trunks = new Set(arranged.edges.map((e) => e.path.split(' L')[1]?.split(' ')[0]));
+	expect(trunks.size).toBe(1);
+});

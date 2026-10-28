@@ -104,6 +104,17 @@ describe('Share', () => {
 		expect(onclose).toHaveBeenCalled();
 	});
 
+	it('saves an OpenAPI document, as JSON or YAML (FEAT-179)', async () => {
+		await show('file');
+		click(button('OpenAPI YAML'));
+		await settle();
+		expect(document.body.textContent).toContain('SOAP calls are left out');
+		click(button('Save orders-api as OpenAPI 3.1 YAML'));
+		await settle();
+		expect(save).toHaveBeenCalledWith({ defaultPath: 'orders-api.openapi.yaml' });
+		expect(vi.mocked(api.share).mock.calls[0][0]).toMatchObject({ format: 'openapi-yaml', environments: [] });
+	});
+
 	it('commits on this branch without asking where', async () => {
 		await show('commit');
 		click(button('Commit 1 file to this branch'));

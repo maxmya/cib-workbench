@@ -4,6 +4,7 @@
 	import type { MenuItem } from '$lib/ui/menu';
 	import { isMac } from '$lib/platform';
 	import { METHODS, methodColour, methodOf, paramsOf, tabCounts, withParams, type Found } from './model';
+	import CallDocs from './CallDocs.svelte';
 	import KeepRules from './KeepRules.svelte';
 	import PairsTable from './PairsTable.svelte';
 	import type { Auth, AuthType, Body, BodyType, Call, KeepRule, Pair } from './types';
@@ -11,7 +12,8 @@
 
 	/**
 	 * The request half of Calls (FEAT-160, proposal §5.1): method, URL and
-	 * *Send*, then *Params*, *Headers*, *Body*, *Auth* and *Keep*. A tab
+	 * *Send*, then *Params*, *Headers*, *Body*, *Auth* and *Keep*, and *Docs*
+	 * when a scan read the call's rules and answers (FEAT-179). A tab
 	 * shows a count when it holds something. Every edit goes straight to the
 	 * store, which writes the collection a moment later.
 	 */
@@ -33,13 +35,14 @@
 
 	let { call, onchange, find, names, sending, refusal, onsend, oncancel, oncurl, url = $bindable(null) }: Props = $props();
 
-	type Tab = 'params' | 'headers' | 'body' | 'auth' | 'keep';
+	type Tab = 'params' | 'headers' | 'body' | 'auth' | 'keep' | 'docs';
 	const TABS: { id: Tab; label: string }[] = [
 		{ id: 'params', label: 'Params' },
 		{ id: 'headers', label: 'Headers' },
 		{ id: 'body', label: 'Body' },
 		{ id: 'auth', label: 'Auth' },
-		{ id: 'keep', label: 'Keep' }
+		{ id: 'keep', label: 'Keep' },
+		{ id: 'docs', label: 'Docs' }
 	];
 	const BODY_TYPES: { id: BodyType; label: string }[] = [
 		{ id: 'json', label: 'JSON' },
@@ -192,7 +195,7 @@
 	{/if}
 
 	<div class="tabs" role="tablist" aria-label="Parts of the request">
-		{#each TABS as item (item.id)}
+		{#each TABS.filter((item) => item.id !== 'docs' || counts.docs > 0) as item (item.id)}
 			<button
 				type="button"
 				role="tab"
@@ -200,7 +203,7 @@
 				class:on={tab === item.id}
 				aria-selected={tab === item.id}
 				onclick={() => (tab = item.id)}
-				>{item.label}{#if counts[item.id] > 0 && item.id !== 'body' && item.id !== 'auth'}<span class="count"
+				>{item.label}{#if counts[item.id] > 0 && item.id !== 'body' && item.id !== 'auth' && item.id !== 'docs'}<span class="count"
 						>{counts[item.id]}</span
 					>{:else if counts[item.id] > 0}<span class="dot" aria-label="set"></span>{/if}</button
 			>
@@ -360,6 +363,8 @@
 			{#if auth.type !== 'none'}
 				<p class="hint">Write a secret as a variable, such as <code>{'{{password}}'}</code>, so it stays out of the file.</p>
 			{/if}
+		{:else if tab === 'docs'}
+			<CallDocs rules={call.rules ?? []} responses={call.responses ?? []} />
 		{:else}
 			<KeepRules rules={call.keep ?? []} onchange={setKeep} />
 		{/if}
@@ -390,7 +395,6 @@
 		padding: 6px 10px;
 		border: 1px solid var(--line);
 		border-radius: var(--r-field);
-		background: var(--sunken);
 		font-size: var(--fs-mono);
 		font-weight: 600;
 		text-align: left;
@@ -510,7 +514,7 @@
 		min-height: 0;
 		overflow: auto;
 		padding: 10px;
-		background: var(--sunken);
+		border: 1px solid var(--line);
 		border-radius: var(--r-panel);
 	}
 

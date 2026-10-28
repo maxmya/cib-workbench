@@ -343,7 +343,6 @@
 		padding: 6px 10px;
 		border: 1px solid var(--line);
 		border-radius: var(--r-field);
-		background: var(--sunken);
 		white-space: nowrap;
 	}
 
@@ -460,7 +459,7 @@
 		min-height: 0;
 		overflow: auto;
 		padding: 10px;
-		background: var(--sunken);
+		border: 1px solid var(--line);
 		border-radius: var(--r-panel);
 	}
 

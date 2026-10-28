@@ -424,15 +424,118 @@ fn parse_single_mr(node: &Value, me: &str) -> Option<PullRequest> {
 /// answers it 404, and `/changes` — one object with a `changes` list — is
 /// what it has instead.
 pub fn merge_request_files(repo: &Repo, token: &str, number: u64) -> Result<Vec<FileDiff>> {
-    let base = merge_request_url(repo, number);
-    if let Some(entries) = get_all_or_missing(&format!("{base}/diffs"), token, &repo.host)? {
+    let host = &repo.host;
+    files_of(
+        &merge_request_url(repo, number),
+        &project_url(repo),
+        host,
+        &|url: &str| http::get_json(url, token, host),
+    )
+}
+
+/// [`merge_request_files`], gone round a server that fails (BUG-108).
+///
+/// `/diffs` reads the diffs GitLab stored when the merge request was last
+/// pushed to. A server whose stored diffs cannot be read — kept in object
+/// storage that has gone, or too large to serialise in time — answers it
+/// *500 Internal Server Error* while the merge request's commits read
+/// perfectly well, and the Files tab said only the 500. So a server error
+/// there is answered twice more before it is the answer:
+///
+/// 1. `/changes?access_raw_diffs=true`, which has GitLab work the diffs out
+///    from the repository itself rather than read the stored ones;
+/// 2. the repository's compare of the merge request's own `diff_refs`, from
+///    the base it was cut from to its head: the same files, worked out by a
+///    different path through the server.
+///
+/// A refusal (4xx) is the answer at once; only a server fault is gone round.
+fn files_of(base: &str, project: &str, host: &str, fetch: &Fetch<'_>) -> Result<Vec<FileDiff>> {
+    let refused = |response: &http::Response| {
+        status_error(
+            host,
+            response.status,
+            &response.body,
+            response.retry_after.as_deref(),
+        )
+    };
+    let read = |response: &http::Response| -> Result<Value> {
+        serde_json::from_str(&response.body).map_err(|e| json_err(host, e))
+    };
+
+    // The spec's endpoint, a page at a time.
+    let mut entries = Vec::new();
+    let mut failed = None;
+    for page in 1..=MAX_PAGES {
+        let response = fetch(&format!("{base}/diffs?per_page={PER_PAGE}&page={page}"))?;
+        if response.status == 404 && page == 1 {
+            // Older than 15.7: `/changes` is the endpoint, not a way round.
+            break;
+        }
+        if response.status >= 500 {
+            failed = Some(refused(&response));
+            break;
+        }
+        if !(200..300).contains(&response.status) {
+            return Err(refused(&response));
+        }
+        let json = read(&response)?;
+        let Some(batch) = json.as_array() else {
+            return Err(Error::Forge {
+                host: host.to_string(),
+                detail: "did not send a list".into(),
+            });
+        };
+        let full = batch.len() == PER_PAGE;
+        entries.extend(batch.iter().cloned());
+        if !full {
+            return Ok(entries.iter().filter_map(file_of).collect());
+        }
+    }
+    if failed.is_none() && !entries.is_empty() {
         return Ok(entries.iter().filter_map(file_of).collect());
     }
-    let json = get(&format!("{base}/changes"), token, &repo.host)?;
-    Ok(json["changes"]
-        .as_array()
-        .map(|entries| entries.iter().filter_map(file_of).collect())
-        .unwrap_or_default())
+
+    // Worked out from the repository, not read from what was stored.
+    let response = fetch(&format!("{base}/changes?access_raw_diffs=true"))?;
+    if (200..300).contains(&response.status) {
+        return Ok(read(&response)?["changes"]
+            .as_array()
+            .map(|entries| entries.iter().filter_map(file_of).collect())
+            .unwrap_or_default());
+    }
+    let Some(first) = failed else {
+        return Err(refused(&response));
+    };
+    if response.status < 500 {
+        return Err(refused(&response));
+    }
+
+    // The same range, compared by the repository.
+    compared(base, project, fetch).ok_or(first)
+}
+
+/// The files between a merge request's base and head, by the repository's
+/// compare. `None` when either read fails.
+fn compared(base: &str, project: &str, fetch: &Fetch<'_>) -> Option<Vec<FileDiff>> {
+    let request = fetched(fetch, base)?;
+    let refs = &request["diff_refs"];
+    let from = refs["base_sha"].as_str().or(refs["start_sha"].as_str())?;
+    let to = refs["head_sha"].as_str().or(request["sha"].as_str())?;
+    let compare = fetched(
+        fetch,
+        &format!(
+            "{project}/repository/compare?from={}&to={}&straight=true",
+            crate::forge::encode_segment(from),
+            crate::forge::encode_segment(to)
+        ),
+    )?;
+    Some(
+        compare["diffs"]
+            .as_array()?
+            .iter()
+            .filter_map(file_of)
+            .collect(),
+    )
 }
 
 /// One file of a GitLab diff list, in the shape the screens render.
@@ -1112,6 +1215,113 @@ mod tests {
         let whole = |_: &str| answer(200, Value::Array(vec![merge_request(5), merge_request(4)]));
         let found = listed(LIST, "gitlab.example.com", "me", &whole).expect("a list");
         assert_eq!(found.len(), 2);
+    }
+
+    const MR: &str = "https://gitlab.example.com/api/v4/projects/7/merge_requests/9";
+    const PROJECT: &str = "https://gitlab.example.com/api/v4/projects/7";
+
+    fn diff_entry(path: &str) -> Value {
+        serde_json::json!({
+            "old_path": path,
+            "new_path": path,
+            "new_file": false,
+            "renamed_file": false,
+            "deleted_file": false,
+            "diff": "@@ -1 +1 @@\n-old\n+new\n"
+        })
+    }
+
+    fn server_error() -> Result<http::Response> {
+        answer(
+            500,
+            serde_json::json!({ "message": "500 Internal Server Error" }),
+        )
+    }
+
+    #[test]
+    fn files_whose_stored_diffs_fail_are_worked_out_from_the_repository() {
+        // BUG-108: `/diffs` answers 500 while the commits read.
+        let asked = Mutex::new(Vec::new());
+        let fetch = |url: &str| {
+            asked.lock().unwrap().push(url.to_string());
+            if url.contains("/diffs") {
+                return server_error();
+            }
+            if url == format!("{MR}/changes?access_raw_diffs=true") {
+                return answer(
+                    200,
+                    serde_json::json!({ "changes": [diff_entry("src/app.ts")] }),
+                );
+            }
+            panic!("not asked for: {url}");
+        };
+        let files = files_of(MR, PROJECT, "gitlab.example.com", &fetch).expect("files");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "src/app.ts");
+        assert_eq!((files[0].added, files[0].removed), (1, 1));
+    }
+
+    #[test]
+    fn files_the_server_fails_on_twice_are_compared_from_the_merge_requests_refs() {
+        let fetch = |url: &str| {
+            if url.contains("/diffs") || url.contains("/changes") {
+                return server_error();
+            }
+            if url == MR {
+                return answer(
+                    200,
+                    serde_json::json!({
+                        "iid": 9,
+                        "diff_refs": { "base_sha": "aaa111", "head_sha": "bbb222", "start_sha": "ccc333" }
+                    }),
+                );
+            }
+            if url == format!("{PROJECT}/repository/compare?from=aaa111&to=bbb222&straight=true") {
+                return answer(
+                    200,
+                    serde_json::json!({ "diffs": [diff_entry("a.rs"), diff_entry("b.rs")] }),
+                );
+            }
+            panic!("not asked for: {url}");
+        };
+        let files = files_of(MR, PROJECT, "gitlab.example.com", &fetch).expect("files");
+        let paths: Vec<&str> = files.iter().map(|file| file.path.as_str()).collect();
+        assert_eq!(paths, ["a.rs", "b.rs"]);
+    }
+
+    #[test]
+    fn files_say_the_servers_first_error_when_every_way_fails_and_a_refusal_is_not_gone_round() {
+        let broken = |_: &str| server_error();
+        let error = files_of(MR, PROJECT, "gitlab.example.com", &broken).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("the server failed, not the request"),
+            "{error}"
+        );
+
+        let asked = Mutex::new(0);
+        let refused = |_: &str| {
+            *asked.lock().unwrap() += 1;
+            answer(403, serde_json::json!({ "message": "403 Forbidden" }))
+        };
+        assert!(files_of(MR, PROJECT, "gitlab.example.com", &refused).is_err());
+        assert_eq!(*asked.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn files_of_an_older_server_come_from_changes() {
+        let fetch = |url: &str| {
+            if url.contains("/diffs") {
+                return answer(404, serde_json::json!({ "message": "404 Not Found" }));
+            }
+            answer(
+                200,
+                serde_json::json!({ "changes": [diff_entry("old.txt")] }),
+            )
+        };
+        let files = files_of(MR, PROJECT, "gitlab.example.com", &fetch).expect("files");
+        assert_eq!(files.len(), 1);
     }
 
     #[test]

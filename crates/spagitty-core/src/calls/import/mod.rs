@@ -21,7 +21,9 @@
 //! Nothing here builds, starts or calls the service, and nothing is
 //! written but the collection the person brings calls into.
 
+pub mod agent;
 pub mod bruno;
+pub mod contract;
 pub mod curl;
 pub mod har;
 pub mod http_file;
@@ -33,12 +35,14 @@ pub mod openapi;
 pub mod opencollection;
 pub mod postman;
 pub mod scan;
+pub mod service;
 pub mod wsdl_source;
 
 use serde::{Deserialize, Serialize};
 
 use super::model::{
-    new_id, Body, BodyType, Call, Collection, Environment, Field, Folder, Item, Kind, Pair,
+    new_id, Answer, Body, BodyType, Call, Collection, Environment, Field, FieldRule, Folder, Item,
+    Kind, Pair,
 };
 use json::J;
 
@@ -144,6 +148,10 @@ pub struct Declared {
     pub body_type: Option<String>,
     /// `application/json`, `application/x-www-form-urlencoded`, …
     pub consumes: Option<String>,
+    /// The body's fields' rules, from its class's validation (FEAT-179).
+    pub rules: Vec<FieldRule>,
+    /// What it answers, by status, from the code (FEAT-179).
+    pub responses: Vec<Answer>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -188,6 +196,9 @@ pub struct Found {
     pub files_read: usize,
     /// The scan stopped at the file cap.
     pub capped: bool,
+    /// The services the code's endpoints are in (FEAT-177); an endpoint is
+    /// in the one whose root is nearest above its file.
+    pub services: Vec<service::Service>,
 }
 
 /// What *Bring in* was asked to do.
@@ -531,6 +542,8 @@ pub fn build(declared: &Declared, name: &str, choices: Choices) -> Call {
         url,
         headers,
         body,
+        rules: declared.rules.clone(),
+        responses: declared.responses.clone(),
         ..Call::default()
     }
 }
@@ -539,6 +552,11 @@ pub fn build(declared: &Declared, name: &str, choices: Choices) -> Call {
 /// query parameters and body fields that are still there keep their values,
 /// new ones come in with their samples, and ones that are gone go.
 pub fn update(kept: &mut Call, fresh: &Call) {
+    // What the code says the call is: its rules and answers are the code's.
+    if !fresh.rules.is_empty() || !fresh.responses.is_empty() {
+        kept.rules = fresh.rules.clone();
+        kept.responses = fresh.responses.clone();
+    }
     // The query.
     let old: Vec<(String, String)> = kept
         .url
@@ -643,23 +661,46 @@ fn folder_for(endpoint: &Endpoint, folders: Folders) -> Option<String> {
     }
 }
 
-fn add_to_folder(items: &mut Vec<Item>, folder: Option<&str>, call: Call) {
-    let Some(name) = folder else {
+/// Put `call` in the folder at `path`, each name a folder inside the one
+/// before, made where it is missing.
+fn add_to_folder(items: &mut Vec<Item>, path: &[String], call: Call) {
+    let Some((name, rest)) = path.split_first() else {
         items.push(Item::Call(Box::new(call)));
         return;
     };
     for item in items.iter_mut() {
         if let Item::Folder(found) = item {
-            if found.folder == name {
-                found.items.push(Item::Call(Box::new(call)));
+            if found.folder == *name {
+                add_to_folder(&mut found.items, rest, call);
                 return;
             }
         }
     }
-    items.push(Item::Folder(Folder {
-        folder: name.to_string(),
-        items: vec![Item::Call(Box::new(call))],
-    }));
+    let mut folder = Folder {
+        folder: name.clone(),
+        items: Vec::new(),
+    };
+    add_to_folder(&mut folder.items, rest, call);
+    items.push(Item::Folder(folder));
+}
+
+/// Where an endpoint goes: its folder, inside its service's when the code
+/// has more than one service and calls are kept one folder per controller
+/// (FEAT-177), so a controller's calls say whose they are.
+fn place_of(endpoint: &Endpoint, folders: Folders, services: &[service::Service]) -> Vec<String> {
+    let folder = folder_for(endpoint, folders);
+    let service = (folders == Folders::PerGroup && services.len() > 1)
+        .then_some(endpoint.file.as_deref())
+        .flatten()
+        .and_then(|file| service::of(services, file));
+    match (service, folder) {
+        (Some(service), Some(folder)) if service.name != folder => {
+            vec![service.name.clone(), folder]
+        }
+        (Some(service), None) => vec![service.name.clone()],
+        (_, Some(folder)) => vec![folder],
+        (_, None) => Vec::new(),
+    }
 }
 
 /// What bringing endpoints in did.
@@ -679,6 +720,7 @@ pub fn bring_in(
     stem: &str,
     endpoints: &[&Endpoint],
     choices: Choices,
+    services: &[service::Service],
 ) -> Brought {
     let mut brought = Brought::default();
     // A SOAP collection keeps the WSDL in the repository it was made from,
@@ -716,8 +758,15 @@ pub fn bring_in(
             Some(id) => {
                 let changed = matches!(endpoint.status, Status::Changed { .. });
                 if let Some(call) = super::model::call_mut(&mut collection.items, &id) {
+                    // The same shape can still promise something new (FEAT-179).
+                    let documented = (!fresh.rules.is_empty() || !fresh.responses.is_empty())
+                        && (call.rules != fresh.rules || call.responses != fresh.responses);
                     if changed {
                         update(call, &fresh);
+                        brought.changed += 1;
+                    } else if documented {
+                        call.rules = fresh.rules.clone();
+                        call.responses = fresh.responses.clone();
                         brought.changed += 1;
                     } else {
                         brought.unchanged += 1;
@@ -729,7 +778,7 @@ pub fn bring_in(
                 call.id = new_id();
                 add_to_folder(
                     &mut collection.items,
-                    folder_for(endpoint, choices.folders).as_deref(),
+                    &place_of(endpoint, choices.folders, services),
                     call,
                 );
                 brought.added += 1;
@@ -839,6 +888,71 @@ mod tests {
         }
     }
 
+    /// FEAT-177: with more than one service, a controller's folder is in its service's.
+    #[test]
+    fn controllers_of_two_services_are_brought_in_under_their_service() {
+        let services = vec![
+            service::Service {
+                name: "orders-service".into(),
+                kind: "Spring Boot".into(),
+                root: "services/orders".into(),
+            },
+            service::Service {
+                name: "billing-api".into(),
+                kind: "NestJS".into(),
+                root: "billing".into(),
+            },
+        ];
+        let mut orders = endpoint(declared("GET", "/orders"));
+        orders.file = Some("services/orders/src/main/java/OrderController.java".into());
+        let mut invoices = endpoint(declared("GET", "/invoices"));
+        invoices.id = "e2".into();
+        invoices.group = "InvoiceController".into();
+        invoices.file = Some("billing/src/invoice.controller.ts".into());
+        let mut collection = Collection {
+            v: 1,
+            name: "platform".into(),
+            wsdl: None,
+            vars: Vec::new(),
+            items: Vec::new(),
+        };
+        bring_in(
+            &mut collection,
+            "platform",
+            &[&orders, &invoices],
+            Choices::default(),
+            &services,
+        );
+        let places: Vec<Vec<String>> = super::super::model::calls(&collection.items)
+            .into_iter()
+            .map(|(folder, _)| folder)
+            .collect();
+        assert_eq!(
+            places,
+            [
+                vec!["orders-service".to_string(), "OrderController".to_string()],
+                vec!["billing-api".to_string(), "InvoiceController".to_string()]
+            ]
+        );
+
+        // One service: the controller's folder alone, as before.
+        let mut single = Collection {
+            items: Vec::new(),
+            ..collection.clone()
+        };
+        bring_in(
+            &mut single,
+            "platform",
+            &[&orders],
+            Choices::default(),
+            &services[..1],
+        );
+        assert_eq!(
+            super::super::model::calls(&single.items)[0].0,
+            vec!["OrderController".to_string()]
+        );
+    }
+
     #[test]
     fn an_endpoint_is_new_changed_or_in_a_collection() {
         let mut fresh = declared("POST", "/orders");
@@ -912,7 +1026,7 @@ mod tests {
         let mut found = vec![endpoint(fresh), endpoint(declared("GET", "/orders/{id}"))];
         mark(&mut found, &[("orders".to_string(), collection.clone())]);
         let refs: Vec<&Endpoint> = found.iter().collect();
-        let brought = bring_in(&mut collection, "orders", &refs, Choices::default());
+        let brought = bring_in(&mut collection, "orders", &refs, Choices::default(), &[]);
         assert_eq!(
             brought,
             Brought {

@@ -3,4 +3,5 @@
 	import HooksScreen from '$lib/hooks/HooksScreen.svelte';
 </script>
 
-<HooksScreen mode="edit" />
+<!-- The builder was its own tab; its blocks are in Current hooks now (FEAT-176). -->
+<HooksScreen mode="current" />

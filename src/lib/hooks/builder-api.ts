@@ -22,3 +22,5 @@ export interface Explanation { agent: string; text: string }
 export const agents = (): Promise<Askable[]> => invoke('hooks_agents');
 export const explain = (path: string, agent: string | null): Promise<Explanation> => invoke('hooks_explain', { path, agent });
 export const write = (path: string, text: string): Promise<void> => invoke('hooks_write', { path, text });
+/** Add a command to the hook Husky runs (FEAT-176); answers the file it went in. */
+export const add = (hook: string, command: string): Promise<string> => invoke('hooks_add', { hook, command });

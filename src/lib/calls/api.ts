@@ -10,6 +10,8 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import type {
+	AgentRead,
+	Askable,
 	BroughtIn,
 	Call,
 	CallsSettings,
@@ -237,6 +239,18 @@ export function bringIn(ask: {
 	serverAddress: boolean;
 }): Promise<BroughtIn> {
 	return invoke('calls_bring_in', { scope, ask });
+}
+
+// --- An agent's read (FEAT-179) ---
+
+/** The agents Import may ask to read the code. */
+export function agents(): Promise<Askable[]> {
+	return invoke('calls_agents');
+}
+
+/** An agent reads the chosen endpoints' controllers; what it adds comes back with what was found. */
+export function agentRead(ids: string[], agent: string | null): Promise<AgentRead> {
+	return invoke('calls_agent_read', { scope, ids, agent });
 }
 
 // --- cURL (FEAT-166) ---

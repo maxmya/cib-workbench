@@ -627,6 +627,32 @@ export const files = {
 		}
 	},
 
+	/** Close every tab but the one at `index` (FEAT-174). */
+	async closeOthers(index: number): Promise<void> {
+		const kept = tabs[index];
+		if (!kept || tabs.length === 1) return;
+		const wasActive = index === active;
+		tabs = [kept];
+		active = 0;
+		remember();
+		if (!wasActive) {
+			if (kept.rev !== rev) {
+				rev = kept.rev;
+				await resolveNow();
+			}
+			await readActive();
+		}
+	},
+
+	/** Close every tab (FEAT-174). */
+	async closeAll(): Promise<void> {
+		if (tabs.length === 0) return;
+		tabs = [];
+		active = -1;
+		remember();
+		await readActive();
+	},
+
 	/** Open or close a folder. Its entries are read the first time. */
 	toggleFolder(dir: string): void {
 		if (open.includes(dir)) {

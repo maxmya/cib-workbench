@@ -13,14 +13,27 @@
 //! A constant used as a path (`@GetMapping(Paths.ORDERS)`) is looked up
 //! among the `static final String`s of the scanned files; what cannot be
 //! resolved is left as written, so the path still says where it came from.
+//!
+//! # What an endpoint promises (FEAT-179)
+//!
+//! The body's class gives the rules each field is held to, and the method
+//! gives what it answers: its success from `@ResponseStatus` or the
+//! `ResponseEntity` it builds, with the return type as the example; a 400
+//! when the body is `@Valid`; a 401 and 403 under `@PreAuthorize`,
+//! `@Secured` or `@RolesAllowed`; and each exception it throws — or the
+//! service it calls throws, one call deep — at the status its
+//! `@ResponseStatus`, a `@ControllerAdvice`'s `@ExceptionHandler`, or
+//! failing those its name says. springdoc's `@ApiResponse` is the author's
+//! own word and is taken over the rest.
 
 use std::collections::HashMap;
 
 use tree_sitter::{Node, Parser};
 
-use super::super::model::{new_id, Call, Kind, WsMode, WsSecurity};
+use super::super::model::{new_id, Answer, Call, FieldRule, Kind, WsMode, WsSecurity};
 use super::super::soap::envelope;
 use super::super::xml::escape;
+use super::contract::{self, answer, Answers, DECLARED, INFERRED, THROWN};
 use super::json::J;
 use super::wsdl_source::SoapChoices;
 use super::{
@@ -69,6 +82,31 @@ struct TypeInfo {
     extends: Option<String>,
     /// An enum's constants.
     constants: Vec<String>,
+    /// The interfaces it implements, by simple name (FEAT-179).
+    implements: Vec<String>,
+    /// Its own `@ResponseStatus`: an exception's status.
+    status: Option<u16>,
+    /// Its methods, to read what they throw.
+    methods: Vec<MethodInfo>,
+}
+
+/// A method, as far as reading what it answers needs (FEAT-179).
+#[derive(Debug, Clone, Default)]
+struct MethodInfo {
+    name: String,
+    returns: String,
+    body: String,
+    anns: Vec<Ann>,
+    params: Vec<String>,
+}
+
+/// An `@ExceptionHandler` in a `@ControllerAdvice`: what it catches, and
+/// how it answers (FEAT-179).
+#[derive(Debug, Clone)]
+struct Handler {
+    exception: String,
+    status: Option<u16>,
+    returns: String,
 }
 
 /// Every type and string constant the scanned files declare.
@@ -79,6 +117,8 @@ struct World {
     strings: HashMap<String, String>,
     /// JAX-RS `@ApplicationPath`.
     application_path: Option<String>,
+    /// Every `@ExceptionHandler` of every `@ControllerAdvice`.
+    handlers: Vec<Handler>,
 }
 
 fn text<'a>(node: Node, source: &'a str) -> &'a str {
@@ -271,6 +311,21 @@ fn number(anns: &[Ann], fallback: &str) -> J {
 }
 
 fn string(field: &str, anns: &[Ann]) -> J {
+    let J::Str(text) = shaped(field, anns) else {
+        return shaped(field, anns);
+    };
+    // No longer than `@Size(max)` allows.
+    match find(anns, "Size")
+        .or_else(|| find(anns, "Length"))
+        .and_then(|ann| ann.first(&["max"]))
+        .and_then(|v| v.parse::<usize>().ok())
+    {
+        Some(max) if text.chars().count() > max => J::Str(text.chars().take(max).collect()),
+        _ => J::Str(text),
+    }
+}
+
+fn shaped(field: &str, anns: &[Ann]) -> J {
     let lower = field.to_ascii_lowercase();
     if has(anns, "Email") || lower.contains("email") {
         return J::Str("mira@example.com".into());
@@ -404,6 +459,79 @@ fn type_declarations<'t>(node: Node<'t>, out: &mut Vec<Node<'t>>) {
     }
 }
 
+/// The interfaces a class says it implements, by simple name.
+fn interfaces_of(decl: Node, source: &str) -> Vec<String> {
+    let Some(list) = decl.child_by_field_name("interfaces") else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut stack = vec![list];
+    while let Some(node) = stack.pop() {
+        for child in children(node) {
+            match child.kind() {
+                "type_identifier" | "generic_type" | "scoped_type_identifier" => {
+                    out.push(last_segment(&generic(text(child, source)).0).to_string())
+                }
+                _ => stack.push(child),
+            }
+        }
+    }
+    out
+}
+
+/// A type's methods, with their bodies as text.
+fn methods_of(decl: Node, source: &str, world: &World, class: &str) -> Vec<MethodInfo> {
+    decl.child_by_field_name("body")
+        .map(children)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|member| member.kind() == "method_declaration")
+        .map(|member| MethodInfo {
+            name: member
+                .child_by_field_name("name")
+                .map(|n| text(n, source).to_string())
+                .unwrap_or_default(),
+            returns: member
+                .child_by_field_name("type")
+                .map(|t| text(t, source).to_string())
+                .unwrap_or_default(),
+            body: member
+                .child_by_field_name("body")
+                .map(|b| text(b, source).to_string())
+                .unwrap_or_default(),
+            anns: annotations(member, source, world, class),
+            params: member
+                .child_by_field_name("parameters")
+                .map(children)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|p| p.child_by_field_name("type"))
+                .map(|t| clean_type(text(t, source)))
+                .collect(),
+        })
+        .collect()
+}
+
+/// The status a method's body sets, the first it names.
+fn status_in(body: &str) -> Option<u16> {
+    let named =
+        regex::Regex::new(r"(?:HttpStatus|Response\.Status)\.([A-Z_]+)").expect("a valid pattern");
+    if let Some(found) = named.captures(body) {
+        return contract::status_of(&found[1]);
+    }
+    for (call, status) in [
+        ("ResponseEntity.notFound()", 404),
+        ("ResponseEntity.badRequest()", 400),
+        ("ResponseEntity.unprocessableEntity()", 422),
+        ("ResponseEntity.internalServerError()", 500),
+    ] {
+        if body.contains(call) {
+            return Some(status);
+        }
+    }
+    None
+}
+
 /// What every file declares: types, string constants, `@ApplicationPath`.
 fn index(files: &[Parsed]) -> World {
     let mut world = World::default();
@@ -454,6 +582,7 @@ fn index(files: &[Parsed]) -> World {
             }
         }
     }
+    let mut handlers: Vec<Handler> = Vec::new();
     for file in files {
         let mut decls = Vec::new();
         type_declarations(file.tree.root_node(), &mut decls);
@@ -535,10 +664,405 @@ fn index(files: &[Parsed]) -> World {
                 }
                 _ => continue,
             }
+            // What it does, for what an endpoint answers (FEAT-179).
+            info.implements = interfaces_of(decl, &file.text);
+            info.status = find(&anns, "ResponseStatus")
+                .and_then(|a| a.first(&["value", "code"]))
+                .and_then(|s| contract::status_of(&s));
+            info.methods = methods_of(decl, &file.text, &world, &name);
+            if has(&anns, "ControllerAdvice") || has(&anns, "RestControllerAdvice") {
+                for method in &info.methods {
+                    let Some(handles) = find(&method.anns, "ExceptionHandler") else {
+                        continue;
+                    };
+                    let mut caught: Vec<String> = handles
+                        .values(&["value"])
+                        .iter()
+                        .map(|v| last_segment(v.trim_end_matches(".class")).to_string())
+                        .filter(|v| !v.is_empty())
+                        .collect();
+                    if caught.is_empty() {
+                        caught = method
+                            .params
+                            .iter()
+                            .filter(|p| p.ends_with("Exception") || p.ends_with("Error"))
+                            .map(|p| last_segment(p).to_string())
+                            .collect();
+                    }
+                    let status = find(&method.anns, "ResponseStatus")
+                        .and_then(|a| a.first(&["value", "code"]))
+                        .and_then(|s| contract::status_of(&s))
+                        .or_else(|| status_in(&method.body));
+                    for exception in caught {
+                        handlers.push(Handler {
+                            exception,
+                            status,
+                            returns: method.returns.clone(),
+                        });
+                    }
+                }
+            }
             world.types.entry(name).or_insert(info);
         }
     }
+    world.handlers = handlers;
     world
+}
+
+/// JAX-RS's own exceptions, and the status each sends.
+const JAXRS_EXCEPTIONS: [(&str, u16); 8] = [
+    ("BadRequestException", 400),
+    ("NotAuthorizedException", 401),
+    ("ForbiddenException", 403),
+    ("NotFoundException", 404),
+    ("NotAllowedException", 405),
+    ("NotAcceptableException", 406),
+    ("InternalServerErrorException", 500),
+    ("ServiceUnavailableException", 503),
+];
+
+/// The rules the fields of `ty` are held to, a field per path, its parents'
+/// fields first (FEAT-179).
+fn rules_of(ty: &str, world: &World) -> Vec<FieldRule> {
+    let mut out = Vec::new();
+    walk_rules(ty, "", world, 0, &mut Vec::new(), &mut out);
+    out
+}
+
+fn walk_rules(
+    ty: &str,
+    prefix: &str,
+    world: &World,
+    depth: usize,
+    seen: &mut Vec<String>,
+    out: &mut Vec<FieldRule>,
+) {
+    let ty = clean_type(ty);
+    let (base, args) = generic(&ty);
+    let simple = last_segment(&base).to_string();
+    if is_list(&simple) || ty.ends_with("[]") {
+        let element = args
+            .first()
+            .cloned()
+            .unwrap_or_else(|| ty.trim_end_matches("[]").to_string());
+        return walk_rules(&element, &format!("{prefix}[]"), world, depth, seen, out);
+    }
+    if matches!(simple.as_str(), "Optional" | "JsonNullable" | "Mono") {
+        if let Some(inner) = args.first() {
+            return walk_rules(inner, prefix, world, depth, seen, out);
+        }
+    }
+    let Some(info) = world.types.get(&simple) else {
+        return;
+    };
+    if !info.constants.is_empty() || depth >= DEPTH || seen.contains(&simple) {
+        return;
+    }
+    seen.push(simple.clone());
+    let mut chain = Vec::new();
+    let mut at = Some(simple.clone());
+    while let Some(current) = at {
+        if chain.contains(&current) {
+            break;
+        }
+        let Some(info) = world.types.get(&current) else {
+            break;
+        };
+        chain.push(current);
+        at = info.extends.clone();
+    }
+    for class in chain.iter().rev() {
+        for field in &world.types[class].fields {
+            if has(&field.anns, "JsonIgnore") {
+                continue;
+            }
+            let key = find(&field.anns, "JsonProperty")
+                .and_then(|ann| ann.first(&["value"]))
+                .unwrap_or_else(|| field.name.clone());
+            let path = if prefix.is_empty() {
+                key
+            } else {
+                format!("{prefix}.{key}")
+            };
+            out.push(rule_of(&path, &field.ty, &field.anns, world));
+            walk_rules(&field.ty, &path, world, depth + 1, seen, out);
+        }
+    }
+    seen.pop();
+}
+
+fn is_list(name: &str) -> bool {
+    matches!(
+        name,
+        "List"
+            | "Set"
+            | "Collection"
+            | "Iterable"
+            | "ArrayList"
+            | "LinkedList"
+            | "HashSet"
+            | "SortedSet"
+            | "Flux"
+    )
+}
+
+/// A Bean Validation bound as a number: `5`, `"0.01"`, `10L`.
+fn bound(value: &str) -> Option<f64> {
+    value
+        .trim()
+        .trim_matches('"')
+        .trim_end_matches(['L', 'l'])
+        .parse::<f64>()
+        .ok()
+}
+
+/// One field's rule: its type, and what its annotations hold it to.
+fn rule_of(path: &str, ty: &str, anns: &[Ann], world: &World) -> FieldRule {
+    let ty = clean_type(ty);
+    let (base, args) = generic(&ty);
+    let simple = last_segment(&base);
+    let (kind, format, values): (&str, Option<&str>, Vec<String>) =
+        if ty.ends_with("[]") && simple != "byte[]" {
+            ("array", None, Vec::new())
+        } else {
+            match simple {
+                "String" | "CharSequence" | "char" | "Character" | "byte[]" => {
+                    ("string", None, Vec::new())
+                }
+                "int" | "Integer" | "long" | "Long" | "short" | "Short" | "byte" | "Byte"
+                | "BigInteger" => ("integer", None, Vec::new()),
+                "double" | "Double" | "float" | "Float" | "BigDecimal" | "Number" => {
+                    ("number", None, Vec::new())
+                }
+                "boolean" | "Boolean" => ("boolean", None, Vec::new()),
+                "UUID" => ("string", Some("uuid"), Vec::new()),
+                "LocalDate" => ("string", Some("date"), Vec::new()),
+                "LocalDateTime" | "Instant" | "OffsetDateTime" | "ZonedDateTime" | "Date"
+                | "Timestamp" => ("string", Some("date-time"), Vec::new()),
+                "LocalTime" => ("string", Some("time"), Vec::new()),
+                "Optional" | "JsonNullable" => {
+                    let inner = rule_of(
+                        path,
+                        args.first().map(String::as_str).unwrap_or("Object"),
+                        anns,
+                        world,
+                    );
+                    return FieldRule {
+                        required: false,
+                        ..inner
+                    };
+                }
+                name if is_list(name) => ("array", None, Vec::new()),
+                name => match world.types.get(name) {
+                    Some(info) if !info.constants.is_empty() => {
+                        ("string", None, info.constants.clone())
+                    }
+                    _ => ("object", None, Vec::new()),
+                },
+            }
+        };
+    let mut rule = FieldRule {
+        path: path.to_string(),
+        kind: kind.to_string(),
+        required: has(anns, "NotNull") || has(anns, "NotBlank") || has(anns, "NotEmpty"),
+        format: format.map(str::to_string),
+        values,
+        ..FieldRule::default()
+    };
+    if kind == "string" && (has(anns, "NotBlank") || has(anns, "NotEmpty")) {
+        rule.min_length = Some(1);
+    }
+    if let Some(size) = find(anns, "Size").or_else(|| find(anns, "Length")) {
+        if kind == "string" {
+            if let Some(min) = size.first(&["min"]).and_then(|v| bound(&v)) {
+                rule.min_length = Some(min as u64);
+            }
+            if let Some(max) = size.first(&["max"]).and_then(|v| bound(&v)) {
+                rule.max_length = Some(max as u64);
+            }
+        }
+    }
+    for name in ["Min", "DecimalMin"] {
+        if let Some(value) = find(anns, name)
+            .and_then(|a| a.first(&["value"]))
+            .and_then(|v| bound(&v))
+        {
+            rule.minimum = Some(value);
+        }
+    }
+    for name in ["Max", "DecimalMax"] {
+        if let Some(value) = find(anns, name)
+            .and_then(|a| a.first(&["value"]))
+            .and_then(|v| bound(&v))
+        {
+            rule.maximum = Some(value);
+        }
+    }
+    if has(anns, "Positive") && kind == "integer" {
+        rule.minimum = Some(1.0);
+    }
+    if has(anns, "PositiveOrZero") {
+        rule.minimum = Some(0.0);
+    }
+    if has(anns, "Negative") && kind == "integer" {
+        rule.maximum = Some(-1.0);
+    }
+    if has(anns, "NegativeOrZero") {
+        rule.maximum = Some(0.0);
+    }
+    if has(anns, "Email") {
+        rule.format = Some("email".into());
+    }
+    if let Some(pattern) = find(anns, "Pattern").and_then(|a| a.first(&["regexp"])) {
+        rule.pattern = Some(pattern);
+    }
+    rule
+}
+
+/// The example a method's return type gives, or none when it says nothing:
+/// `ResponseEntity<Order>` is an order, `ResponseEntity<Void>` nothing.
+fn returned(returns: &str, world: &World) -> Option<String> {
+    let mut ty = clean_type(returns);
+    loop {
+        let (base, args) = generic(&ty);
+        match last_segment(&base) {
+            "ResponseEntity" | "HttpEntity" | "Mono" | "Optional" | "CompletableFuture"
+            | "CompletionStage" | "DeferredResult" | "Callable" | "Future"
+                if !args.is_empty() =>
+            {
+                ty = args[0].clone()
+            }
+            _ => break,
+        }
+    }
+    if matches!(
+        last_segment(&generic(&ty).0),
+        "void" | "Void" | "?" | "Object" | "Response" | "ResponseEntity" | "HttpEntity"
+    ) {
+        return None;
+    }
+    let example = sample(&ty, "", &[], world, 0, &mut Vec::new());
+    (!matches!(example, J::Null)).then(|| example.pretty())
+}
+
+/// The text inside each `@<name>(…)` in `text`, parentheses balanced.
+fn annotation_bodies(text: &str, name: &str) -> Vec<String> {
+    let open = format!("@{name}(");
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(at) = rest.find(&open) {
+        let inner = &rest[at + open.len()..];
+        let mut depth = 1;
+        let mut end = inner.len();
+        for (index, c) in inner.char_indices() {
+            match c {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = index;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        out.push(inner[..end].to_string());
+        rest = &inner[end..];
+    }
+    out
+}
+
+/// springdoc's `@ApiResponse(responseCode = "404", description = "…")`s.
+fn api_responses(text: &str) -> Vec<(u16, Option<String>)> {
+    let code = regex::Regex::new(r#"responseCode\s*=\s*"(\d{3})""#).expect("a valid pattern");
+    let words = regex::Regex::new(r#"description\s*=\s*"([^"]*)""#).expect("a valid pattern");
+    annotation_bodies(text, "ApiResponse")
+        .iter()
+        .filter_map(|inner| {
+            let status = code.captures(inner)?[1].parse::<u16>().ok()?;
+            Some((
+                status,
+                words
+                    .captures(inner)
+                    .map(|m| m[1].to_string())
+                    .filter(|w| !w.is_empty()),
+            ))
+        })
+        .collect()
+}
+
+/// The success a method's body builds: `ResponseEntity.created(…)` is 201.
+fn success_in(body: &str) -> Option<u16> {
+    let created = [
+        "ResponseEntity.created(",
+        "Response.created(",
+        "HttpStatus.CREATED",
+        "Response.Status.CREATED",
+    ];
+    let empty = [
+        "ResponseEntity.noContent()",
+        "Response.noContent()",
+        "HttpStatus.NO_CONTENT",
+        "Response.Status.NO_CONTENT",
+    ];
+    let accepted = [
+        "ResponseEntity.accepted()",
+        "Response.accepted(",
+        "HttpStatus.ACCEPTED",
+        "Response.Status.ACCEPTED",
+    ];
+    if created.iter().any(|c| body.contains(c)) {
+        Some(201)
+    } else if empty.iter().any(|c| body.contains(c)) {
+        Some(204)
+    } else if accepted.iter().any(|c| body.contains(c)) {
+        Some(202)
+    } else {
+        None
+    }
+}
+
+/// Failures a method's body answers itself: `new ResponseStatusException(
+/// HttpStatus.CONFLICT, "…")`, `ResponseEntity.notFound()`,
+/// `new WebApplicationException(Response.Status.GONE)`.
+fn failures_in(body: &str) -> Vec<(u16, Option<String>)> {
+    let raised = regex::Regex::new(
+        r#"new\s+(?:ResponseStatusException|WebApplicationException)\s*\(\s*(?:"([^"]*)"\s*,\s*)?(?:HttpStatus|Response\.Status)\.([A-Z_]+)\s*(?:,\s*"([^"]*)")?"#,
+    )
+    .expect("a valid pattern");
+    let built = regex::Regex::new(
+        r"(?:ResponseEntity|Response)\.status\(\s*(?:HttpStatus|Response\.Status)\.([A-Z_]+)",
+    )
+    .expect("a valid pattern");
+    let mut out: Vec<(u16, Option<String>)> = Vec::new();
+    let mut push = |status: Option<u16>, message: Option<String>| {
+        if let Some(status) = status.filter(|s| *s >= 400) {
+            if !out.iter().any(|(seen, _)| *seen == status) {
+                out.push((status, message));
+            }
+        }
+    };
+    for found in raised.captures_iter(body) {
+        let message = found
+            .get(3)
+            .or_else(|| found.get(1))
+            .map(|m| m.as_str().to_string());
+        push(contract::status_of(&found[2]), message);
+    }
+    for found in built.captures_iter(body) {
+        push(contract::status_of(&found[1]), None);
+    }
+    for (call, status) in [
+        ("ResponseEntity.notFound()", 404),
+        ("ResponseEntity.badRequest()", 400),
+        ("ResponseEntity.unprocessableEntity()", 422),
+    ] {
+        if body.contains(call) {
+            push(Some(status), None);
+        }
+    }
+    out
 }
 
 /// `/api` and `orders/` as `/api/orders`.
@@ -608,6 +1132,8 @@ impl Endpoints<'_> {
                 continue;
             };
             let anns = annotations(decl, &file.text, self.world, &class);
+            // The loops below name each method's own `anns`; the class's are these.
+            let class_anns = anns.clone();
             let methods: Vec<Node> = decl
                 .child_by_field_name("body")
                 .map(children)
@@ -654,7 +1180,16 @@ impl Endpoints<'_> {
                     let consumes = mapping
                         .first(&["consumes"])
                         .or_else(|| class_consumes.clone());
-                    self.method(file, &class, *method, verb, path, consumes, false);
+                    self.method(
+                        file,
+                        &class,
+                        &class_anns,
+                        *method,
+                        verb,
+                        path,
+                        consumes,
+                        false,
+                    );
                 }
             } else if jaxrs_class && wanted("jaxRs") {
                 kind = SourceKind::JaxRs;
@@ -686,6 +1221,7 @@ impl Endpoints<'_> {
                     self.method(
                         file,
                         &class,
+                        &class_anns,
                         *method,
                         verb.to_string(),
                         path,
@@ -722,11 +1258,288 @@ impl Endpoints<'_> {
         }
     }
 
+    /// The type an exception extends, and so on up, itself first.
+    fn lineage(&self, exception: &str) -> Vec<String> {
+        let mut out = vec![exception.to_string()];
+        while let Some(parent) = self
+            .world
+            .types
+            .get(out.last().expect("one"))
+            .and_then(|t| t.extends.clone())
+        {
+            if out.contains(&parent) {
+                break;
+            }
+            out.push(parent);
+        }
+        out
+    }
+
+    /// The `@ExceptionHandler` that catches `exception`, nearest first.
+    fn handler(&self, exception: &str) -> Option<&Handler> {
+        self.lineage(exception)
+            .iter()
+            .find_map(|name| self.world.handlers.iter().find(|h| h.exception == *name))
+    }
+
+    /// The status `exception` is answered with: its handler's, its own
+    /// `@ResponseStatus`, JAX-RS's own, then what its name says when it is
+    /// the code's own exception. None is a 500.
+    fn exception_status(&self, exception: &str) -> Option<u16> {
+        let lineage = self.lineage(exception);
+        if let Some(status) = self.handler(exception).and_then(|h| h.status) {
+            return Some(status);
+        }
+        for name in &lineage {
+            if let Some(status) = self.world.types.get(name).and_then(|t| t.status) {
+                return Some(status);
+            }
+            if let Some((_, status)) = JAXRS_EXCEPTIONS.iter().find(|(known, _)| known == name) {
+                return Some(*status);
+            }
+        }
+        if !self.world.types.contains_key(exception) {
+            return None;
+        }
+        lineage
+            .iter()
+            .find_map(|name| contract::status_by_name(name))
+    }
+
+    /// What a failure's body looks like: the handler's answer when one
+    /// catches it, else what Spring Boot sends (JAX-RS sends nothing set).
+    fn error_body(
+        &self,
+        exceptions: &[&str],
+        status: u16,
+        path: &str,
+        jaxrs: bool,
+    ) -> Option<String> {
+        let returns = exceptions
+            .iter()
+            .find_map(|e| self.handler(e))
+            .map(|h| h.returns.clone());
+        if let Some(returns) = returns {
+            let inner = unwrap(&returns);
+            if last_segment(&generic(&inner).0) == "ProblemDetail" {
+                return Some(
+                    J::Obj(vec![
+                        ("type".into(), J::Str("about:blank".into())),
+                        ("title".into(), J::Str(contract::reason(status).into())),
+                        ("status".into(), J::Num(status.to_string())),
+                        ("detail".into(), J::Str(String::new())),
+                        ("instance".into(), J::Str(path.into())),
+                    ])
+                    .pretty(),
+                );
+            }
+            let example = sample(&inner, "", &[], self.world, 0, &mut Vec::new());
+            if !matches!(example, J::Null) {
+                return Some(example.pretty());
+            }
+        }
+        (!jaxrs).then(|| contract::spring_error(status, path))
+    }
+
+    /// The exceptions a service the controller holds throws, from the one
+    /// method `call` names on its field `field`.
+    fn thrown_by(&self, class: &str, field: &str, call: &str) -> Vec<(String, Option<String>)> {
+        let Some(held) = self
+            .world
+            .types
+            .get(class)
+            .and_then(|info| info.fields.iter().find(|f| f.name == field))
+            .map(|f| last_segment(&generic(&f.ty).0).to_string())
+        else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for (name, info) in &self.world.types {
+            if *name != held && !info.implements.contains(&held) {
+                continue;
+            }
+            for method in info.methods.iter().filter(|m| m.name == call) {
+                for found in contract::thrown(&method.body) {
+                    if !out
+                        .iter()
+                        .any(|(seen, _): &(String, Option<String>)| *seen == found.0)
+                    {
+                        out.push(found);
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// What a method answers (FEAT-179).
+    #[allow(clippy::too_many_arguments)]
+    fn answers(
+        &self,
+        source: &str,
+        class: &str,
+        class_anns: &[Ann],
+        method: Node,
+        path: &str,
+        validated: bool,
+        required: bool,
+        jaxrs: bool,
+    ) -> Vec<Answer> {
+        let anns = annotations(method, source, self.world, class);
+        let body = method
+            .child_by_field_name("body")
+            .map(|b| text(b, source))
+            .unwrap_or("");
+        let returns = method
+            .child_by_field_name("type")
+            .map(|t| text(t, source))
+            .unwrap_or("void");
+        let mut answers = Answers::default();
+
+        let declared = find(&anns, "ResponseStatus")
+            .and_then(|a| a.first(&["value", "code"]))
+            .and_then(|s| contract::status_of(&s));
+        let success = declared.or_else(|| success_in(body)).unwrap_or(200);
+        let example = if success == 204 {
+            None
+        } else {
+            returned(returns, self.world)
+        };
+        answers.add(
+            INFERRED,
+            answer(
+                success,
+                contract::success_words(success),
+                example,
+                if declared.is_some() {
+                    "@ResponseStatus"
+                } else {
+                    "the return type"
+                },
+            ),
+        );
+
+        if validated {
+            answers.add(
+                INFERRED,
+                answer(
+                    400,
+                    "The body breaks one of its rules",
+                    self.error_body(
+                        &["MethodArgumentNotValidException", "BindException"],
+                        400,
+                        path,
+                        jaxrs,
+                    ),
+                    "@Valid",
+                ),
+            );
+        } else if required {
+            answers.add(
+                INFERRED,
+                answer(
+                    400,
+                    "A required parameter is missing",
+                    self.error_body(
+                        &["MissingServletRequestParameterException"],
+                        400,
+                        path,
+                        jaxrs,
+                    ),
+                    "a required parameter",
+                ),
+            );
+        }
+
+        let guard = ["PreAuthorize", "Secured", "RolesAllowed"]
+            .iter()
+            .find_map(|name| find(&anns, name).or_else(|| find(class_anns, name)));
+        if let Some(guard) = guard {
+            let rule = guard.first(&["value"]).unwrap_or_default();
+            let from = format!("@{}", guard.name);
+            answers.add(
+                INFERRED,
+                answer(
+                    401,
+                    "Not signed in",
+                    self.error_body(&[], 401, path, jaxrs),
+                    from.clone(),
+                ),
+            );
+            let says = if rule.is_empty() {
+                "Signed in without the right to".to_string()
+            } else {
+                format!("Signed in, but not {rule}")
+            };
+            answers.add(
+                INFERRED,
+                answer(
+                    403,
+                    says,
+                    self.error_body(&["AccessDeniedException"], 403, path, jaxrs),
+                    from,
+                ),
+            );
+        }
+
+        let mut thrown = contract::thrown(body);
+        for (field, call) in contract::calls_on_fields(body) {
+            for found in self.thrown_by(class, &field, &call) {
+                if !thrown.iter().any(|(seen, _)| *seen == found.0) {
+                    thrown.push(found);
+                }
+            }
+        }
+        for (name, message) in thrown {
+            if let Some(status) = self.exception_status(&name) {
+                let says = message.unwrap_or_else(|| contract::sentence(&name));
+                answers.add(
+                    THROWN,
+                    answer(
+                        status,
+                        says,
+                        self.error_body(&[&name], status, path, jaxrs),
+                        format!("throws {name}"),
+                    ),
+                );
+            }
+        }
+        for (status, message) in failures_in(body) {
+            let says = message.unwrap_or_else(|| contract::reason(status).to_string());
+            answers.add(
+                THROWN,
+                answer(
+                    status,
+                    says,
+                    self.error_body(&[], status, path, jaxrs),
+                    "the method’s body",
+                ),
+            );
+        }
+
+        for (status, words) in api_responses(text(method, source)) {
+            let says = words.unwrap_or_else(|| contract::reason(status).to_string());
+            answers.add(DECLARED, answer(status, says, None, "@ApiResponse"));
+        }
+
+        answers.add(
+            INFERRED,
+            answer(
+                500,
+                "Something failed on the server",
+                self.error_body(&["Exception"], 500, path, jaxrs),
+                "any endpoint",
+            ),
+        );
+        answers.done()
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn method(
         &mut self,
         file: &Parsed,
         class: &str,
+        class_anns: &[Ann],
         method: Node,
         verb: String,
         path: String,
@@ -746,6 +1559,10 @@ impl Endpoints<'_> {
         };
         let mut form: Vec<(String, J)> = Vec::new();
         let mut multipart = false;
+        // The body's type, whether it is validated, whether a parameter must be given (FEAT-179).
+        let mut body_ty: Option<String> = None;
+        let mut validated = false;
+        let mut required = false;
         if let Some(params) = method.child_by_field_name("parameters") {
             for param in children(params) {
                 if param.kind() != "formal_parameter" {
@@ -788,6 +1605,8 @@ impl Endpoints<'_> {
                         declared.body_type = Some(last_segment(&generic(&body).0).to_string());
                         declared.body =
                             Some(sample(&body, "", &[], self.world, 0, &mut Vec::new()));
+                        validated |= has(&anns, "Valid");
+                        body_ty = Some(body);
                     }
                     continue;
                 }
@@ -796,14 +1615,16 @@ impl Endpoints<'_> {
                         multipart = true;
                         form.push((named(ann), J::Str(String::new())));
                     } else if !generic(ty).0.ends_with("Map") {
-                        let required = ann
+                        let needed = ann
                             .first(&["required"])
                             .map(|r| r != "false")
-                            .unwrap_or(true);
+                            .unwrap_or(true)
+                            && ann.first(&["defaultValue"]).is_none();
+                        required |= needed;
                         declared.query.push(Param {
                             name: named(ann),
                             sample: ann.first(&["defaultValue"]).unwrap_or_default(),
-                            required,
+                            required: needed,
                         });
                     }
                 } else if let Some(ann) = find(&anns, "RequestHeader") {
@@ -819,6 +1640,8 @@ impl Endpoints<'_> {
                     let body = unwrap(ty);
                     declared.body_type = Some(last_segment(&generic(&body).0).to_string());
                     declared.body = Some(sample(&body, "", &[], self.world, 0, &mut Vec::new()));
+                    validated |= has(&anns, "Valid") || has(&anns, "Validated");
+                    body_ty = Some(body);
                 }
             }
         }
@@ -848,6 +1671,20 @@ impl Endpoints<'_> {
         {
             hint.push(c.clone());
         }
+        declared.rules = body_ty
+            .as_deref()
+            .map(|ty| rules_of(ty, self.world))
+            .unwrap_or_default();
+        declared.responses = self.answers(
+            source,
+            class,
+            class_anns,
+            method,
+            &path,
+            validated && !declared.rules.is_empty(),
+            required,
+            jaxrs,
+        );
         let call = build(&declared, &words_of(&name), Choices::default());
         self.out.push(Endpoint {
             id: format!("{}#{}", file.path, self.out.len()),
@@ -1310,6 +2147,208 @@ public record Line(String sku, @Positive Integer qty, Money price) {}
 public record Money(BigDecimal amount, String currency) {}
 public enum Status { NEW, PAID }
 "#;
+
+    const PROMISES: &str = r#"
+package shop;
+
+@RestController
+@RequestMapping("/accounts")
+@PreAuthorize("hasRole('ADMIN')")
+public class AccountController {
+    private final AccountService accounts;
+
+    @PostMapping
+    @ApiResponse(responseCode = "409", description = "That email has an account already", content = @Content(schema = @Schema(implementation = Problem.class)))
+    public ResponseEntity<Account> open(@Valid @RequestBody OpenAccount request) {
+        Account made = accounts.open(request);
+        return ResponseEntity.created(URI.create("/accounts/" + made.id())).body(made);
+    }
+
+    @GetMapping("/{id}")
+    public Account get(@PathVariable Long id) {
+        return accounts.find(id);
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void close(@PathVariable Long id) {
+        if (id < 0) throw new ResponseStatusException(HttpStatus.GONE, "Closed already");
+        accounts.close(id);
+    }
+}
+
+public interface AccountService {
+    Account open(OpenAccount request);
+    Account find(Long id);
+    void close(Long id);
+}
+
+@Service
+public class DefaultAccountService implements AccountService {
+    public Account open(OpenAccount request) {
+        if (exists(request.email())) throw new EmailTakenException("That email has an account already");
+        return null;
+    }
+    public Account find(Long id) {
+        return repository.findById(id).orElseThrow(() -> new AccountNotFoundException(id));
+    }
+    public void close(Long id) {}
+}
+
+@ResponseStatus(HttpStatus.NOT_FOUND)
+public class AccountNotFoundException extends RuntimeException {}
+
+public class EmailTakenException extends RuntimeException {}
+
+@RestControllerAdvice
+public class Errors {
+    @ExceptionHandler(EmailTakenException.class)
+    public ResponseEntity<Problem> taken(EmailTakenException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new Problem(e.getMessage()));
+    }
+}
+
+public record Problem(String message) {}
+
+public record Account(Long id, String email) {}
+
+public enum Plan { FREE, PRO }
+
+public record OpenAccount(
+    @NotBlank @Email String email,
+    @Size(min = 3, max = 40) String name,
+    @Min(18) @Max(130) int age,
+    @NotNull Plan plan,
+    @Pattern(regexp = "^[A-Z]{2}$") String country,
+    @Valid List<Address> addresses
+) {}
+
+public record Address(@NotBlank String line, String city) {}
+"#;
+
+    /// FEAT-179: what an endpoint promises, from the code around it.
+    #[test]
+    fn a_body_says_its_rules_and_a_method_says_what_it_answers() {
+        let (endpoints, _) = read(
+            &files(&[("src/Accounts.java", PROMISES)]),
+            &all(),
+            &SoapChoices::default(),
+        );
+        let declared = |path: &str, method: &str| {
+            endpoints
+                .iter()
+                .find(|e| e.path == path && e.method == method)
+                .and_then(|e| e.declared.clone())
+                .expect("the endpoint")
+        };
+
+        let open = declared("/accounts", "POST");
+        let rule = |path: &str| {
+            open.rules
+                .iter()
+                .find(|r| r.path == path)
+                .cloned()
+                .expect(path)
+        };
+        let email = rule("email");
+        assert_eq!(
+            (
+                email.kind.as_str(),
+                email.required,
+                email.format.as_deref(),
+                email.min_length
+            ),
+            ("string", true, Some("email"), Some(1))
+        );
+        let name = rule("name");
+        assert_eq!(
+            (name.min_length, name.max_length, name.required),
+            (Some(3), Some(40), false)
+        );
+        let age = rule("age");
+        assert_eq!(
+            (age.kind.as_str(), age.minimum, age.maximum),
+            ("integer", Some(18.0), Some(130.0))
+        );
+        assert_eq!(rule("plan").values, ["FREE", "PRO"]);
+        assert_eq!(rule("country").pattern.as_deref(), Some("^[A-Z]{2}$"));
+        assert_eq!(rule("addresses").kind, "array");
+        assert!(rule("addresses[].line").required);
+
+        let statuses = |responses: &[Answer]| {
+            responses
+                .iter()
+                .map(|a| (a.status, a.from.clone()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            statuses(&open.responses),
+            [
+                (201, "the return type".to_string()),
+                (400, "@Valid".to_string()),
+                (401, "@PreAuthorize".to_string()),
+                (403, "@PreAuthorize".to_string()),
+                (409, "@ApiResponse".to_string()),
+                (500, "any endpoint".to_string())
+            ]
+        );
+        let created = &open.responses[0];
+        assert!(
+            created.body.as_deref().unwrap_or("").contains("\"email\""),
+            "{created:?}"
+        );
+        // The author's words win; the handler's body is kept as the example.
+        let conflict = open
+            .responses
+            .iter()
+            .find(|a| a.status == 409)
+            .expect("409");
+        assert_eq!(conflict.says, "That email has an account already");
+        assert!(
+            conflict
+                .body
+                .as_deref()
+                .unwrap_or("")
+                .contains("\"message\""),
+            "{conflict:?}"
+        );
+        assert!(
+            open.responses[2].says.contains("hasRole('ADMIN')")
+                || open.responses[3].says.contains("hasRole('ADMIN')")
+        );
+
+        // A service's exception, one call deep, at its own @ResponseStatus.
+        let get = declared("/accounts/{id}", "GET");
+        let missing = get.responses.iter().find(|a| a.status == 404).expect("404");
+        assert_eq!(
+            (missing.says.as_str(), missing.from.as_str()),
+            ("Account not found", "throws AccountNotFoundException")
+        );
+        assert!(
+            missing
+                .body
+                .as_deref()
+                .unwrap_or("")
+                .contains("\"status\": 404"),
+            "{missing:?}"
+        );
+
+        // @ResponseStatus on the method, and a status the body raises itself.
+        let close = declared("/accounts/{id}", "DELETE");
+        assert_eq!(
+            (
+                close.responses[0].status,
+                close.responses[0].body.as_deref()
+            ),
+            (204, None)
+        );
+        let gone = close
+            .responses
+            .iter()
+            .find(|a| a.status == 410)
+            .expect("410");
+        assert_eq!(gone.says, "Closed already");
+    }
 
     #[test]
     fn spring_controllers_give_their_endpoints() {

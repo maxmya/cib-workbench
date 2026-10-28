@@ -19,9 +19,11 @@
 		privateValues?: Private;
 		privateError?: string | null;
 		onmanage?: () => void;
+		/** Put the panel away (FEAT-175). */
+		onhide?: () => void;
 	}
 
-	let { environment, shared, collection, privateValues, privateError = null, onmanage }: Props = $props();
+	let { environment, shared, collection, privateValues, privateError = null, onmanage, onhide }: Props = $props();
 
 	const kept = $derived(new Map((privateValues?.kept ?? []).map((view) => [view.name, view])));
 	const secrets = $derived(new Set(privateValues?.secrets ?? []));
@@ -79,6 +81,11 @@
 		{#if onmanage}
 			<button type="button" class="manage" onclick={onmanage}>Manage</button>
 		{/if}
+		{#if onhide}
+			<button type="button" class="hide" aria-label="Put the variables away" title="Put the variables away" onclick={onhide}>
+				<Icon name="chevron-right" size={13} weight={2} />
+			</button>
+		{/if}
 	</header>
 	{#if privateError}
 		<p class="hint error" role="alert">The keychain could not be read: {privateError}</p>
@@ -98,16 +105,13 @@
 		{/each}
 	</div>
 
-	<footer>
-		<p>Type <kbd class="mono">{'{{'}</kbd> anywhere to insert one.</p>
-		<p>Secrets stay on this computer and never go into the repository.</p>
-	</footer>
 </aside>
 
 <style>
 	.vars {
 		flex: none;
-		width: 250px;
+		width: var(--calls-vars-w, 250px);
+		min-width: 0;
 		min-height: 0;
 		display: flex;
 		flex-direction: column;
@@ -137,8 +141,7 @@
 	.muted,
 	.count,
 	.hint,
-	h3,
-	footer {
+	h3 {
 		color: var(--muted);
 		font-size: var(--fs-secondary);
 	}
@@ -212,26 +215,25 @@
 		text-decoration: underline;
 	}
 
+	.hide {
+		display: grid;
+		place-items: center;
+		width: 22px;
+		height: 22px;
+		border-radius: var(--r-button);
+		color: var(--muted);
+	}
+
+	.hide:hover {
+		color: var(--ink);
+		background: var(--hover);
+	}
+
 	.error {
 		color: var(--danger);
 	}
 
 	.hint {
 		margin: 0;
-	}
-
-	footer {
-		padding-top: 10px;
-		border-top: 1px solid var(--line);
-	}
-
-	footer p {
-		margin: 0 0 6px;
-	}
-
-	kbd {
-		padding: 0 4px;
-		border: 1px solid var(--soft);
-		border-radius: 4px;
 	}
 </style>

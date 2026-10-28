@@ -618,6 +618,20 @@ export const calls = {
 		this.open({ stem: target, id: call.id });
 	},
 
+	/** A collection with nothing in it yet, named `name` (FEAT-178). Answers its stem. */
+	async createCollection(name: string): Promise<string | null> {
+		const collection: Collection = { v: 1, name: name.trim(), items: [] };
+		if (!collection.name) return null;
+		try {
+			const stem = await api.saveCollection(collection, null, null);
+			collections = [...collections, { stem, file: `${folder}/${stem}.json`, value: collection, error: null }];
+			return stem;
+		} catch (cause) {
+			notice.failed('Could not make a collection', cause);
+			return null;
+		}
+	},
+
 	/**
 	 * Put a pasted request in place of `opened`'s (FEAT-166): its method,
 	 * URL, headers, body and auth. The name, the keep rules and the notes are

@@ -14,6 +14,52 @@ versions follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-28
+
+### Added
+
+- **What a call expects and answers, from its code.** A scanned Spring,
+  JAX-RS or NestJS call carries its body's field rules (required, format,
+  lengths, bounds, allowed values) and what it answers with each status,
+  each with an example and where it was read from. A *Docs* tab shows them.
+  On Import, an agent you allow can read the chosen controllers for what the
+  scan missed; it adds and never overwrites (FEAT-179).
+- **Export as OpenAPI.** Share writes a collection as OpenAPI 3.1, JSON or
+  YAML, with those rules and answers; it is also in each collection's `⋯`
+  (FEAT-179).
+- **Endpoints say which service they are in.** Import finds each Maven or
+  Gradle module, `package.json` and Nest monorepo app, and shows controllers
+  under their service (FEAT-177).
+- **Hooks in two tabs.** *Current hooks* lists every step the repository's
+  hooks run, numbered in the order git runs them, with a category filter.
+  *Create hook* has 18 explained templates to add (FEAT-176).
+- **Close others, close all.** A right-click on a tab in Files (FEAT-174).
+- **Calls' side panels widen,** and the variables can be put away
+  (FEAT-175).
+
+### Changed
+
+- **Import is a sheet over Calls,** in three steps with *Back* and *Cancel*,
+  opened from the Collections `+` (FEAT-178).
+- **Home's *Fetch all* is *Refresh*:** it fetches and reloads every card.
+  Latest commits say who made each (FEAT-173).
+- **Recipes' right panel says less:** the level, *Run*, and *Agent help*
+  only when it is on (TASK-076).
+
+### Fixed
+
+- **A GitLab merge request's files load** when the server's stored diffs
+  fail with 500 (BUG-108).
+- **Review's bar stays on one row,** tighter as room shrinks (BUG-109).
+- **A pipeline's lines run between its cards,** never through one; jobs that
+  need one job share a trunk (BUG-110).
+- **The Terminal shows output sooner:** a key's echo at once, and a flood in
+  few messages (BUG-111).
+- **Checkboxes, switches and radios are drawn in the theme,** not as light
+  boxes in Night (BUG-112).
+- **Calls' fields and panes are the card's colour,** and the `{{` hint is
+  gone (BUG-113).
+
 ## [1.1.0] - 2026-10-26
 
 ### Added

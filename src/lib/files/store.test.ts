@@ -277,6 +277,27 @@ describe('opening a file', () => {
 		expect(files.file).toBeNull();
 	});
 
+	/** FEAT-174: a tab's right-click menu. */
+	it('closes every tab but one, and shows that one', async () => {
+		await files.openFile('src/lib.rs');
+		await files.openFile('README.md');
+		await files.openFile('Cargo.toml');
+
+		await files.closeOthers(0);
+		expect(files.tabs.map((tab) => tab.path)).toEqual(['src/lib.rs']);
+		expect(files.active).toBe(0);
+		expect(files.file?.path).toBe('src/lib.rs');
+	});
+
+	it('closes every tab', async () => {
+		await files.openFile('src/lib.rs');
+		await files.openFile('README.md');
+
+		await files.closeAll();
+		expect(files.tabs).toEqual([]);
+		expect(files.file).toBeNull();
+	});
+
 	/** Five files clicked in a second: the second's answer must not land on the fifth. */
 	it('drops an answer for a file that is no longer the one asked for', async () => {
 		let slow: (value: FilesRead) => void = () => {};

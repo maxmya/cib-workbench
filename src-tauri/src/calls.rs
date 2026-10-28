@@ -42,6 +42,7 @@ use spagitty_core::calls::import::{self, Brought, Choices, Found};
 use spagitty_core::calls::keep::{self, Kept, KeptLog};
 use spagitty_core::calls::model::{new_id, Call, Collection, Environment, Shared, Variable};
 use spagitty_core::calls::model::{random_u64, Kind, WsMode};
+use spagitty_core::calls::openapi;
 use spagitty_core::calls::send::{self, ClientCert, Failure};
 use spagitty_core::calls::settings::{effective, host_of, CallsSettings};
 use spagitty_core::calls::share;
@@ -1509,7 +1510,13 @@ pub fn calls_bring_in<R: Runtime>(
     let target = stem
         .clone()
         .unwrap_or_else(|| spagitty_core::calls::store::slug(&collection.name));
-    let brought = import::bring_in(&mut collection, &target, &chosen, ask.choices);
+    let brought = import::bring_in(
+        &mut collection,
+        &target,
+        &chosen,
+        ask.choices,
+        &found.services,
+    );
     let written = folder
         .write_collection(&collection, stem.as_deref(), stem.as_deref())
         .map_err(|e| e.to_string())?;
@@ -1534,6 +1541,148 @@ pub fn calls_bring_in<R: Runtime>(
         stem: written,
         brought,
         environments,
+    })
+}
+
+// --- An agent's read (FEAT-179) ---------------------------------------------
+
+/// An agent Import may ask: the repository allows it and it can be reached.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Askable {
+    pub id: String,
+    pub name: String,
+}
+
+/// The agents Import may ask to read the code; none with no repository open.
+#[tauri::command(async)]
+pub fn calls_agents<R: Runtime>(app: AppHandle<R>, state: State<'_, AppState>) -> Vec<Askable> {
+    let Ok(repo) = state.open_path("calls_agents") else {
+        return Vec::new();
+    };
+    crate::agents::askable(&app, &repo.to_string_lossy())
+        .into_iter()
+        .map(|id| Askable {
+            name: crate::agents::name_of(&app, &id).unwrap_or_else(|| id.clone()),
+            id,
+        })
+        .collect()
+}
+
+/// What an agent's read added.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRead {
+    pub agent: String,
+    /// The controllers it read.
+    pub files: usize,
+    /// The rules and answers it added to what the scan had.
+    pub added: usize,
+    /// A file it could not read, with why.
+    pub failed: Vec<String>,
+    pub found: Found,
+}
+
+/// *Ask an agent too* (FEAT-179): an agent reads the controller of each
+/// chosen endpoint the code declares, and what it says of their bodies and
+/// answers is added to what the scan read. It is given each file in the
+/// question and runs nothing.
+#[tauri::command(async)]
+pub fn calls_agent_read<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+    scope: Option<Scope>,
+    imports: State<'_, ImportState>,
+    ids: Vec<String>,
+    agent: Option<String>,
+) -> Result<AgentRead> {
+    let place_of = root(&app, &state, scope, "calls_agent_read")?;
+    let code = state
+        .open_path("calls_agent_read")
+        .map_err(|_| "Open the repository the code is in, then ask again.".to_string())?;
+    let key = code.to_string_lossy().into_owned();
+    let mut found = imports
+        .found
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get(&place_of)
+        .cloned()
+        .ok_or("nothing has been found to read; scan again")?;
+
+    // The chosen endpoints the code declares, by the file they are in.
+    let mut files: Vec<(String, Vec<usize>)> = Vec::new();
+    for (at, endpoint) in found.endpoints.iter().enumerate() {
+        if !ids.contains(&endpoint.id) || endpoint.declared.is_none() {
+            continue;
+        }
+        let Some(file) = endpoint.file.clone() else {
+            continue;
+        };
+        match files.iter_mut().find(|(known, _)| *known == file) {
+            Some((_, list)) => list.push(at),
+            None => files.push((file, vec![at])),
+        }
+    }
+    if files.is_empty() {
+        return Err("None of the chosen endpoints is read from code, so there is nothing for an agent to read.".into());
+    }
+
+    let id = match agent {
+        Some(id) => id,
+        None => crate::agents::askable(&app, &key).into_iter().next().ok_or(
+            "No agent can be asked here. Set one up in Settings › Agents, and allow it for this repository.",
+        )?,
+    };
+    let name = crate::agents::name_of(&app, &id).unwrap_or_else(|| id.clone());
+
+    let mut added = 0;
+    let mut failed = Vec::new();
+    for (file, at) in &files {
+        let text = match std::fs::read_to_string(code.join(file)) {
+            Ok(text) => text,
+            Err(e) => {
+                failed.push(format!("{file}: could not be read: {e}"));
+                continue;
+            }
+        };
+        let endpoints: Vec<&import::Endpoint> = at.iter().map(|i| &found.endpoints[*i]).collect();
+        let question = import::agent::prompt(file, &text, &endpoints);
+        let reads = crate::agents::ask(&app, &key, &id, import::agent::SYSTEM, &question)
+            .and_then(|said| import::agent::read(&said));
+        match reads {
+            Ok(reads) => {
+                for i in at {
+                    added += import::agent::add(&mut found.endpoints[*i], &reads, &name);
+                }
+            }
+            Err(e) => failed.push(format!("{file}: {e}")),
+        }
+    }
+
+    // What was found may have changed while the agent read: only the
+    // endpoints it read are put back.
+    let read: Vec<import::Endpoint> = files
+        .iter()
+        .flat_map(|(_, at)| at.iter().map(|i| found.endpoints[*i].clone()))
+        .collect();
+    let current = {
+        let mut held = imports.found.lock().map_err(|e| e.to_string())?;
+        let current = held
+            .entry(place_of.clone())
+            .or_insert_with(|| found.clone());
+        for endpoint in read {
+            if let Some(slot) = current.endpoints.iter_mut().find(|e| e.id == endpoint.id) {
+                *slot = endpoint;
+            }
+        }
+        current.clone()
+    };
+    Ok(AgentRead {
+        agent: name,
+        files: files.len(),
+        added,
+        failed,
+        found: keep_found(&app, &place_of, current)?,
     })
 }
 
@@ -1718,7 +1867,8 @@ pub fn calls_import_wsdl_url<R: Runtime>(
 #[serde(rename_all = "camelCase")]
 pub struct ShareAsk {
     pub stem: String,
-    /// `spagitty` or `postman` (one file), `zip`, or `commit`.
+    /// `spagitty`, `postman`, `openapi` or `openapi-yaml` (one file), `zip`,
+    /// or `commit`.
     pub format: String,
     /// The environments that go in, by stem.
     #[serde(default)]
@@ -1786,6 +1936,24 @@ fn examples_of<R: Runtime>(
     Ok(out)
 }
 
+/// Where an OpenAPI document says the calls are served (FEAT-179): the
+/// `baseUrl` of the first chosen environment that has one, or of any
+/// environment when none is chosen. A secret is never written out.
+fn server_of(folder: &Folder, chosen: &[String]) -> Option<String> {
+    folder
+        .environments()
+        .into_iter()
+        .filter(|stored| chosen.is_empty() || chosen.contains(&stored.stem))
+        .filter_map(|stored| stored.value)
+        .find_map(|env| {
+            env.vars
+                .into_iter()
+                .find(|var| var.name == "baseUrl" && !var.secret && !var.kept)
+                .and_then(|var| var.value)
+                .filter(|value| !value.trim().is_empty() && !value.contains("{{"))
+        })
+}
+
 /// Files by their path, with their contents.
 type Files = Vec<(String, Vec<u8>)>;
 
@@ -1817,6 +1985,24 @@ fn share_files<R: Runtime>(
             format!("{}.postman_collection.json", ask.stem),
             share::postman(&collection).into_bytes(),
         )],
+        "openapi" | "openapi-yaml" => {
+            let document = openapi::document(
+                &collection,
+                server_of(folder, &ask.environments).as_deref(),
+                spagitty_core::brand::PRODUCT_NAME,
+            );
+            if ask.format == "openapi" {
+                vec![(
+                    format!("{}.openapi.json", ask.stem),
+                    openapi::json(&document).into_bytes(),
+                )]
+            } else {
+                vec![(
+                    format!("{}.openapi.yaml", ask.stem),
+                    openapi::yaml(&document).into_bytes(),
+                )]
+            }
+        }
         "zip" => {
             let history = if ask.history {
                 let entries: Vec<Entry> = History::new(&data(app, repo)?.join("history"))

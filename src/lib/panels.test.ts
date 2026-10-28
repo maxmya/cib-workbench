@@ -23,6 +23,8 @@ import {
 	REVIEW_PREVIEW_W,
 	ROOM_CONVERSATION_W,
 	ROOM_FILES_W,
+	CALLS_TREE_W,
+	CALLS_VARS_W,
 	STASH_ENTRIES_W
 } from './metrics';
 
@@ -203,7 +205,10 @@ describe('reset', () => {
 			// Review's three (FEAT-094).
 			reviewPreview: REVIEW_PREVIEW_W,
 			roomFiles: ROOM_FILES_W,
-			roomConversation: ROOM_CONVERSATION_W
+			roomConversation: ROOM_CONVERSATION_W,
+			// Calls' two sides (FEAT-175).
+			callsTree: CALLS_TREE_W,
+			callsVars: CALLS_VARS_W
 		});
 	});
 });

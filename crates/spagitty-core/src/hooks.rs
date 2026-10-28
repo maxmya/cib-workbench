@@ -44,6 +44,7 @@ pub mod blocks;
 pub mod builder;
 pub mod generate;
 pub mod import;
+pub mod steps;
 
 /// The hook names git knows. Anything else in the directory is not a hook.
 const NAMES: &[&str] = &[
@@ -135,6 +136,8 @@ pub struct Hooks {
     pub hooks: Vec<Hook>,
     /// False when this repository's hooks are switched off in Spagitty.
     pub enabled: bool,
+    /// What the hooks run, step by step, in order (FEAT-176).
+    pub steps: Vec<steps::Step>,
 }
 
 impl Hooks {
@@ -222,13 +225,62 @@ pub fn list(repo: &Path) -> Result<Hooks> {
         _ => None,
     };
 
-    Ok(Hooks {
+    let mut info = Hooks {
         dir: shown,
         manager,
         config,
         hooks,
         enabled,
-    })
+        steps: Vec::new(),
+    };
+    info.steps = steps::steps(&info);
+    Ok(info)
+}
+
+/// Add a command to a Husky hook (FEAT-176): appended to `.husky/<hook>`,
+/// which is made when the hook has none — with Husky's helper line for the
+/// layouts before v9, which need it, and executable. Answers the file, as
+/// the repository names it.
+pub fn add_to_husky(repo: &Path, hook: &str, command: &str) -> std::result::Result<String, String> {
+    if !NAMES.contains(&hook) {
+        return Err(format!("{hook} is not a hook git runs"));
+    }
+    let command = command.trim();
+    if command.is_empty() {
+        return Err("There is no command to add.".into());
+    }
+    let dir = shell::hooks_dir(repo).map_err(|e| e.to_string())?;
+    if !is_husky(repo, &dir) {
+        return Err("Husky does not run this repository's hooks.".into());
+    }
+    let husky = repo.join(".husky");
+    let file = husky.join(hook);
+    let shown = shown_path(repo, &file);
+    let text = match std::fs::read_to_string(&file) {
+        Ok(existing) => {
+            if existing.contains(command) {
+                return Err(format!("{shown} already runs it"));
+            }
+            let mut text = existing;
+            if !text.is_empty() && !text.ends_with('\n') {
+                text.push('\n');
+            }
+            text.push_str(command);
+            text.push('\n');
+            text
+        }
+        Err(_) if same(&dir, &husky) => {
+            format!("#!/usr/bin/env sh\n. \"$(dirname -- \"$0\")/_/husky.sh\"\n\n{command}\n")
+        }
+        Err(_) => format!("{command}\n"),
+    };
+    std::fs::write(&file, text).map_err(|e| format!("{shown} could not be written: {e}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755));
+    }
+    Ok(shown)
 }
 
 /// Whether Spagitty runs this repository's hooks when it commits.
@@ -381,6 +433,49 @@ mod tests {
         assert_eq!(hooks.hooks[0].path, ".husky/pre-commit");
         assert_eq!(hooks.hooks[0].script, "npx lint-staged\n");
         assert_eq!(hooks.dir, ".husky/_");
+    }
+
+    /// FEAT-176: a template added to a Husky repository.
+    #[test]
+    fn a_command_is_added_to_a_husky_hook_and_a_missing_hook_is_made() {
+        let fixture = Fixture::linear(1);
+        let stubs = fixture.path().join(".husky/_");
+        for name in ["pre-commit", "pre-push"] {
+            write_hook(&stubs.join(name), ". \"$(dirname \"$0\")/h\"\n");
+        }
+        write_hook(&fixture.path().join(".husky/pre-commit"), "npx lint-staged");
+        fixture.git(&["config", "core.hooksPath", ".husky/_"]);
+
+        let file = add_to_husky(fixture.path(), "pre-commit", "npx tsc --noEmit").expect("added");
+        assert_eq!(file, ".husky/pre-commit");
+        let text = std::fs::read_to_string(fixture.path().join(".husky/pre-commit")).expect("read");
+        assert_eq!(text, "npx lint-staged\nnpx tsc --noEmit\n");
+
+        add_to_husky(fixture.path(), "pre-push", "npm test").expect("made");
+        let text = std::fs::read_to_string(fixture.path().join(".husky/pre-push")).expect("read");
+        assert_eq!(text, "npm test\n");
+
+        let again = add_to_husky(fixture.path(), "pre-push", "npm test").expect_err("twice");
+        assert!(again.contains("already runs it"), "{again}");
+        assert!(add_to_husky(fixture.path(), "pre-lunch", "x").is_err());
+
+        let listed = list(fixture.path()).expect("hooks");
+        let steps: Vec<_> = listed
+            .steps
+            .iter()
+            .map(|step| (step.hook.as_str(), step.order))
+            .collect();
+        assert_eq!(
+            steps,
+            [("pre-commit", 1), ("pre-commit", 2), ("pre-push", 1)]
+        );
+    }
+
+    #[test]
+    fn a_command_is_not_added_where_husky_does_not_run_the_hooks() {
+        let fixture = Fixture::linear(1);
+        let refused = add_to_husky(fixture.path(), "pre-commit", "npm test").expect_err("no husky");
+        assert!(refused.contains("Husky does not run"), "{refused}");
     }
 
     #[test]

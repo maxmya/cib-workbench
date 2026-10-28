@@ -20,6 +20,7 @@
 //! | `soap` | SOAP: a WSDL and its schemas, envelopes, WS-Security, faults |
 //! | `settings` | Settings › Calls, and a repository's overrides |
 //! | `import` | Import: endpoints from Java, NestJS and OpenAPI, calls from collection files |
+//! | `openapi` | A collection as an OpenAPI 3.1 document, with its rules and answers |
 //! | `keep` | Values kept from responses: JSONPath, XPath, and where each came from |
 //! | `vault` | Secret and kept values, in the keychain |
 //! | `xml` | XML as a small tree with its namespaces in scope |
@@ -31,6 +32,7 @@ pub mod history;
 pub mod import;
 pub mod keep;
 pub mod model;
+pub mod openapi;
 pub mod send;
 pub mod settings;
 pub mod share;

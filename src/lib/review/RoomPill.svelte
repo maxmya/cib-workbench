@@ -1,7 +1,8 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script lang="ts">
+	import { flushSync } from 'svelte';
 	import Icon from '$lib/ui/Icon.svelte';
-	import { centreOffset } from './pill';
+	import { centreOffset, fitLevel } from './pill';
 	import { room } from './room.svelte';
 
 	/**
@@ -20,6 +21,21 @@
 	const viewed = $derived(file !== null && room.isViewed(file.path));
 	// Every file read: what is left is to finish (TASK-053).
 	const done = $derived(room.files.length > 0 && room.viewedCount === room.files.length);
+
+	/**
+	 * How tight it is drawn (BUG-109): 0 is whole, 3 the smallest. One row
+	 * always; a narrow column gets shorter labels, then a Viewed that is only
+	 * its tick, then the file's place without its name.
+	 */
+	const TIGHTEST = 3;
+	let tight = $state(0);
+	const SCOPES = [
+		['Changes', 'Whole file', 'Before and after'],
+		['Changes', 'Whole', 'Sides'],
+		['Diff', 'File', 'Sides'],
+		['Diff', 'File', 'Sides']
+	];
+	const scopes = $derived(SCOPES[tight]);
 
 	/** Not viewed: tick it and go on to the next. Viewed: take the tick back. */
 	function mark() {
@@ -41,9 +57,19 @@
 		if (!element || !column) return;
 		const measure = () => {
 			const box = column.getBoundingClientRect();
+			// The room inside the pill's margins, then each level drawn until one fits.
+			tight = fitLevel(
+				column.clientWidth - 16,
+				(level) => {
+					flushSync(() => (tight = level));
+					return element.scrollWidth;
+				},
+				TIGHTEST
+			);
+			flushSync();
 			shift = centreOffset(box, window.innerWidth, element.offsetWidth);
 		};
-		measure();
+		// The observer answers once as soon as it is watching: the first measure.
 		const observer = new ResizeObserver(measure);
 		observer.observe(column);
 		observer.observe(element);
@@ -55,17 +81,26 @@
 	});
 </script>
 
-<div class="pill ornament" role="toolbar" aria-label="Review controls" bind:this={pill} style:--shift={`${shift}px`}>
+<div
+	class="pill ornament"
+	role="toolbar"
+	aria-label="Review controls"
+	bind:this={pill}
+	style:--shift={`${shift}px`}
+	data-tight={tight}
+>
 	<span class="group">
-		<button class="tool icon" aria-label="Previous file" onclick={() => room.step(-1)}>
+		<button class="tool icon" aria-label="Previous file" title={tight === TIGHTEST ? file?.path : undefined} onclick={() => room.step(-1)}>
 			<Icon name="chevron-left" size="1.1em" weight={1.9} />
 		</button>
 		<span class="where">
 			{#if room.layout === 'one'}
-				<span class="name mono" title={file?.path}>{name}</span>
-				<span class="note">{room.position + 1} of {room.files.length}</span>
+				{#if tight < TIGHTEST}<span class="name mono" title={file?.path}>{name}</span>{/if}
+				<span class="note" title={tight === TIGHTEST ? file?.path : undefined}
+					>{tight === TIGHTEST ? `${room.position + 1}/${room.files.length}` : `${room.position + 1} of ${room.files.length}`}</span
+				>
 			{:else}
-				<span class="name mono">All files</span>
+				{#if tight < TIGHTEST}<span class="name mono">All files</span>{/if}
 				<span class="note">{room.files.length} {room.files.length === 1 ? 'file' : 'files'}</span>
 			{/if}
 		</span>
@@ -75,17 +110,17 @@
 	</span>
 	<span class="vr"></span>
 	<span class="segments">
-		<button class="tool" aria-pressed={room.scope === 'changes'} onclick={() => room.setScope('changes')}>
-			Changes
+		<button class="tool" aria-pressed={room.scope === 'changes'} title="Only what changed" onclick={() => room.setScope('changes')}>
+			{scopes[0]}
 		</button>
 		<button
 			class="tool"
 			aria-pressed={room.scope === 'whole'}
 			disabled={!room.canShowWhole}
-			title={room.canShowWhole ? undefined : 'Needs the pull request fetched'}
+			title={room.canShowWhole ? 'The whole file, its changes marked' : 'Needs the pull request fetched'}
 			onclick={() => room.setScope('whole')}
 		>
-			Whole file
+			{scopes[1]}
 		</button>
 		<button
 			class="tool"
@@ -96,36 +131,38 @@
 				: 'Needs the pull request fetched'}
 			onclick={() => room.setScope('sides')}
 		>
-			Before and after
+			{scopes[2]}
 		</button>
 	</span>
 	<span class="segments">
-		<button class="tool" aria-pressed={room.layout === 'one'} onclick={() => room.setLayout('one')}>One</button>
-		<button class="tool" aria-pressed={room.layout === 'all'} onclick={() => room.setLayout('all')}>All</button>
+		<button class="tool" aria-pressed={room.layout === 'one'} title="One file at a time" onclick={() => room.setLayout('one')}>One</button>
+		<button class="tool" aria-pressed={room.layout === 'all'} title="Every file, one after another" onclick={() => room.setLayout('all')}>All</button>
 	</span>
 	<span class="vr"></span>
 	{#if done}
-		<button class="tool finish" disabled={room.phase !== 'ready'} onclick={onfinish}>Finish review</button>
+		<button class="tool finish" disabled={room.phase !== 'ready'} onclick={onfinish}>
+			{tight >= 2 ? 'Finish' : 'Finish review'}
+		</button>
 	{:else}
 		<button
 			class="tool viewed"
 			aria-pressed={viewed}
+			aria-label="Viewed"
 			disabled={!file}
-			title={viewed ? undefined : 'Tick it and go to the next file'}
+			title={viewed ? 'Viewed' : 'Tick it and go to the next file'}
 			onclick={mark}
 		>
-			<Icon name={viewed ? 'circle-check' : 'circle'} size="1.1em" weight={2} />Viewed
+			<Icon name={viewed ? 'circle-check' : 'circle'} size="1.1em" weight={2} />{#if tight < 2}Viewed{/if}
 		</button>
 	{/if}
 </div>
-
 <style>
 	/*
-	 * Centred by its margins, between the column's two edges, and its groups
-	 * go onto a second row when one row will not hold them (BUG-080). With
+	 * Centred by its margins, between the column's two edges (BUG-080). With
 	 * left at 50% and a transform it had half the column to be laid out in:
 	 * in a narrow column the file's name was squeezed to nothing and the rest
-	 * ran out over the conversation.
+	 * ran out over the conversation. It keeps to one row (BUG-109): a column
+	 * too narrow for it gets it drawn tighter, `data-tight` 1 to 3.
 	 */
 	.pill {
 		position: absolute;
@@ -137,11 +174,12 @@
 		margin-inline: auto;
 		box-sizing: border-box;
 		display: flex;
-		flex-wrap: wrap;
+		flex-wrap: nowrap;
 		align-items: center;
 		justify-content: center;
-		gap: 4px 6px;
-		min-height: 52px;
+		gap: 6px;
+		height: 52px;
+		overflow: hidden;
 		padding: 9px;
 		border-radius: 26px;
 		white-space: nowrap;
@@ -238,6 +276,48 @@
 	.finish {
 		min-width: 128px;
 		justify-content: center;
+	}
+
+	/* Tighter: a narrower name, then shorter labels and a Viewed that is its
+	   tick, then the file's place alone. */
+	.pill[data-tight='1'] .where {
+		width: 110px;
+	}
+
+	.pill[data-tight='2'] .where {
+		width: 84px;
+	}
+
+	.pill[data-tight='2'] .tool:not(.icon),
+	.pill[data-tight='3'] .tool:not(.icon) {
+		padding: 0 9px;
+	}
+
+	.pill[data-tight='2'] .viewed,
+	.pill[data-tight='3'] .viewed {
+		min-width: 0;
+		width: 38px;
+		padding: 0;
+	}
+
+	.pill[data-tight='2'] .finish,
+	.pill[data-tight='3'] .finish {
+		min-width: 0;
+	}
+
+	.pill[data-tight='3'] {
+		gap: 4px;
+		padding: 9px 7px;
+	}
+
+	.pill[data-tight='3'] .where {
+		width: auto;
+		min-width: 40px;
+		align-items: center;
+	}
+
+	.pill[data-tight='3'] .vr {
+		display: none;
 	}
 
 	.viewed[aria-pressed='true'] {

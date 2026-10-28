@@ -15,6 +15,7 @@ import {
 	newId,
 	paramsOf,
 	removeCall,
+	ruleText,
 	statusTone,
 	suggestName,
 	tabCounts,
@@ -87,10 +88,27 @@ describe('what the tabs count', () => {
 				headers: [['Accept', 'json'], ['X-Off', '1', false]],
 				body: { type: 'json', text: '{}' },
 				auth: { type: 'bearer', token: '{{token}}' },
-				keep: [{ var: 'token', from: '$.token' }]
+				keep: [{ var: 'token', from: '$.token' }],
+				rules: [{ path: 'email', type: 'string', required: true }],
+				responses: [{ status: 201, says: 'Created' }]
 			})
-		).toEqual({ params: 1, headers: 1, body: 1, auth: 1, keep: 1 });
-		expect(tabCounts(call('a', 'A'))).toEqual({ params: 0, headers: 0, body: 0, auth: 0, keep: 0 });
+		).toEqual({ params: 1, headers: 1, body: 1, auth: 1, keep: 1, docs: 2 });
+		expect(tabCounts(call('a', 'A'))).toEqual({ params: 0, headers: 0, body: 0, auth: 0, keep: 0, docs: 0 });
+	});
+});
+
+describe('a field rule in words (FEAT-179)', () => {
+	it('says what the code holds the field to', () => {
+		expect(ruleText({ path: 'email', type: 'string', required: true, format: 'email', minLength: 3, maxLength: 50 })).toBe(
+			'required · email · 3–50 characters'
+		);
+		expect(ruleText({ path: 'qty', type: 'integer', minimum: 1 })).toBe('at least 1');
+		expect(ruleText({ path: 'lines', type: 'array', maxLength: 10 })).toBe('at most 10 items');
+		expect(ruleText({ path: 'code', type: 'string', minLength: 4, maxLength: 4, pattern: '^[A-Z]+$' })).toBe(
+			'exactly 4 characters · matches ^[A-Z]+$'
+		);
+		expect(ruleText({ path: 'state', type: 'string', values: ['OPEN', 'SHUT'] })).toBe('one of OPEN, SHUT');
+		expect(ruleText({ path: 'note', type: 'string' })).toBe('');
 	});
 });
 

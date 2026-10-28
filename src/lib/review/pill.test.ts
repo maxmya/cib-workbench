@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import { describe, expect, it } from 'vitest';
-import { centreOffset } from './pill';
+import { centreOffset, fitLevel } from './pill';
 
 /** BUG-104: the review controls line up with the toolbar under the window. */
 describe('the review pill', () => {
@@ -22,5 +22,24 @@ describe('the review pill', () => {
 
 	it('does not move a pill as wide as its column', () => {
 		expect(centreOffset({ left: 300, width: 500 }, 1200, 520)).toBe(0);
+	});
+});
+
+/** BUG-109: the pill draws itself tighter rather than wrap. */
+describe('how tight the review pill is', () => {
+	const widths = [820, 690, 520, 380];
+	const widthAt = (level: number) => widths[level];
+
+	it('is drawn whole when the column holds it', () => {
+		expect(fitLevel(900, widthAt, 3)).toBe(0);
+	});
+
+	it('takes the first level that fits', () => {
+		expect(fitLevel(700, widthAt, 3)).toBe(1);
+		expect(fitLevel(520, widthAt, 3)).toBe(2);
+	});
+
+	it('stops at its smallest, whatever the room', () => {
+		expect(fitLevel(100, widthAt, 3)).toBe(3);
 	});
 });

@@ -429,6 +429,12 @@ export const FILES_BLAME_W = 260;
 /** The tree in Files (FEAT-152), widened by dragging. */
 export const FILES_TREE_W = 240;
 
+/** Calls' collections, on the left (FEAT-175), widened by dragging. */
+export const CALLS_TREE_W = 260;
+
+/** Calls' variables, on the right (FEAT-175), widened by dragging or put away. */
+export const CALLS_VARS_W = 250;
+
 // --- Stash screen columns -------------------------------------------------
 
 /**

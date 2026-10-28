@@ -339,7 +339,7 @@
 		flex-direction: column;
 		overflow: auto;
 		padding: 8px 0;
-		background: var(--sunken);
+		border: 1px solid var(--line);
 		border-radius: var(--r-panel);
 	}
 

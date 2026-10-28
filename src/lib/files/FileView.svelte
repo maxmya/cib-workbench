@@ -7,6 +7,8 @@
 	import AuthorAvatar from '$lib/graph/AuthorAvatar.svelte';
 	import Icon from '$lib/ui/Icon.svelte';
 	import Loader from '$lib/ui/Loader.svelte';
+	import Menu from '$lib/ui/Menu.svelte';
+	import type { MenuItem } from '$lib/ui/menu';
 	import { notice } from '$lib/ui/notice.svelte';
 	import Splitter from '$lib/ui/Splitter.svelte';
 	import VirtualRows from '$lib/ui/VirtualRows.svelte';
@@ -266,6 +268,25 @@
 		else files.openPeek(line);
 	}
 
+	/** A tab's right-click menu (FEAT-174): close it, the others, or all of them. */
+	let tabMenu = $state<{ x: number; y: number; index: number; anchor: HTMLElement } | null>(null);
+	const tabMenuItems = $derived.by((): MenuItem[] => {
+		if (!tabMenu) return [];
+		const index = tabMenu.index;
+		const count = files.tabs.length;
+		return [
+			{ id: 'close', label: 'Close', note: 'Middle-click', run: () => files.close(index) },
+			{
+				id: 'close-others',
+				label: 'Close others',
+				disabled: count < 2,
+				reason: 'no other tab',
+				run: () => files.closeOthers(index)
+			},
+			{ id: 'close-all', label: 'Close all', run: () => files.closeAll() }
+		];
+	});
+
 	function bytes(size: number): string {
 		if (size < 1024) return `${size} B`;
 		if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
@@ -275,11 +296,30 @@
 
 <svelte:window onkeydown={reach} onkeyup={reach} onblur={() => (reaching = false)} />
 
+{#if tabMenu}
+	<Menu
+		x={tabMenu.x}
+		y={tabMenu.y}
+		anchor={tabMenu.anchor}
+		items={tabMenuItems}
+		label="Tab actions"
+		onclose={() => (tabMenu = null)}
+	/>
+{/if}
+
 <section class="file" aria-label={file ? `${file.path} at ${files.rev}` : 'No file open'}>
 	<div class="tabs" role="tablist" aria-label="Open files">
 		{#each files.tabs as tab, index (tab.path + '@' + tab.rev)}
 			{@const name = tab.path.slice(tab.path.lastIndexOf('/') + 1)}
-			<div class="tab" class:on={index === files.active}>
+			<div
+				class="tab"
+				class:on={index === files.active}
+				role="presentation"
+				oncontextmenu={(event) => {
+					event.preventDefault();
+					tabMenu = { x: event.clientX, y: event.clientY, index, anchor: event.currentTarget as HTMLElement };
+				}}
+			>
 				<button
 					role="tab"
 					class="open"
