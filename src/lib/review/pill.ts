@@ -21,3 +21,17 @@ export function centreOffset(
 	const room = Math.max(0, (column.width - pillWidth) / 2 - margin);
 	return Math.round(Math.min(room, Math.max(-room, wanted)));
 }
+
+/**
+ * How tight the review controls are drawn (BUG-109): the first of `last + 1`
+ * levels whose width fits in `room`, or the tightest. The pill used to wrap
+ * onto a second row when the column narrowed — zoomed in, or with a wide
+ * conversation beside it — and covered the diff it controls. It keeps one row
+ * and draws its labels shorter instead, down to a fixed smallest size.
+ */
+export function fitLevel(room: number, widthAt: (level: number) => number, last: number): number {
+	for (let level = 0; level < last; level++) {
+		if (widthAt(level) <= room) return level;
+	}
+	return last;
+}

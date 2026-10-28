@@ -124,6 +124,8 @@ const commands = () => view!.all('.stack .command').map((each) => each.textConte
 const labelled = <T extends HTMLElement = HTMLElement>(label: string) =>
 	view!.find(`[aria-label="${label}"]`) as T | null;
 const key = (key: string, init: KeyboardEventInit = {}) => press(window, key, init);
+/** The Agent help switch, flipped. */
+const toggleHelp = () => fire(view!.get('.panel [role="switch"]'), 'change');
 
 function choose(select: HTMLSelectElement, value: string) {
 	select.value = value;
@@ -493,13 +495,12 @@ describe('the agent’s help', () => {
 	it('is off for a recipe that never had it: its text is disabled and nobody is called', async () => {
 		await show();
 
-		expect(said('.panel .row')).toBe('Agent help off');
-		expect(said('.panel')).toContain('Off: no agent is called. The run is the git commands below and nothing else.');
+		// TASK-076: off, the switch is all there is of it.
+		expect(said('.panel .switch-row')).toBe('Agent help');
+		expect((view!.get('.panel [role="switch"]') as HTMLInputElement).checked).toBe(false);
 		expect(labelled('Agent')).toBeNull();
-		const [sentence, note] = view!.all('.panel textarea') as HTMLTextAreaElement[];
-		expect(sentence.disabled).toBe(true);
-		expect(note.disabled).toBe(true);
-		expect(button('Propose blocks').disabled).toBe(true);
+		expect(view!.all('.panel textarea')).toHaveLength(0);
+		expect(button('Propose blocks')).toBeUndefined();
 		// *Agent writes* is there, and cannot be chosen.
 		const writes = view!.all('.stack .toggle') as HTMLButtonElement[];
 		expect(writes).toHaveLength(1);
@@ -516,10 +517,10 @@ describe('the agent’s help', () => {
 	it('switched on, offers the agents, the sentence, the note, and the brief with its guide’s version', async () => {
 		await show();
 
-		click(view!.get('.panel .row button'));
+		toggleHelp();
 		await settle();
 
-		expect(said('.panel .row')).toBe('Agent help on');
+		expect((view!.get('.panel [role="switch"]') as HTMLInputElement).checked).toBe(true);
 		expect([...labelled<HTMLSelectElement>('Agent')!.options].map((option) => option.textContent?.trim())).toEqual([
 			'Choose an agent',
 			'Claude Code',
@@ -527,9 +528,11 @@ describe('the agent’s help', () => {
 			'Local model · qwen'
 		]);
 		expect(labelled<HTMLSelectElement>('Agent')!.value).toBe('claude');
-		const [sentence, note] = view!.all('.panel textarea') as HTMLTextAreaElement[];
-		expect(sentence.disabled).toBe(false);
-		expect(note.disabled).toBe(false);
+		expect(labelled<HTMLTextAreaElement>('What should it do?')?.disabled).toBe(false);
+		// The note is a link until it is wanted.
+		expect(labelled('A note for the agent')).toBeNull();
+		click(button('Add a note for the agent'));
+		expect(labelled<HTMLTextAreaElement>('A note for the agent')?.disabled).toBe(false);
 		expect(labelled('The brief, as it is sent')?.textContent).toContain('recipe: sync-and-ship');
 		expect(said('.guide')).toBe('recipes.md v1');
 		expect((view!.get('.stack .toggle') as HTMLButtonElement).disabled).toBe(false);
@@ -544,12 +547,13 @@ describe('the agent’s help', () => {
 			said: 'This fetches and rebases onto main.'
 		});
 		await show();
-		click(view!.get('.panel .row button'));
+		toggleHelp();
 		const sentence = view!.all('.panel textarea')[0] as HTMLTextAreaElement;
 
 		expect(button('Propose blocks').disabled).toBe(true);
 		type(sentence, 'Get up to date with main');
-		expect(view!.all('.panel .count')[0].textContent).toBe('24/280');
+		// The count shows only as the limit nears.
+		expect(view!.all('.panel .count')).toHaveLength(0);
 		click(button('Propose blocks'));
 		await settle();
 
@@ -564,7 +568,7 @@ describe('the agent’s help', () => {
 
 	it('leaves a message to the agent, and takes it back', async () => {
 		await show();
-		click(view!.get('.panel .row button'));
+		toggleHelp();
 		const writes = view!.get('.stack .toggle');
 
 		click(writes);
@@ -581,7 +585,7 @@ describe('the agent’s help', () => {
 		click(view!.all('.chips [role="tab"]')[1]);
 		expect(cards()[0].textContent).toContain('the agent writes it when the step runs');
 
-		click(view!.get('.panel .row button'));
+		toggleHelp();
 
 		expect(labelled<HTMLInputElement>('Step 1 message')?.value).toBe('');
 		expect((view!.get('.stack .toggle') as HTMLButtonElement).disabled).toBe(true);
@@ -590,7 +594,7 @@ describe('the agent’s help', () => {
 	it('keeps showing the agent in use when a model is refused', async () => {
 		confirm.mockResolvedValue(false);
 		await show();
-		click(view!.get('.panel .row button'));
+		toggleHelp();
 		const agent = labelled<HTMLSelectElement>('Agent')!;
 		expect(agent.value).toBe('claude');
 
@@ -607,7 +611,7 @@ describe('the agent’s help', () => {
 		agentState.snapshot = { ...agentsSnapshot(), local: [], remote: [] };
 		await show();
 
-		click(view!.get('.panel .row button'));
+		toggleHelp();
 
 		expect(said('.panel')).toContain('No agent is set up. Add one in Settings › Agents.');
 		expect(button('Propose blocks').disabled).toBe(true);

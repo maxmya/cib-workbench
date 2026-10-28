@@ -14,6 +14,8 @@
  */
 
 import {
+	CALLS_TREE_W,
+	CALLS_VARS_W,
 	CHANGES_FILES_W,
 	DETAIL_W,
 	DIFF_FILES_W,
@@ -138,6 +140,21 @@ export const PANELS = {
 		min: 180,
 		max: 640
 	},
+	// Calls (FEAT-175): long collection names on the left, long values on the right.
+	callsTree: {
+		variable: 'calls-tree-w',
+		side: 'left',
+		initial: CALLS_TREE_W,
+		min: 200,
+		max: 560
+	},
+	callsVars: {
+		variable: 'calls-vars-w',
+		side: 'right',
+		initial: CALLS_VARS_W,
+		min: 200,
+		max: 640
+	},
 	farmLog: {
 		variable: 'farm-log-h',
 		side: 'bottom',
@@ -174,6 +191,8 @@ let extra = $state<Record<string, number>>({
 	stashEntries: STASH_ENTRIES_W,
 	filesBlame: FILES_BLAME_W,
 	filesTree: FILES_TREE_W,
+	callsTree: CALLS_TREE_W,
+	callsVars: CALLS_VARS_W,
 	farmLog: FARM_LOG_H
 });
 /**
@@ -363,6 +382,8 @@ export const panels = {
 			stashEntries: STASH_ENTRIES_W,
 			filesBlame: FILES_BLAME_W,
 			filesTree: FILES_TREE_W,
+			callsTree: CALLS_TREE_W,
+			callsVars: CALLS_VARS_W,
 			farmLog: FARM_LOG_H
 		};
 		railCollapsed = false;

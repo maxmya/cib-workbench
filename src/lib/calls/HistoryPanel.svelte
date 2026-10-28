@@ -221,7 +221,7 @@
 		flex-direction: column;
 		gap: 6px;
 		padding: 10px;
-		background: var(--sunken);
+		border: 1px solid var(--line);
 		border-radius: var(--r-panel);
 		overflow: auto;
 	}

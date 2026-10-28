@@ -12,11 +12,23 @@
 //! `@ApiProperty({ example })` where it is given. `setGlobalPrefix('api')`
 //! in `main.ts` is the paths' prefix, and the port `listen` is given is the
 //! `baseUrl`.
+//!
+//! # What an endpoint promises (FEAT-179)
+//!
+//! The DTO's class-validator decorators are its fields' rules, and a 400 in
+//! the shape `ValidationPipe` sends, its messages written from them. The
+//! method's `@HttpCode` or its verb is its success (Nest answers a POST
+//! with 201), its return type the example; `@UseGuards` is a 401 and a 403;
+//! each `HttpException` it throws — or the service it calls throws, one
+//! call deep — at Nest's status for it; `@nestjs/swagger`'s
+//! `@ApiResponse`s are the author's own word.
 
 use std::collections::HashMap;
 
 use tree_sitter::{Node, Parser};
 
+use super::super::model::{Answer, FieldRule};
+use super::contract::{self, answer, Answers, DECLARED, INFERRED, THROWN};
 use super::json::J;
 use super::{
     build, key_of, words_of, Choices, Declared, Endpoint, Param, Source, SourceKind, Status,
@@ -55,6 +67,8 @@ struct Prop {
     name: String,
     ty: String,
     decos: Vec<Deco>,
+    /// Written `name?: …`.
+    optional: bool,
 }
 
 #[derive(Default)]
@@ -63,7 +77,49 @@ struct World {
     types: HashMap<String, Vec<Prop>>,
     /// Enums, by name, with their values.
     enums: HashMap<String, Vec<J>>,
+    /// A class's parent, by name: an exception's lineage (FEAT-179).
+    parents: HashMap<String, String>,
+    /// A class's methods, with their bodies as text.
+    methods: HashMap<String, Vec<(String, String)>>,
+    /// What a class's constructor is given: the services it holds.
+    injected: HashMap<String, Vec<(String, String)>>,
 }
+
+/// Nest's own exceptions, and the status each sends.
+const NEST_EXCEPTIONS: [(&str, u16); 16] = [
+    ("BadRequestException", 400),
+    ("UnauthorizedException", 401),
+    ("ForbiddenException", 403),
+    ("NotFoundException", 404),
+    ("MethodNotAllowedException", 405),
+    ("NotAcceptableException", 406),
+    ("RequestTimeoutException", 408),
+    ("ConflictException", 409),
+    ("GoneException", 410),
+    ("PayloadTooLargeException", 413),
+    ("UnsupportedMediaTypeException", 415),
+    ("UnprocessableEntityException", 422),
+    ("InternalServerErrorException", 500),
+    ("NotImplementedException", 501),
+    ("BadGatewayException", 502),
+    ("ServiceUnavailableException", 503),
+];
+
+/// `@nestjs/swagger`'s response decorators, and the status each is for.
+const SWAGGER_RESPONSES: [(&str, u16); 12] = [
+    ("ApiOkResponse", 200),
+    ("ApiCreatedResponse", 201),
+    ("ApiAcceptedResponse", 202),
+    ("ApiNoContentResponse", 204),
+    ("ApiBadRequestResponse", 400),
+    ("ApiUnauthorizedResponse", 401),
+    ("ApiForbiddenResponse", 403),
+    ("ApiNotFoundResponse", 404),
+    ("ApiConflictResponse", 409),
+    ("ApiUnprocessableEntityResponse", 422),
+    ("ApiTooManyRequestsResponse", 429),
+    ("ApiInternalServerErrorResponse", 500),
+];
 
 fn text<'a>(node: Node, source: &'a str) -> &'a str {
     node.utf8_text(source.as_bytes()).unwrap_or("")
@@ -389,11 +445,60 @@ fn index(files: &[Parsed]) -> World {
                                         name: text(field, source).to_string(),
                                         ty: type_text(member.child_by_field_name("type"), source),
                                         decos,
+                                        optional: text(member, source).contains("?:"),
                                     });
                                 }
                             }
+                            "method_definition" => {
+                                pending.clear();
+                                let method = member
+                                    .child_by_field_name("name")
+                                    .map(|n| text(n, source).to_string())
+                                    .unwrap_or_default();
+                                if method == "constructor" {
+                                    let held = member
+                                        .child_by_field_name("parameters")
+                                        .map(children)
+                                        .unwrap_or_default()
+                                        .into_iter()
+                                        .filter_map(|param| {
+                                            Some((
+                                                text(param.child_by_field_name("pattern")?, source)
+                                                    .to_string(),
+                                                type_text(
+                                                    param.child_by_field_name("type"),
+                                                    source,
+                                                ),
+                                            ))
+                                        })
+                                        .collect();
+                                    world.injected.insert(name.clone(), held);
+                                }
+                                let body = member
+                                    .child_by_field_name("body")
+                                    .map(|b| text(b, source).to_string())
+                                    .unwrap_or_default();
+                                world
+                                    .methods
+                                    .entry(name.clone())
+                                    .or_default()
+                                    .push((method, body));
+                            }
                             _ => pending.clear(),
                         }
+                    }
+                    let heritage = children(decl)
+                        .into_iter()
+                        .find(|c| c.kind() == "class_heritage")
+                        .map(|h| text(h, source).to_string())
+                        .unwrap_or_default();
+                    if let Some(parent) = heritage
+                        .split_whitespace()
+                        .skip_while(|w| *w != "extends")
+                        .nth(1)
+                    {
+                        let parent = parent.split(['<', '{', ',']).next().unwrap_or(parent);
+                        world.parents.insert(name.clone(), parent.to_string());
                     }
                     world.types.entry(name).or_insert(props);
                 }
@@ -406,6 +511,7 @@ fn index(files: &[Parsed]) -> World {
                                 name: text(m.child_by_field_name("name")?, source).to_string(),
                                 ty: type_text(m.child_by_field_name("type"), source),
                                 decos: Vec::new(),
+                                optional: text(m, source).contains("?:"),
                             })
                         })
                         .collect();
@@ -429,6 +535,416 @@ fn index(files: &[Parsed]) -> World {
         }
     }
     world
+}
+
+/// The rules a DTO's fields are held to, a field per path (FEAT-179).
+fn rules_of(ty: &str, world: &World) -> Vec<FieldRule> {
+    let mut out = Vec::new();
+    walk_rules(ty, "", world, 0, &mut Vec::new(), &mut out);
+    out
+}
+
+/// `Order[]`, `Array<Order>` and `Promise<Order>` as `Order`, and whether it was a list.
+fn element(ty: &str) -> (String, bool) {
+    let ty = ty.trim();
+    if let Some(inner) = ty.strip_suffix("[]") {
+        return (element(inner).0, true);
+    }
+    if let Some(at) = ty.find('<') {
+        let base = &ty[..at];
+        let inner = ty[at + 1..ty.rfind('>').unwrap_or(ty.len())].trim();
+        match base {
+            "Array" | "ReadonlyArray" | "Set" => return (element(inner).0, true),
+            "Promise" | "Observable" | "Partial" | "Required" | "Readonly" => {
+                return element(inner)
+            }
+            _ => {}
+        }
+    }
+    (
+        ty.split('|')
+            .map(str::trim)
+            .find(|t| !matches!(*t, "null" | "undefined"))
+            .unwrap_or(ty)
+            .to_string(),
+        false,
+    )
+}
+
+fn walk_rules(
+    ty: &str,
+    prefix: &str,
+    world: &World,
+    depth: usize,
+    seen: &mut Vec<String>,
+    out: &mut Vec<FieldRule>,
+) {
+    let (name, list) = element(ty);
+    let prefix = if list {
+        format!("{prefix}[]")
+    } else {
+        prefix.to_string()
+    };
+    let Some(props) = world.types.get(&name) else {
+        return;
+    };
+    if depth >= DEPTH || seen.contains(&name) {
+        return;
+    }
+    seen.push(name.clone());
+    for prop in props {
+        let path = if prefix.is_empty() {
+            prop.name.clone()
+        } else {
+            format!("{prefix}.{}", prop.name)
+        };
+        out.push(rule_of(&path, prop, world));
+        let nested = find(&prop.decos, "Type")
+            .and_then(|d| d.first())
+            .map(|t| t.rsplit("=>").next().unwrap_or(t).trim().to_string());
+        let (inner, many) = element(&prop.ty);
+        let target = nested.unwrap_or(inner);
+        let target = if many { format!("{target}[]") } else { target };
+        walk_rules(&target, &path, world, depth + 1, seen, out);
+    }
+    seen.pop();
+}
+
+/// A number a decorator was given.
+fn bound(deco: &Deco, at: usize) -> Option<f64> {
+    deco.args.get(at).and_then(|v| v.trim().parse::<f64>().ok())
+}
+
+/// One DTO field's rule, from its type and class-validator's decorators.
+fn rule_of(path: &str, prop: &Prop, world: &World) -> FieldRule {
+    let has = |name: &str| prop.decos.iter().any(|d| d.name == name);
+    let (inner, list) = element(&prop.ty);
+    let enum_values = |name: &str| -> Vec<String> {
+        world
+            .enums
+            .get(name)
+            .map(|values| values.iter().filter_map(J::text).collect())
+            .unwrap_or_default()
+    };
+    let (kind, mut format, mut values) = if list {
+        ("array", None, Vec::new())
+    } else {
+        match inner.as_str() {
+            "string" | "String" => ("string", None, Vec::new()),
+            "number" | "Number" | "bigint" => (
+                if has("IsInt") { "integer" } else { "number" },
+                None,
+                Vec::new(),
+            ),
+            "boolean" | "Boolean" => ("boolean", None, Vec::new()),
+            "Date" => ("string", Some("date-time"), Vec::new()),
+            name if world.enums.contains_key(name) => ("string", None, enum_values(name)),
+            name if name.starts_with(['\'', '"']) => (
+                "string",
+                None,
+                prop.ty
+                    .split('|')
+                    .map(|v| v.trim().trim_matches(['\'', '"']).to_string())
+                    .collect(),
+            ),
+            _ => ("object", None, Vec::new()),
+        }
+    };
+    if let Some(deco) = find(&prop.decos, "IsEnum") {
+        values = deco.first().map(enum_values).unwrap_or_default();
+    }
+    if let Some(deco) = find(&prop.decos, "IsIn") {
+        values = deco
+            .args
+            .iter()
+            .map(|v| v.trim_matches(['[', ']', '\'', '"', ' ']).to_string())
+            .collect();
+    }
+    if has("IsEmail") {
+        format = Some("email");
+    } else if has("IsUUID") {
+        format = Some("uuid");
+    } else if has("IsDateString") || has("IsISO8601") {
+        format = Some("date-time");
+    } else if has("IsUrl") {
+        format = Some("uri");
+    }
+    let validated = prop.decos.iter().any(|d| {
+        d.name.starts_with("Is")
+            || matches!(
+                d.name.as_str(),
+                "Min" | "Max" | "Length" | "MinLength" | "MaxLength" | "Matches" | "ValidateNested"
+            )
+    });
+    let mut rule = FieldRule {
+        path: path.to_string(),
+        kind: kind.to_string(),
+        required: !prop.optional && !has("IsOptional") && (validated || has("IsDefined")),
+        format: format.map(str::to_string),
+        values,
+        ..FieldRule::default()
+    };
+    if kind == "string" && has("IsNotEmpty") {
+        rule.min_length = Some(1);
+    }
+    if let Some(deco) = find(&prop.decos, "Length") {
+        rule.min_length = bound(deco, 0).map(|v| v as u64);
+        rule.max_length = bound(deco, 1).map(|v| v as u64);
+    }
+    if let Some(deco) = find(&prop.decos, "MinLength") {
+        rule.min_length = bound(deco, 0).map(|v| v as u64);
+    }
+    if let Some(deco) = find(&prop.decos, "MaxLength") {
+        rule.max_length = bound(deco, 0).map(|v| v as u64);
+    }
+    if let Some(deco) = find(&prop.decos, "Min") {
+        rule.minimum = bound(deco, 0);
+    }
+    if let Some(deco) = find(&prop.decos, "Max") {
+        rule.maximum = bound(deco, 0);
+    }
+    if has("IsPositive") && kind == "integer" {
+        rule.minimum = Some(1.0);
+    }
+    if let Some(pattern) = find(&prop.decos, "Matches").and_then(|d| d.first()) {
+        let body = pattern.trim_start_matches('/');
+        rule.pattern = Some(
+            body.rsplit_once('/')
+                .map(|(re, _)| re)
+                .unwrap_or(body)
+                .to_string(),
+        );
+    }
+    rule
+}
+
+/// The parents of a class, itself first.
+fn lineage(name: &str, world: &World) -> Vec<String> {
+    let mut out = vec![name.to_string()];
+    while let Some(parent) = world.parents.get(out.last().expect("one")) {
+        if out.contains(parent) {
+            break;
+        }
+        out.push(parent.clone());
+    }
+    out
+}
+
+/// The status Nest answers an exception with, by its own or a parent's.
+fn exception_status(name: &str, world: &World) -> Option<u16> {
+    let lineage = lineage(name, world);
+    for each in &lineage {
+        if let Some((_, status)) = NEST_EXCEPTIONS.iter().find(|(known, _)| known == each) {
+            return Some(*status);
+        }
+    }
+    if world.types.contains_key(name) || world.parents.contains_key(name) {
+        return lineage
+            .iter()
+            .find_map(|each| contract::status_by_name(each));
+    }
+    None
+}
+
+/// `new HttpException('…', HttpStatus.X)`s: the status each is given.
+fn http_exceptions(body: &str) -> Vec<(u16, Option<String>)> {
+    let pattern = regex::Regex::new(
+        r#"new\s+HttpException\s*\(\s*(?:'([^']*)'|"([^"]*)"|[^,]+)\s*,\s*(HttpStatus\.[A-Z_]+|\d{3})"#,
+    )
+    .expect("a valid pattern");
+    pattern
+        .captures_iter(body)
+        .filter_map(|found| {
+            let status = contract::status_of(&found[3])?;
+            let message = found
+                .get(1)
+                .or_else(|| found.get(2))
+                .map(|m| m.as_str().to_string());
+            Some((status, message))
+        })
+        .collect()
+}
+
+/// What a controller method answers (FEAT-179).
+#[allow(clippy::too_many_arguments)]
+fn answers(
+    world: &World,
+    class: &str,
+    class_decos: &[Deco],
+    decos: &[Deco],
+    verb: &str,
+    body: &str,
+    returns: &str,
+    rules: &[FieldRule],
+) -> Vec<Answer> {
+    let mut answers = Answers::default();
+    let coded = find(decos, "HttpCode")
+        .and_then(|d| d.first())
+        .and_then(contract::status_of);
+    let success = coded.unwrap_or(if verb == "POST" { 201 } else { 200 });
+    let example = if success == 204 || returns.is_empty() {
+        None
+    } else {
+        let (inner, _) = element(returns);
+        if matches!(inner.as_str(), "void" | "any" | "unknown" | "undefined") {
+            None
+        } else {
+            let value = sample(returns, "", &[], world, 0, &mut Vec::new());
+            (!matches!(value, J::Null)).then(|| value.pretty())
+        }
+    };
+    answers.add(
+        INFERRED,
+        answer(
+            success,
+            contract::success_words(success),
+            example,
+            if coded.is_some() {
+                "@HttpCode"
+            } else {
+                "the verb"
+            },
+        ),
+    );
+
+    if rules.iter().any(|rule| {
+        rule.required
+            || rule.format.is_some()
+            || rule.min_length.is_some()
+            || rule.max_length.is_some()
+            || rule.minimum.is_some()
+            || rule.maximum.is_some()
+            || !rule.values.is_empty()
+            || rule.pattern.is_some()
+    }) {
+        let messages = contract::validator_messages(rules);
+        answers.add(
+            INFERRED,
+            answer(
+                400,
+                "The body breaks one of its rules",
+                Some(contract::nest_error(400, None, &messages)),
+                "class-validator",
+            ),
+        );
+    }
+
+    let guarded = find(decos, "UseGuards").or_else(|| find(class_decos, "UseGuards"));
+    if guarded.is_some() {
+        answers.add(
+            INFERRED,
+            answer(
+                401,
+                "Not signed in",
+                Some(contract::nest_error(401, None, &[])),
+                "@UseGuards",
+            ),
+        );
+        let roles = find(decos, "Roles").or_else(|| find(class_decos, "Roles"));
+        let says = match roles {
+            Some(roles) if !roles.args.is_empty() => {
+                format!("Signed in, but not as {}", roles.args.join(" or "))
+            }
+            _ => "Signed in without the right to".to_string(),
+        };
+        answers.add(
+            INFERRED,
+            answer(
+                403,
+                says,
+                Some(contract::nest_error(403, None, &[])),
+                "@UseGuards",
+            ),
+        );
+    }
+
+    let mut thrown = contract::thrown(body);
+    let held = world.injected.get(class).cloned().unwrap_or_default();
+    for (field, call) in contract::calls_on_fields(body) {
+        let Some((_, ty)) = held.iter().find(|(name, _)| *name == field) else {
+            continue;
+        };
+        let (service, _) = element(ty);
+        for (_, method_body) in world
+            .methods
+            .get(&service)
+            .into_iter()
+            .flatten()
+            .filter(|(name, _)| *name == call)
+        {
+            for found in contract::thrown(method_body) {
+                if !thrown.iter().any(|(seen, _)| *seen == found.0) {
+                    thrown.push(found);
+                }
+            }
+        }
+    }
+    for (name, message) in thrown {
+        if let Some(status) = exception_status(&name, world) {
+            let says = message.clone().unwrap_or_else(|| contract::sentence(&name));
+            answers.add(
+                THROWN,
+                answer(
+                    status,
+                    says,
+                    Some(contract::nest_error(status, message.as_deref(), &[])),
+                    format!("throws {name}"),
+                ),
+            );
+        }
+    }
+    for (status, message) in http_exceptions(body) {
+        let says = message
+            .clone()
+            .unwrap_or_else(|| contract::reason(status).to_string());
+        answers.add(
+            THROWN,
+            answer(
+                status,
+                says,
+                Some(contract::nest_error(status, message.as_deref(), &[])),
+                "throws HttpException",
+            ),
+        );
+    }
+
+    for deco in decos {
+        let status = if deco.name == "ApiResponse" {
+            deco.object
+                .iter()
+                .find(|(k, _)| k == "status")
+                .and_then(|(_, v)| v.text())
+                .and_then(|s| contract::status_of(&s))
+        } else {
+            SWAGGER_RESPONSES
+                .iter()
+                .find(|(name, _)| *name == deco.name)
+                .map(|(_, status)| *status)
+        };
+        if let Some(status) = status {
+            let says = deco
+                .object
+                .iter()
+                .find(|(k, _)| k == "description")
+                .and_then(|(_, v)| v.text())
+                .unwrap_or_else(|| contract::reason(status).to_string());
+            answers.add(
+                DECLARED,
+                answer(status, says, None, format!("@{}", deco.name)),
+            );
+        }
+    }
+
+    answers.add(
+        INFERRED,
+        answer(
+            500,
+            "Something failed on the server",
+            Some(contract::nest_error(500, None, &[])),
+            "any endpoint",
+        ),
+    );
+    answers.done()
 }
 
 /// The global prefix and the port, from the files that start the app.
@@ -492,6 +1008,8 @@ pub fn read(files: &[(String, String)]) -> (Vec<Endpoint>, Vec<Source>, Option<S
                 .map(|n| text(n, source).to_string())
                 .unwrap_or_default();
             let base = path_arg(controller);
+            // The loop below names each method's own `decos`; the class's are these.
+            let class_decos = decos.clone();
             let Some(body) = decl.child_by_field_name("body") else {
                 continue;
             };
@@ -521,6 +1039,8 @@ pub fn read(files: &[(String, String)]) -> (Vec<Endpoint>, Vec<Source>, Option<S
                 };
                 let mut fields: Vec<(String, J)> = Vec::new();
                 let mut multipart = false;
+                // The body's type, for its rules (FEAT-179).
+                let mut body_ty: Option<String> = None;
                 for param in member
                     .child_by_field_name("parameters")
                     .map(children)
@@ -579,6 +1099,7 @@ pub fn read(files: &[(String, String)]) -> (Vec<Endpoint>, Vec<Source>, Option<S
                                 );
                                 declared.body =
                                     Some(sample(&ty, "", &[], &world, 0, &mut Vec::new()));
+                                body_ty = Some(ty.clone());
                             }
                         }
                     } else if let Some(d) =
@@ -609,6 +1130,23 @@ pub fn read(files: &[(String, String)]) -> (Vec<Endpoint>, Vec<Source>, Option<S
                 if !names.is_empty() {
                     hint.push(names.join(", "));
                 }
+                declared.rules = body_ty
+                    .as_deref()
+                    .map(|ty| rules_of(ty, &world))
+                    .unwrap_or_default();
+                declared.responses = answers(
+                    &world,
+                    &class,
+                    &class_decos,
+                    &decos,
+                    verb,
+                    member
+                        .child_by_field_name("body")
+                        .map(|b| text(b, source))
+                        .unwrap_or(""),
+                    &type_text(member.child_by_field_name("return_type"), source),
+                    &declared.rules,
+                );
                 let call = build(&declared, &name, Choices::default());
                 out.push(Endpoint {
                     id: format!("{}#{}", file.path, out.len()),
@@ -730,6 +1268,171 @@ async function bootstrap() {
             ("src/orders/dto.ts".into(), DTO.into()),
             ("src/main.ts".into(), MAIN.into()),
         ]
+    }
+
+    const ACCOUNTS: &str = r#"
+@Controller('accounts')
+@UseGuards(AuthGuard('jwt'))
+export class AccountsController {
+  constructor(private readonly accounts: AccountsService) {}
+
+  @Post()
+  @ApiConflictResponse({ description: 'That email has an account already' })
+  open(@Body() dto: OpenAccountDto): Promise<AccountDto> {
+    return this.accounts.open(dto);
+  }
+
+  @Get(':id')
+  @Roles('admin')
+  find(@Param('id') id: string): Promise<AccountDto> {
+    return this.accounts.find(id);
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  close(@Param('id') id: string): Promise<void> {
+    if (!id) throw new HttpException('Gone for good', HttpStatus.GONE);
+    return this.accounts.close(id);
+  }
+}
+
+export class AccountsService {
+  async open(dto: OpenAccountDto) {
+    if (await this.taken(dto.email)) throw new EmailTakenException();
+  }
+  async find(id: string) {
+    const found = await this.repo.findOne(id);
+    if (!found) throw new NotFoundException(`Account ${id} not found`);
+    return found;
+  }
+  async close(id: string) {}
+}
+
+export class EmailTakenException extends ConflictException {}
+
+export enum Plan { Free = 'free', Pro = 'pro' }
+
+export class AddressDto {
+  @IsNotEmpty() line: string;
+}
+
+export class OpenAccountDto {
+  @IsEmail() email: string;
+  @Length(3, 40) name: string;
+  @IsInt() @Min(18) @Max(130) age: number;
+  @IsEnum(Plan) plan: Plan;
+  @Matches(/^[A-Z]{2}$/) country: string;
+  @IsOptional() @IsString() nickname?: string;
+  @ValidateNested({ each: true }) @Type(() => AddressDto) addresses: AddressDto[];
+}
+
+export class AccountDto {
+  id: string;
+  email: string;
+}
+"#;
+
+    /// FEAT-179: what a Nest endpoint promises, from the code around it.
+    #[test]
+    fn a_dto_says_its_rules_and_a_method_says_what_it_answers() {
+        let (endpoints, _, _) = read(&[("src/accounts.ts".to_string(), ACCOUNTS.to_string())]);
+        let declared = |method: &str, path: &str| {
+            endpoints
+                .iter()
+                .find(|e| e.method == method && e.path == path)
+                .and_then(|e| e.declared.clone())
+                .expect("the endpoint")
+        };
+
+        let open = declared("POST", "/accounts");
+        let rule = |path: &str| {
+            open.rules
+                .iter()
+                .find(|r| r.path == path)
+                .cloned()
+                .expect(path)
+        };
+        assert_eq!(
+            (rule("email").format.as_deref(), rule("email").required),
+            (Some("email"), true)
+        );
+        assert_eq!(
+            (rule("name").min_length, rule("name").max_length),
+            (Some(3), Some(40))
+        );
+        let age = rule("age");
+        assert_eq!(
+            (age.kind.as_str(), age.minimum, age.maximum),
+            ("integer", Some(18.0), Some(130.0))
+        );
+        assert_eq!(rule("plan").values, ["free", "pro"]);
+        assert_eq!(rule("country").pattern.as_deref(), Some("^[A-Z]{2}$"));
+        assert!(!rule("nickname").required);
+        assert_eq!(rule("addresses").kind, "array");
+        assert_eq!(rule("addresses[].line").min_length, Some(1));
+
+        let statuses = |responses: &[Answer]| {
+            responses
+                .iter()
+                .map(|a| (a.status, a.from.clone()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            statuses(&open.responses),
+            [
+                (201, "the verb".to_string()),
+                (400, "class-validator".to_string()),
+                (401, "@UseGuards".to_string()),
+                (403, "@UseGuards".to_string()),
+                (409, "@ApiConflictResponse".to_string()),
+                (500, "any endpoint".to_string())
+            ]
+        );
+        assert!(open.responses[0]
+            .body
+            .as_deref()
+            .unwrap_or("")
+            .contains("\"email\""));
+        let invalid = open.responses[1].body.as_deref().unwrap_or("");
+        assert!(invalid.contains("email must be an email"), "{invalid}");
+        // The author's words, and the thrown exception's body kept as the example.
+        let conflict = &open.responses[4];
+        assert_eq!(conflict.says, "That email has an account already");
+        assert!(
+            conflict
+                .body
+                .as_deref()
+                .unwrap_or("")
+                .contains("\"statusCode\": 409"),
+            "{conflict:?}"
+        );
+
+        let find = declared("GET", "/accounts/{id}");
+        let missing = find
+            .responses
+            .iter()
+            .find(|a| a.status == 404)
+            .expect("404");
+        assert_eq!(missing.from, "throws NotFoundException");
+        assert!(find
+            .responses
+            .iter()
+            .any(|a| a.status == 403 && a.says == "Signed in, but not as admin"));
+
+        let close = declared("DELETE", "/accounts/{id}");
+        assert_eq!(
+            (
+                close.responses[0].status,
+                close.responses[0].body.as_deref()
+            ),
+            (204, None)
+        );
+        let gone = close
+            .responses
+            .iter()
+            .find(|a| a.status == 410)
+            .expect("410");
+        assert_eq!(gone.says, "Gone for good");
     }
 
     #[test]

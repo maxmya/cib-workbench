@@ -20,7 +20,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -42,6 +42,98 @@ const STYLE_FILE: &str = "terminal-colours.conf";
 /// How long a new client is given to start the server before its colours are
 /// loaded into it.
 const SERVER_WAIT: Duration = Duration::from_secs(3);
+
+/// How long output is gathered once it is flowing: a frame at 120 Hz.
+const GATHER: Duration = Duration::from_millis(8);
+
+/// Past this much waiting, output goes without waiting out the frame.
+const GATHER_MOST: usize = 1 << 20;
+
+/// What a terminal printed, on its way to the webview (BUG-111).
+///
+/// Each piece the PTY read was one message to the webview, and a message
+/// over a kilobyte is two trips through the IPC — the second a fetch, which
+/// on Windows costs milliseconds each, one after another. A busy program
+/// queued hundreds a second and the screen fell behind what it printed.
+///
+/// Now the first piece after a pause goes at once, so a keystroke's echo is
+/// not held; while output keeps coming, it is gathered for up to a frame and
+/// goes as one message. Nothing is dropped or reordered: a piece is only
+/// ever appended, and the sender takes everything there is.
+pub struct Outbox {
+    shared: Arc<(Mutex<Pending>, Condvar)>,
+    sender: Mutex<Option<std::thread::JoinHandle<()>>>,
+}
+
+#[derive(Default)]
+struct Pending {
+    bytes: Vec<u8>,
+    closed: bool,
+}
+
+impl Outbox {
+    /// Start the thread that sends with `send`.
+    pub fn start(mut send: impl FnMut(Vec<u8>) + Send + 'static) -> std::io::Result<Outbox> {
+        let shared = Arc::new((Mutex::new(Pending::default()), Condvar::new()));
+        let theirs = shared.clone();
+        let sender = std::thread::Builder::new()
+            .name("spagitty-pty-send".into())
+            .spawn(move || {
+                let (lock, ready) = &*theirs;
+                let mut last: Option<Instant> = None;
+                loop {
+                    let mut pending = lock.lock().unwrap_or_else(|p| p.into_inner());
+                    while pending.bytes.is_empty() && !pending.closed {
+                        pending = ready.wait(pending).unwrap_or_else(|p| p.into_inner());
+                    }
+                    if pending.bytes.is_empty() {
+                        // Closed, and everything sent.
+                        break;
+                    }
+                    // Sent less than a frame ago: output is flowing, so the
+                    // rest of the frame's worth goes with this.
+                    let since = last.map(|at| at.elapsed()).unwrap_or(GATHER);
+                    if since < GATHER && !pending.closed && pending.bytes.len() < GATHER_MOST {
+                        drop(pending);
+                        std::thread::sleep(GATHER - since);
+                        pending = lock.lock().unwrap_or_else(|p| p.into_inner());
+                    }
+                    let bytes = std::mem::take(&mut pending.bytes);
+                    drop(pending);
+                    send(bytes);
+                    last = Some(Instant::now());
+                }
+            })?;
+        Ok(Outbox {
+            shared,
+            sender: Mutex::new(Some(sender)),
+        })
+    }
+
+    /// A piece the PTY read.
+    pub fn push(&self, bytes: &[u8]) {
+        let (lock, ready) = &*self.shared;
+        let mut pending = lock.lock().unwrap_or_else(|p| p.into_inner());
+        if pending.closed {
+            return;
+        }
+        pending.bytes.extend_from_slice(bytes);
+        ready.notify_one();
+    }
+
+    /// Send what is left, and stop. Returns once it has gone.
+    pub fn finish(&self) {
+        {
+            let (lock, ready) = &*self.shared;
+            lock.lock().unwrap_or_else(|p| p.into_inner()).closed = true;
+            ready.notify_one();
+        }
+        let sender = self.sender.lock().unwrap_or_else(|p| p.into_inner()).take();
+        if let Some(sender) = sender {
+            let _ = sender.join();
+        }
+    }
+}
 
 #[derive(Default)]
 pub struct TerminalState {
@@ -256,12 +348,19 @@ pub fn terminal_open<R: Runtime>(
 
     let id = state.next.fetch_add(1, Ordering::SeqCst) + 1;
     let gone = app.clone();
+    let outbox = Arc::new(
+        Outbox::start(move |bytes| {
+            let _ = output.send(InvokeResponseBody::Raw(bytes));
+        })
+        .map_err(|error| format!("the terminal could not be started: {error}"))?,
+    );
+    let last = outbox.clone();
     let pty = Pty::spawn(
         &spec,
-        move |bytes| {
-            let _ = output.send(InvokeResponseBody::Raw(bytes.to_vec()));
-        },
+        move |bytes| outbox.push(bytes),
         move |code| {
+            // The last of the output first, then the exit.
+            last.finish();
             if let Some(state) = gone.try_state::<TerminalState>() {
                 state
                     .open
@@ -487,6 +586,72 @@ pub fn terminal_style<R: Runtime>(
 mod tests {
     use super::*;
     use spagitty_process::mux::Kind;
+
+    /// What an outbox sent, and when.
+    type Sent = Arc<Mutex<Vec<(Instant, Vec<u8>)>>>;
+
+    /// An outbox that records what it sent, and when.
+    fn recorded() -> (Outbox, Sent) {
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let theirs = sent.clone();
+        let outbox =
+            Outbox::start(move |bytes| theirs.lock().unwrap().push((Instant::now(), bytes)))
+                .expect("a thread");
+        (outbox, sent)
+    }
+
+    /// BUG-111: a keystroke's echo is not held for a frame.
+    #[test]
+    fn the_first_output_after_a_pause_goes_at_once() {
+        let (outbox, sent) = recorded();
+        let pushed = Instant::now();
+        outbox.push(b"l");
+        let started = Instant::now();
+        while sent.lock().unwrap().is_empty() && started.elapsed() < Duration::from_secs(2) {
+            std::thread::yield_now();
+        }
+        let (at, bytes) = sent.lock().unwrap()[0].clone();
+        assert_eq!(bytes, b"l");
+        assert!(
+            at.duration_since(pushed) < GATHER,
+            "the echo waited {:?}",
+            at.duration_since(pushed)
+        );
+        outbox.finish();
+    }
+
+    /// BUG-111: a flood is a few messages, in order, with nothing lost.
+    #[test]
+    fn a_flood_is_gathered_into_few_messages_in_order() {
+        let (outbox, sent) = recorded();
+        let mut expected = Vec::new();
+        for n in 0..20_000u32 {
+            let line = format!("line {n}\n");
+            expected.extend_from_slice(line.as_bytes());
+            outbox.push(line.as_bytes());
+        }
+        outbox.finish();
+        let sent = sent.lock().unwrap();
+        let all: Vec<u8> = sent.iter().flat_map(|(_, bytes)| bytes.clone()).collect();
+        assert_eq!(all, expected);
+        assert!(sent.len() < 200, "{} messages", sent.len());
+    }
+
+    #[test]
+    fn finishing_sends_what_is_left_and_takes_nothing_after() {
+        let (outbox, sent) = recorded();
+        outbox.push(b"one ");
+        outbox.push(b"two");
+        outbox.finish();
+        outbox.push(b" late");
+        let all: Vec<u8> = sent
+            .lock()
+            .unwrap()
+            .iter()
+            .flat_map(|(_, bytes)| bytes.clone())
+            .collect();
+        assert_eq!(all, b"one two");
+    }
 
     #[test]
     fn the_shell_is_the_persons_own_on_macos_and_linux() {

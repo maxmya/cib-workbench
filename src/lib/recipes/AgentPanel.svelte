@@ -2,7 +2,6 @@
 <script lang="ts">
 	import { PRODUCT_NAME } from '$lib/brand';
 	import Btn from '$lib/ui/Btn.svelte';
-	import Chip from '$lib/ui/Chip.svelte';
 	import Icon from '$lib/ui/Icon.svelte';
 	import { LEVELS, levelWords, MAX_NOTE, MAX_SENTENCE, runLabel } from './model';
 	import { recipes } from './store.svelte';
@@ -11,11 +10,12 @@
 	/**
 	 * How a recipe is run, and whether an agent helps (FEAT-133).
 	 *
-	 * *Agent help* is a switch, as the author asked on 2026-10-13. On, a
-	 * sentence is written and the agent proposes the blocks; the note and the
-	 * brief are there, and a step's message can be left to it. Off, those are
-	 * disabled, no agent is called, and what is shown is the git commands the
-	 * run is, as a script.
+	 * Three parts, in the order they are wanted (TASK-076): how far the run
+	 * goes on its own, and the button that starts it; *Agent help*, a switch
+	 * whose fields are there only while it is on; and the commands, folded
+	 * away until asked for. It said everything at once — what an agent would
+	 * and would not do, two counters, the brief, the restore point — for a
+	 * flow that is a choice and a button.
 	 *
 	 * Either way Spagitty runs every command itself, a step at a time, after a
 	 * restore point is made.
@@ -28,20 +28,47 @@
 	const steps = $derived(draft?.steps.length ?? 0);
 	const readOnly = $derived(level === 'suggest');
 	const helper = $derived(recipes.helpers.find((each) => each.id === draft?.agent) ?? null);
+	/** The note, opened by hand; one with something in it is always open. */
+	let noting = $state(false);
 </script>
 
 {#if draft}
 	<aside class="panel" aria-label="How it runs">
-		<div class="row">
-			<span class="label" title="An agent proposes the blocks from a sentence, writes a message left to it, and explains a failure. It never runs a command.">
-				Agent help
-			</span>
-			<Chip active={on} onclick={() => recipes.setAgentHelp(!on)}>{on ? 'on' : 'off'}</Chip>
-		</div>
+		<section class="part">
+			<div class="levels" role="radiogroup" aria-label="Level">
+				{#each LEVELS as each (each.id)}
+					<button
+						role="radio"
+						class:on={draft.level === each.id}
+						aria-checked={draft.level === each.id}
+						title={each.label}
+						onclick={() => recipes.setLevel(each.id as Level)}>{each.short}</button
+					>
+				{/each}
+			</div>
+			<p class="note small">{levelWords(level).says}</p>
+			<Btn
+				primary
+				disabled={steps === 0 || errors > 0 || readOnly || recipes.starting || !check}
+				busy={recipes.starting}
+				title={readOnly
+					? 'Read-only runs nothing. Copy the script, or choose another level.'
+					: 'A restore point is made first'}
+				onclick={() => recipes.start()}>{runLabel(steps, errors)}</Btn
+			>
+		</section>
 
-		{#if on}
-			<div class="row agent">
-				<span class="hex" aria-hidden="true"><Icon name="agent" size={16} /></span>
+		<section class="part">
+			<label
+				class="row switch-row"
+				title="An agent proposes the blocks from a sentence, and can write a commit message. It never runs a command."
+			>
+				<span class="hex" aria-hidden="true"><Icon name="agent" size={15} /></span>
+				<span class="label">Agent help</span>
+				<input type="checkbox" role="switch" checked={on} onchange={() => recipes.setAgentHelp(!on)} />
+			</label>
+
+			{#if on}
 				<select
 					aria-label="Agent"
 					value={draft.agent ?? ''}
@@ -59,105 +86,99 @@
 						<option value={each.id}>{each.name}{each.detail ? ` · ${each.detail}` : ''}</option>
 					{/each}
 				</select>
-			</div>
-			{#if recipes.helpers.length === 0}
-				<p class="note small">No agent is set up. Add one in Settings › Agents.</p>
+				{#if recipes.helpers.length === 0}
+					<p class="note small">No agent is set up. Add one in Settings › Agents.</p>
+				{/if}
+
+				<div class="field">
+					<textarea
+						rows="3"
+						aria-label="What should it do?"
+						placeholder="What should it do? Stash my work, bring main in, put it back and push"
+						value={recipes.sentence}
+						oninput={(event) => recipes.setSentence(event.currentTarget.value)}
+					></textarea>
+					{#if recipes.sentence.length > MAX_SENTENCE * 0.8}
+						<span class="count mono" class:over={recipes.sentence.length > MAX_SENTENCE}
+							>{recipes.sentence.length}/{MAX_SENTENCE}</span
+						>
+					{/if}
+				</div>
+				<div class="row">
+					<Btn
+						disabled={!helper ||
+							recipes.proposing ||
+							recipes.sentence.trim() === '' ||
+							recipes.sentence.length > MAX_SENTENCE}
+						busy={recipes.proposing}
+						title="The agent proposes the blocks. Nothing runs until you press Run."
+						onclick={() => recipes.propose()}>Propose blocks</Btn
+					>
+					{#if recipes.said}
+						<span class="note small said">{recipes.said}</span>
+					{/if}
+				</div>
+
+				{#if noting || draft.note !== ''}
+					<div class="field">
+						<textarea
+							rows="2"
+							aria-label="A note for the agent"
+							placeholder="A note the agent reads with every request"
+							value={draft.note}
+							oninput={(event) => recipes.setNote(event.currentTarget.value)}
+						></textarea>
+						{#if draft.note.length > MAX_NOTE * 0.8}
+							<span class="count mono" class:over={draft.note.length > MAX_NOTE}
+								>{draft.note.length}/{MAX_NOTE}</span
+							>
+						{/if}
+					</div>
+				{:else}
+					<button type="button" class="link" onclick={() => (noting = true)}>Add a note for the agent</button>
+				{/if}
 			{/if}
-		{:else}
-			<p class="note small">Off: no agent is called. The run is the git commands below and nothing else.</p>
-		{/if}
+		</section>
 
-		<div class="levels" role="radiogroup" aria-label="Level">
-			{#each LEVELS as each (each.id)}
-				<button
-					role="radio"
-					class:on={draft.level === each.id}
-					aria-checked={draft.level === each.id}
-					title={each.label}
-					onclick={() => recipes.setLevel(each.id as Level)}>{each.short}</button
-				>
-			{/each}
-		</div>
-		<p class="note small">{levelWords(level).says}</p>
-
-		<label class="field">
-			<span class="head">
-				<span>What should it do?</span>
-				<span class="count mono" class:over={recipes.sentence.length > MAX_SENTENCE}
-					>{recipes.sentence.length}/{MAX_SENTENCE}</span
-				>
-			</span>
-			<textarea
-				rows="3"
-				disabled={!on}
-				placeholder={on ? 'Stash my work, bring main in, put my work back and push' : 'Agent help is off'}
-				value={recipes.sentence}
-				oninput={(event) => recipes.setSentence(event.currentTarget.value)}
-			></textarea>
-		</label>
-		<div class="row">
-			<Btn
-				disabled={!on || !helper || recipes.proposing || recipes.sentence.trim() === '' || recipes.sentence.length > MAX_SENTENCE}
-				busy={recipes.proposing}
-				title="The agent proposes the stack. Nothing runs until you press Run."
-				onclick={() => recipes.propose()}>Propose blocks</Btn
-			>
-			{#if recipes.said}
-				<span class="note small said">{recipes.said}</span>
-			{/if}
-		</div>
-
-		<label class="field">
-			<span class="head">
-				<span>Note</span>
-				<span class="count mono" class:over={draft.note.length > MAX_NOTE}>{draft.note.length}/{MAX_NOTE}</span>
-			</span>
-			<textarea
-				rows="2"
-				disabled={!on}
-				placeholder={on ? 'One note for the agent' : 'Agent help is off'}
-				value={draft.note}
-				oninput={(event) => recipes.setNote(event.currentTarget.value)}
-			></textarea>
-		</label>
-
-		<div class="head">
-			<span>{on ? 'Brief' : 'Commands'}</span>
-			{#if on}
-				<span class="guide mono" title="The rules every agent is given first. They ship with {PRODUCT_NAME}.">
-					recipes.md v{recipes.guideVersion}
-				</span>
-			{/if}
-		</div>
-		<pre class="brief mono" aria-label={on ? 'The brief, as it is sent' : 'The commands, as a script'}>{(on
-				? check?.brief
-				: check?.script) ?? ''}</pre>
-
-		<div class="run">
-			<span class="note small">A restore point is made first</span>
-			<Btn
-				primary
-				disabled={steps === 0 || errors > 0 || readOnly || recipes.starting || !check}
-				busy={recipes.starting}
-				title={readOnly ? 'Read-only runs nothing. Copy the script, or choose another level.' : undefined}
-				onclick={() => recipes.start()}>{runLabel(steps, errors)}</Btn
-			>
-		</div>
+		<details class="part">
+			<summary>
+				{on ? 'What the agent is sent' : 'The commands'}
+				{#if on}
+					<span class="guide mono" title="The rules every agent is given first. They ship with {PRODUCT_NAME}.">
+						recipes.md v{recipes.guideVersion}
+					</span>
+				{/if}
+			</summary>
+			<pre class="brief mono" aria-label={on ? 'The brief, as it is sent' : 'The commands, as a script'}>{(on
+					? check?.brief
+					: check?.script) ?? ''}</pre>
+		</details>
 	</aside>
 {/if}
 
 <style>
 	.panel {
-		flex: 0 0 340px;
+		flex: 0 0 300px;
 		min-height: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 10px;
+		gap: 12px;
 		padding: 12px;
 		background: var(--surface);
 		border: 1px solid var(--pane-edge);
 		border-radius: var(--r-panel);
 		overflow: auto;
+	}
+
+	.part {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+
+	.part + .part {
+		padding-top: 12px;
+		border-top: 1px solid var(--soft);
 	}
 
 	.row {
@@ -166,13 +187,13 @@
 		gap: 8px;
 	}
 
-	.row > .label {
-		flex: 1;
+	.switch-row {
+		cursor: pointer;
 	}
 
-	.agent select {
+	.switch-row > .label {
 		flex: 1;
-		min-width: 0;
+		font-weight: 600;
 	}
 
 	.hex {
@@ -211,21 +232,17 @@
 	}
 
 	.field {
+		position: relative;
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
 	}
 
-	.head {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 8px;
-		font-size: var(--fs-secondary);
-		color: var(--muted);
-	}
-
+	/* Only as the limit nears, in the corner of the field. */
 	.count {
+		position: absolute;
+		right: 8px;
+		bottom: 6px;
+		color: var(--muted);
 		font-size: var(--fs-mono);
 	}
 
@@ -237,7 +254,45 @@
 		resize: none;
 	}
 
+	.link {
+		align-self: flex-start;
+		padding: 0;
+		color: var(--accent);
+		font-size: var(--fs-secondary);
+	}
+
+	.link:hover {
+		text-decoration: underline;
+	}
+
+	summary {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		color: var(--muted);
+		font-size: var(--fs-secondary);
+		cursor: pointer;
+	}
+
+	summary::before {
+		content: '▸';
+		transition: transform var(--t-fast) var(--ease);
+	}
+
+	details[open] summary::before {
+		transform: rotate(90deg);
+	}
+
+	summary::-webkit-details-marker {
+		display: none;
+	}
+
+	summary:hover {
+		color: var(--ink);
+	}
+
 	.guide {
+		margin-left: auto;
 		padding: 1px 8px;
 		border: 1px solid color-mix(in srgb, var(--agent) 50%, transparent);
 		border-radius: var(--r-pill);
@@ -246,8 +301,7 @@
 	}
 
 	.brief {
-		flex: 1 1 120px;
-		min-height: 120px;
+		max-height: 320px;
 		margin: 0;
 		padding: 10px;
 		border-radius: var(--r-field);
@@ -256,12 +310,5 @@
 		white-space: pre-wrap;
 		overflow: auto;
 		user-select: text;
-	}
-
-	.run {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 8px;
 	}
 </style>

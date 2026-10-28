@@ -412,10 +412,6 @@
 		cursor: pointer;
 	}
 
-	input[type='checkbox'] {
-		accent-color: var(--accent);
-	}
-
 	.name {
 		min-width: 0;
 		overflow: hidden;

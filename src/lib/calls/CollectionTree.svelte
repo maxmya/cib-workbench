@@ -46,8 +46,13 @@
 		onshow?: (stem: string) => void;
 		/** Delete a collection's file; the caller asks first. */
 		ondelete?: (stem: string) => void;
+		/** Open Share on a collection; `openapi` chooses OpenAPI first (FEAT-179). */
+		onshare?: (stem: string, openapi: boolean) => void;
 		/** Where the collections are kept, for the empty list to say (FEAT-170). */
 		where?: string;
+		/** The `+` menu (FEAT-178): a new collection, and Import. */
+		onnewcollection?: () => void;
+		onimport?: () => void;
 	}
 
 	let {
@@ -75,7 +80,10 @@
 		onhide,
 		onshow,
 		ondelete,
-		where = 'in this repository, as JSON, so they can be committed'
+		onshare,
+		where = 'in this repository, as JSON, so they can be committed',
+		onnewcollection,
+		onimport
 	}: Props = $props();
 
 	let menu = $state<{ x: number; y: number; items: MenuItem[] } | null>(null);
@@ -90,6 +98,12 @@
 	function collectionItems(stem: string, readable: boolean): MenuItem[] {
 		return [
 			...(readable ? [{ id: 'new', label: 'New call', run: () => oncreate(stem, null) }] : []),
+			...(readable && onshare
+				? [
+						{ id: 'share', label: 'Share…', run: () => onshare(stem, false) },
+						{ id: 'openapi', label: 'Export as OpenAPI…', note: 'with field rules and answers', run: () => onshare(stem, true) }
+					]
+				: []),
 			...(readable ? [{ separator: true } as const] : []),
 			{ id: 'hide', label: 'Hide from the list', note: 'the file stays', run: () => onhide?.(stem) },
 			{ id: 'delete', label: 'Delete collection…', danger: true, run: () => ondelete?.(stem) }
@@ -107,6 +121,21 @@
 		};
 	}
 	const searchKeys = isMac() ? '⌘ K' : 'Ctrl K';
+
+	/** The `+` at the top (FEAT-178): where more calls come from. */
+	function addMenu(event: MouseEvent) {
+		const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
+		menu = {
+			x: box.left,
+			y: box.bottom + 4,
+			items: [
+				{ id: 'call', label: 'New call', run: () => oncreate(null, null) },
+				{ id: 'collection', label: 'New collection…', run: () => onnewcollection?.() },
+				{ separator: true },
+				{ id: 'import', label: 'Import calls…', note: 'code, Postman, OpenAPI, cURL', run: () => onimport?.() }
+			]
+		};
+	}
 
 	/** What a collection is, for when it is collapsed: REST, SOAP or both. */
 	function kindOf(collection: Collection): string {
@@ -142,25 +171,34 @@
 </script>
 
 <aside class="tree" aria-label="Collections">
-	<label class="filter">
-		<Icon name="search" size={14} />
-		<input
-			bind:this={search}
-			type="text"
-			placeholder="Filter calls"
-			aria-label="Filter calls"
-			spellcheck="false"
-			value={filter}
-			oninput={(event) => onfilter(event.currentTarget.value)}
-			onkeydown={(event) => {
-				if (event.key === 'Escape' && filter) {
-					event.stopPropagation();
-					onfilter('');
-				}
-			}}
-		/>
-		<kbd class="mono">{searchKeys}</kbd>
-	</label>
+	<div class="top">
+		<label class="filter">
+			<Icon name="search" size={14} />
+			<input
+				bind:this={search}
+				type="text"
+				placeholder="Filter calls"
+				aria-label="Filter calls"
+				spellcheck="false"
+				value={filter}
+				oninput={(event) => onfilter(event.currentTarget.value)}
+				onkeydown={(event) => {
+					if (event.key === 'Escape' && filter) {
+						event.stopPropagation();
+						onfilter('');
+					}
+				}}
+			/>
+			<kbd class="mono">{searchKeys}</kbd>
+		</label>
+		<button
+			type="button"
+			class="add"
+			aria-label="New call, new collection or import"
+			title="New call, new collection, or import calls"
+			onclick={addMenu}><Icon name="plus" size={15} /></button
+		>
+	</div>
 
 	<div class="list">
 		{#each collections as stored (stored.stem)}
@@ -311,22 +349,30 @@
 	</button>
 </aside>
 
-{#snippet tree(stem: string, items: Item[], depth: number)}
+{#snippet tree(stem: string, items: Item[], depth: number, trail = '')}
 	{#each items as item, index (isFolder(item) ? `f:${item.folder}:${index}` : item.id)}
 		{#if isFolder(item)}
-			{@const id = `f:${stem}/${item.folder}`}
+			<!-- The folders above it are in its id: two services can each have a HealthController. -->
+			{@const id = `f:${stem}/${trail}${item.folder}`}
 			{@const shut = collapsed.includes(id) && !filter.trim()}
+			<!-- A folder of folders is a service's (FEAT-177): Import nests controllers in it. -->
+			{@const service = item.items.length > 0 && item.items.every(isFolder)}
 			<button
 				type="button"
 				class="folder"
+				class:service
 				style:padding-left={`${8 + depth * 14}px`}
 				aria-expanded={!shut}
+				title={service ? `${item.folder}: its controllers are inside` : undefined}
 				onclick={() => ontoggle(id)}
 				oncontextmenu={(event) => folderMenu(event, stem, item.folder)}
-				><span class="arrow" aria-hidden="true">{shut ? '▸' : '▾'}</span>{item.folder}</button
+				><span class="arrow" aria-hidden="true">{shut ? '▸' : '▾'}</span>{#if service}<Icon
+						name="machine"
+						size={13}
+					/>{/if}{item.folder}</button
 			>
 			{#if !shut}
-				{@render tree(stem, item.items, depth + 1)}
+				{@render tree(stem, item.items, depth + 1, `${trail}${item.folder}/`)}
 			{/if}
 		{:else}
 			{@const method = methodOf(item)}
@@ -354,7 +400,7 @@
 <style>
 	.tree {
 		flex: none;
-		width: 260px;
+		width: var(--calls-tree-w, 260px);
 		min-height: 0;
 		display: flex;
 		flex-direction: column;
@@ -365,6 +411,32 @@
 		border-radius: var(--r-panel);
 	}
 
+	/* The filter and the `+` share the top row (FEAT-178). */
+	.top {
+		display: flex;
+		gap: 6px;
+	}
+
+	.top .filter {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.add {
+		flex: none;
+		display: grid;
+		place-items: center;
+		width: 30px;
+		border: 1px solid var(--line);
+		border-radius: var(--r-field);
+		color: var(--muted);
+	}
+
+	.add:hover {
+		background: var(--hover);
+		color: var(--ink);
+	}
+
 	.filter {
 		display: flex;
 		align-items: center;
@@ -372,7 +444,6 @@
 		padding: 4px 8px;
 		border: 1px solid var(--line);
 		border-radius: var(--r-field);
-		background: var(--sunken);
 		color: var(--muted);
 	}
 
@@ -554,6 +625,11 @@
 
 	.folder {
 		color: var(--muted);
+	}
+
+	.folder.service {
+		color: var(--ink);
+		font-weight: 600;
 	}
 
 	.arrow {

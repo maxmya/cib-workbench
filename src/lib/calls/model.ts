@@ -7,9 +7,19 @@
  */
 
 import { namesIn, isBuiltin } from './vars';
-import type { Call, Collection, Environment, Folder, Item, Pair, Shared, Variable } from './types';
+import type { Call, Collection, Environment, FieldRule, Folder, Item, Pair, Service, Shared, Variable } from './types';
 
 export const isFolder = (item: Item): item is Folder => 'folder' in item;
+
+/** The service `file` is in (FEAT-177): the one whose root is nearest above it. */
+export function serviceOf(services: Service[] | undefined, file: string | null): Service | null {
+	if (!file || !services?.length) return null;
+	return (
+		services
+			.filter((service) => service.root === '' || file.startsWith(`${service.root}/`))
+			.sort((a, b) => b.root.length - a.root.length)[0] ?? null
+	);
+}
 
 /** Every call in `items`, folders opened, in order. */
 export function callsIn(items: Item[]): Call[] {
@@ -171,15 +181,39 @@ export function withParams(url: string, params: Pair[]): string {
 }
 
 /** What each request tab holds, for the count beside its name; 0 shows none. */
-export function tabCounts(call: Call): { params: number; headers: number; body: number; auth: number; keep: number } {
+export function tabCounts(call: Call): { params: number; headers: number; body: number; auth: number; keep: number; docs: number } {
 	const body = call.body;
 	return {
+		docs: (call.rules ?? []).length + (call.responses ?? []).length,
 		params: paramsOf(call.url).length,
 		headers: (call.headers ?? []).filter((pair) => pair[2] !== false).length,
 		body: !body || body.type === 'none' ? 0 : body.type === 'form' || body.type === 'multipart' ? (body.fields ?? []).length || 1 : 1,
 		auth: call.auth && call.auth.type !== 'none' ? 1 : 0,
 		keep: (call.keep ?? []).length
 	};
+}
+
+/**
+ * A field rule in words (FEAT-179): `required · email · 3–50 characters`.
+ * Only what the code holds the field to; its type is shown beside it.
+ */
+export function ruleText(rule: FieldRule): string {
+	const parts: string[] = [];
+	if (rule.required) parts.push('required');
+	if (rule.format) parts.push(rule.format);
+	const span = (low: number | undefined, high: number | undefined, unit: string) => {
+		if (low !== undefined && high !== undefined) return low === high ? `exactly ${low}${unit}` : `${low}–${high}${unit}`;
+		if (low !== undefined) return `at least ${low}${unit}`;
+		if (high !== undefined) return `at most ${high}${unit}`;
+		return null;
+	};
+	const length = span(rule.minLength, rule.maxLength, rule.type === 'array' ? ' items' : ' characters');
+	if (length) parts.push(length);
+	const range = span(rule.minimum, rule.maximum, '');
+	if (range) parts.push(range);
+	if (rule.values?.length) parts.push(`one of ${rule.values.join(', ')}`);
+	if (rule.pattern) parts.push(`matches ${rule.pattern}`);
+	return parts.join(' · ');
 }
 
 /** A variable as the screen finds it: where it is defined, and what it holds. */

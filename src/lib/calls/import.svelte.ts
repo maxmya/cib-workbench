@@ -17,12 +17,15 @@ import { describe, notice } from '$lib/ui/notice.svelte';
 import * as api from './api';
 import type { Scope } from './api';
 import { calls } from './store.svelte';
-import type { BroughtIn, Endpoint, Found, ScanDone, ScanProgress, SourceKind } from './types';
+import type { Askable, BroughtIn, Endpoint, Found, ScanDone, ScanProgress, SourceKind } from './types';
 
 export type Filter = 'all' | 'new' | 'changed' | 'in';
 
 /** Sources whose endpoints are declared by code rather than held in a file. */
 export const CODE_KINDS: SourceKind[] = ['spring', 'jaxRs', 'nest', 'jaxWs', 'springWs', 'wsdl', 'openApi'];
+
+/** Controllers an agent can be asked to read (FEAT-179). */
+export const AGENT_KINDS: SourceKind[] = ['spring', 'jaxRs', 'nest'];
 
 export interface BringChoices {
 	/** Into an existing collection, or a new one. */
@@ -66,6 +69,13 @@ let importScope = $state<Scope>('repository');
 let reading = $state<string | null>(null);
 /** What the last read found, said until the next one: how many calls, from where. */
 let lastRead = $state<string | null>(null);
+/** The agents that may read the code, and the one chosen (FEAT-179). */
+let agents = $state<Askable[]>([]);
+let agent = $state<string | null>(null);
+/** An agent is reading the chosen controllers. */
+let agentReading = $state(false);
+/** What its last read added, said until the next. */
+let agentSaid = $state<string | null>(null);
 let listening: Promise<void> | null = null;
 let unlisten: UnlistenFn[] = [];
 /** Scanned once on arrival when Settings says *Always*. */
@@ -162,6 +172,24 @@ export const importer = {
 	/** What the last read found. */
 	get lastRead(): string | null {
 		return lastRead;
+	},
+	get agents(): Askable[] {
+		return agents;
+	},
+	get agent(): string | null {
+		return agent;
+	},
+	get agentReading(): boolean {
+		return agentReading;
+	},
+	get agentSaid(): string | null {
+		return agentSaid;
+	},
+
+	/** The chosen endpoints an agent could read: ones a controller declares. */
+	get forAgent(): Endpoint[] {
+		const code = new Set((found?.sources ?? []).filter((s) => AGENT_KINDS.includes(s.kind)).map((s) => s.id));
+		return (found?.endpoints ?? []).filter((endpoint) => selected.includes(endpoint.id) && code.has(endpoint.source) && endpoint.file);
 	},
 
 	/** The endpoints the filters leave. */
@@ -306,6 +334,46 @@ export const importer = {
 		selected = all ? selected.filter((id) => !ids.includes(id)) : [...new Set([...selected, ...ids])];
 	},
 
+	/** The agents the repository allows; the first is chosen. */
+	async loadAgents(): Promise<void> {
+		try {
+			agents = await api.agents();
+		} catch {
+			agents = [];
+		}
+		if (!agents.some((known) => known.id === agent)) agent = agents[0]?.id ?? null;
+	},
+
+	chooseAgent(id: string | null): void {
+		agent = id;
+	},
+
+	/**
+	 * *Ask an agent too* (FEAT-179): it reads the chosen endpoints'
+	 * controllers, and what it says of their bodies and answers is added to
+	 * what the scan read.
+	 */
+	async askAgent(): Promise<boolean> {
+		const ids = this.forAgent.map((endpoint) => endpoint.id);
+		if (!ids.length || agentReading) return false;
+		agentReading = true;
+		agentSaid = null;
+		try {
+			const read = await api.agentRead(ids, agent);
+			take(read.found);
+			const files = `${read.files} ${read.files === 1 ? 'controller' : 'controllers'}`;
+			const added = read.added === 0 ? 'found nothing more to add' : `added ${read.added} ${read.added === 1 ? 'rule or answer' : 'rules and answers'}`;
+			const failed = read.failed.length ? ` ${read.failed.length} could not be read: ${read.failed.join('; ')}` : '';
+			agentSaid = `${read.agent} read ${files} and ${added}.${failed}`;
+			return true;
+		} catch (cause) {
+			notice.failed('The agent could not read them', cause);
+			return false;
+		} finally {
+			agentReading = false;
+		}
+	},
+
 	choose(change: Partial<BringChoices>): void {
 		choices = { ...choices, ...change };
 	},
@@ -352,6 +420,10 @@ export const importer = {
 		importScope = 'repository';
 		reading = null;
 		lastRead = null;
+		agents = [];
+		agent = null;
+		agentReading = false;
+		agentSaid = null;
 		autoScanned = new Set();
 		found = null;
 		scanning = null;

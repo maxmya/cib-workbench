@@ -13,8 +13,10 @@ const read = (path: string) => readFileSync(path, 'utf8');
 const style = (path: string) => read(path).split('<style>')[1] ?? '';
 
 describe('a field with variables in it', () => {
-	it('paints its well behind the mirror, on the field', () => {
-		expect(style('src/lib/calls/VarField.svelte')).toMatch(/\.field \{[^}]*background: var\(--sunken\)/);
+	/** BUG-113: flat, the card's own colour; a well a shade under it read as a dark slab. */
+	it('paints nothing behind the mirror, so the field is the card’s colour', () => {
+		const field = /\.field \{([^}]*)\}/.exec(style('src/lib/calls/VarField.svelte'))?.[1] ?? '';
+		expect(field).not.toMatch(/background/);
 	});
 
 	it('keeps its input transparent, focused or not', () => {

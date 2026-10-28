@@ -69,6 +69,37 @@ export interface Call {
 	wsSecurity?: WsSecurity;
 	keep?: KeepRule[];
 	notes?: string;
+	/** What the code says each field of the body must be (FEAT-179). */
+	rules?: FieldRule[];
+	/** What the endpoint answers, a status at a time (FEAT-179). */
+	responses?: Answer[];
+}
+
+/** A rule the code puts on one field of a call's body (FEAT-179). */
+export interface FieldRule {
+	/** `email`, `customer.email`, `lines[].qty`. */
+	path: string;
+	type: string;
+	required?: boolean;
+	format?: string;
+	minimum?: number;
+	maximum?: number;
+	minLength?: number;
+	maxLength?: number;
+	pattern?: string;
+	/** The only values it may take. */
+	values?: string[];
+}
+
+/** What an endpoint answers with one status (FEAT-179). */
+export interface Answer {
+	status: number;
+	/** What it means, in a few words: `Created`, `Order not found`. */
+	says: string;
+	/** An example body, as JSON text. */
+	body?: string;
+	/** How it is known: `@ResponseStatus`, `throws OrderNotFoundException`. */
+	from?: string;
 }
 
 export interface Folder {
@@ -336,6 +367,24 @@ export interface Endpoint {
 	status: EndpointStatus;
 }
 
+/** An agent Import may ask (FEAT-179). */
+export interface Askable {
+	id: string;
+	name: string;
+}
+
+/** What an agent's read of the chosen controllers added (FEAT-179). */
+export interface AgentRead {
+	agent: string;
+	/** The controllers it read. */
+	files: number;
+	/** The rules and answers it added to what the scan had. */
+	added: number;
+	/** A file it could not read, with why. */
+	failed: string[];
+	found: Found;
+}
+
 export interface Found {
 	sources: Source[];
 	endpoints: Endpoint[];
@@ -345,6 +394,17 @@ export interface Found {
 	baseUrl: string | null;
 	filesRead: number;
 	capped: boolean;
+	/** The services the code's endpoints are in (FEAT-177). Absent from an older backend. */
+	services?: Service[];
+}
+
+/** A service in the repository: the folder a build file stands in (FEAT-177). */
+export interface Service {
+	name: string;
+	/** `Spring Boot`, `NestJS`, `Express`, `Node`, `Maven`, `Gradle`. */
+	kind: string;
+	/** Its folder from the repository's root; empty for the root. */
+	root: string;
 }
 
 export interface Choices {
@@ -384,7 +444,7 @@ export interface Pasted {
 
 // --- Share (FEAT-164) ---
 
-export type ShareFormat = 'spagitty' | 'postman' | 'zip' | 'commit';
+export type ShareFormat = 'spagitty' | 'postman' | 'openapi' | 'openapi-yaml' | 'zip' | 'commit';
 
 export interface ShareAsk {
 	stem: string;

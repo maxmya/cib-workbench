@@ -1929,6 +1929,37 @@ export interface Hooks {
 	hooks: Hook[];
 	/** False when this repository's hooks are switched off in Spagitty. */
 	enabled: boolean;
+	/** What the hooks run, step by step, in order (FEAT-176). Absent from an older backend. */
+	steps?: HookStep[];
+}
+
+/** What kind of check a hook's step is (FEAT-176). Mirrors `hooks::steps::Category`. */
+export type StepCategory =
+	| 'format'
+	| 'tests'
+	| 'build'
+	| 'message'
+	| 'secrets'
+	| 'files'
+	| 'branches'
+	| 'dependencies'
+	| 'other';
+
+/** One thing a hook runs (FEAT-176). Mirrors `hooks::steps::Step`. */
+export interface HookStep {
+	/** The git hook it runs in: `pre-commit`, `commit-msg`, … */
+	hook: string;
+	/** Its place in that hook, from 1. */
+	order: number;
+	name: string;
+	command: string;
+	category: StepCategory;
+	/** The file it is written in. */
+	file: string;
+	/** The line it is written on, from 1. */
+	line: number | null;
+	/** Runs at the same time as the other steps of its hook. */
+	together: boolean;
 }
 
 export const HOOK_OUTPUT_EVENT = 'hook-output';

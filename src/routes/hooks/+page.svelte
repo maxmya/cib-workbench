@@ -3,4 +3,4 @@
 	import HooksScreen from '$lib/hooks/HooksScreen.svelte';
 </script>
 
-<HooksScreen mode="runs" />
+<HooksScreen mode="current" />

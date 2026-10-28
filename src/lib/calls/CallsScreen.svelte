@@ -2,6 +2,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import * as appApi from '$lib/api';
 	import { PRODUCT_NAME } from '$lib/brand';
 	import { isMac } from '$lib/platform';
@@ -9,12 +10,16 @@
 	import { settings } from '$lib/settings/store.svelte';
 	import { dialog } from '$lib/ui/dialog.svelte';
 	import EmptyState from '$lib/ui/EmptyState.svelte';
+	import Icon from '$lib/ui/Icon.svelte';
+	import Splitter from '$lib/ui/Splitter.svelte';
+	import { panels } from '$lib/panels.svelte';
 	import type { Scope } from './api';
 	import ScopeSwitch from './ScopeSwitch.svelte';
 	import Menu from '$lib/ui/Menu.svelte';
 	import type { MenuItem } from '$lib/ui/menu';
 	import CollectionTree from './CollectionTree.svelte';
 	import HistoryPanel from './HistoryPanel.svelte';
+	import ImportSheet from './ImportSheet.svelte';
 	import { importer } from './import.svelte';
 	import { envColour, findCall, lookup, methodColour, methodOf } from './model';
 	import RequestEditor from './RequestEditor.svelte';
@@ -63,6 +68,40 @@
 			})();
 		});
 	});
+
+	/**
+	 * Import, as a sheet over Calls (FEAT-178): from the Collections `+`, the
+	 * card that counts endpoints in no collection, and `/calls?import`. It
+	 * opens at its second step when something is found already.
+	 */
+	let importing = $state<1 | 2 | null>(null);
+	const openImport = () => (importing = importer.found?.endpoints.length ? 2 : 1);
+
+	$effect(() => {
+		if (page.url.searchParams.has('import')) {
+			untrack(openImport);
+			void goto('/calls', { replaceState: true });
+		}
+	});
+
+	/** The sheet closed; the collection the calls went into is shown open. */
+	function closeImport(stem: string | null) {
+		importing = null;
+		if (!stem) return;
+		if (calls.hidden.includes(stem)) calls.showCollection(stem);
+		if (calls.person.collapsed.includes(`c:${stem}`)) calls.toggleCollapsed(`c:${stem}`);
+	}
+
+	async function newCollection() {
+		const name = await dialog.prompt({
+			title: 'New collection',
+			body: calls.scope === 'global' ? `Kept in ${PRODUCT_NAME}, for every repository.` : 'Kept in this repository, as JSON.',
+			label: 'Name',
+			confirmLabel: 'Create',
+			placeholder: 'orders-api'
+		});
+		if (name?.trim()) await calls.createCollection(name);
+	}
 
 	/** The switch in the head writes the setting, which the effect above reads. */
 	function chooseScope(next: Scope) {
@@ -126,6 +165,8 @@
 	let envButton = $state<HTMLButtonElement | null>(null);
 	/** FEAT-164: the Share dialog is open. */
 	let sharing = $state(false);
+	/** Share opened from a collection's `⋯`: that collection, and OpenAPI first (FEAT-179). */
+	let shareFor = $state<{ stem: string; openapi: boolean } | null>(null);
 	/** FEAT-166: the cURL window is open. */
 	let curling = $state(false);
 
@@ -256,12 +297,6 @@
 			<button
 				type="button"
 				class="env"
-				title="Bring calls in from the code, or from a Postman, Insomnia, Bruno, OpenAPI, .http, HAR or cURL file"
-				onclick={() => goto('/calls/import')}>Import</button
-			>
-			<button
-				type="button"
-				class="env"
 				title="A collection as one file, a zip, or a commit; secrets stay here"
 				disabled={!calls.collections.some((stored) => stored.value)}
 				onclick={() => (sharing = true)}>Share</button
@@ -295,14 +330,21 @@
 				{card}
 				{askScan}
 				onscan={() => importer.scan()}
-				onreview={() => goto('/calls/import')}
+				onreview={() => (importing = 2)}
+				onimport={openImport}
+				onnewcollection={newCollection}
 				ondismiss={() => importer.dismiss()}
 				hidden={hiddenCollections}
 				onhide={(stem) => calls.hideCollection(stem)}
 				onshow={(stem) => calls.showCollection(stem)}
 				ondelete={deleteCollection}
+				onshare={(stem, openapi) => {
+					shareFor = { stem, openapi };
+					sharing = true;
+				}}
 				{where}
 			/>
+			<Splitter panel="callsTree" label="Resize the collections" />
 
 			<main class="middle">
 				{#if calls.history}
@@ -390,16 +432,34 @@
 				{/if}
 			</main>
 
-			<VariablesPanel
-				{environment}
-				shared={calls.shared}
-				collection={current?.collection ?? null}
-				privateValues={calls.private}
-				privateError={calls.privateError}
-				onmanage={() => goto('/calls/environments')}
-			/>
+			{#if panels.isHidden('callsVars')}
+				<button
+					type="button"
+					class="vars-tab"
+					title="Show the variables"
+					onclick={() => panels.toggleHidden('callsVars')}
+				>
+					<Icon name="chevron-left" size="0.95em" weight={2.2} />
+					<span class="tab-label">Variables</span>
+				</button>
+			{:else}
+				<Splitter panel="callsVars" label="Resize the variables" />
+				<VariablesPanel
+					{environment}
+					shared={calls.shared}
+					collection={current?.collection ?? null}
+					privateValues={calls.private}
+					privateError={calls.privateError}
+					onmanage={() => goto('/calls/environments')}
+					onhide={() => panels.toggleHidden('callsVars')}
+				/>
+			{/if}
 		</div>
 	</div>
+
+{#if importing}
+	<ImportSheet start={importing} scope={calls.scope} onscope={chooseScope} onclose={closeImport} />
+{/if}
 
 {#if curling && current}
 	<CurlWindow
@@ -417,9 +477,13 @@
 	<ShareDialog
 		collections={calls.collections}
 		environments={calls.environments}
-		stem={current && !current.opened.stem.startsWith('found:') ? current.opened.stem : null}
-		shareAs={calls.settings?.shareAs ?? 'zip'}
-		onclose={() => (sharing = false)}
+		stem={shareFor?.stem ?? (current && !current.opened.stem.startsWith('found:') ? current.opened.stem : null)}
+		shareAs={shareFor?.openapi ? 'file' : (calls.settings?.shareAs ?? 'zip')}
+		flavour={shareFor?.openapi ? 'openapi' : undefined}
+		onclose={() => {
+			sharing = false;
+			shareFor = null;
+		}}
 	/>
 {/if}
 
@@ -441,6 +505,16 @@
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
+	}
+
+	/*
+	 * Flat fields (BUG-113): the card's colour with a hairline, and the
+	 * accent ring on focus, rather than a well a shade under the card. The
+	 * request and the response were dark slabs inside lighter cards.
+	 */
+	.screen :global(:is(input:not([type='checkbox']):not([type='radio']), textarea, select)),
+	.screen :global(:is(input:not([type='checkbox']):not([type='radio']), textarea, select):is(:hover, :focus)) {
+		background-color: transparent;
 	}
 
 	.head {
@@ -553,6 +627,36 @@
 		display: flex;
 		gap: 10px;
 		padding: 0 12px 12px;
+	}
+
+	/* The dividers sit in the gap between the panels, not beside it. */
+	.body > :global(.splitter) {
+		margin-inline: -8px;
+	}
+
+	/* The variables put away (FEAT-175): a tab down the right edge. */
+	.vars-tab {
+		flex: none;
+		width: 30px;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 8px;
+		padding: 10px 0;
+		border-radius: var(--r-panel);
+		background: var(--surface);
+		border: 1px solid var(--pane-edge);
+		color: var(--muted);
+	}
+
+	.vars-tab:hover {
+		color: var(--ink);
+		background: var(--hover);
+	}
+
+	.tab-label {
+		writing-mode: vertical-rl;
+		font-size: var(--fs-secondary);
 	}
 
 	.middle {

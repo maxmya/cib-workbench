@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import { describe, expect, it } from 'vitest';
-import { Batcher } from './batch';
+import { Batcher, endsWhole } from './batch';
 
 const bytes = (text: string) => new TextEncoder().encode(text);
 const text = (all: Uint8Array) => new TextDecoder().decode(all);
@@ -140,5 +140,60 @@ describe('output gathered for a frame', () => {
 		await new Promise((done) => setTimeout(done, 60));
 
 		expect(written).toEqual(['drawn']);
+	});
+});
+
+/** BUG-111: a keystroke's echo is written at once, not a frame later. */
+describe('the first piece after a quiet frame', () => {
+	function clock() {
+		let at = 1000;
+		return { now: () => at, pass: (ms: number) => void (at += ms) };
+	}
+
+	it('is written at once, and what follows in the same frame waits for it', () => {
+		const frame = frames();
+		const time = clock();
+		const written: string[] = [];
+		const batcher = new Batcher((all) => written.push(text(all)), frame.schedule, time.now);
+
+		batcher.push(bytes('l'));
+		expect(written).toEqual(['l']);
+		expect(frame.asked).toBe(0);
+
+		batcher.push(bytes('s'));
+		batcher.push(bytes(' -la'));
+		expect(written).toEqual(['l']);
+		frame.next();
+		expect(written).toEqual(['l', 's -la']);
+
+		time.pass(40);
+		batcher.push(bytes('\r\n'));
+		expect(written).toEqual(['l', 's -la', '\r\n']);
+	});
+
+	it('waits for the rest of a character cut in two', () => {
+		const frame = frames();
+		const time = clock();
+		const written: Uint8Array[] = [];
+		const batcher = new Batcher((all) => written.push(all), frame.schedule, time.now);
+		const snowman = bytes('☃');
+
+		batcher.push(snowman.slice(0, 2));
+		expect(written).toHaveLength(0);
+		batcher.push(snowman.slice(2));
+		frame.next();
+		expect(text(written[0])).toBe('☃');
+	});
+});
+
+describe('a whole character at the end', () => {
+	it('is told from one cut short', () => {
+		const snowman = bytes('☃');
+		expect(endsWhole(bytes('plain'))).toBe(true);
+		expect(endsWhole(snowman)).toBe(true);
+		expect(endsWhole(snowman.slice(0, 1))).toBe(false);
+		expect(endsWhole(snowman.slice(0, 2))).toBe(false);
+		expect(endsWhole(bytes('🦀'))).toBe(true);
+		expect(endsWhole(bytes('🦀').slice(0, 3))).toBe(false);
 	});
 });

@@ -4,7 +4,9 @@
 	import { goto } from '$app/navigation';
 	import { farmStore } from '$lib/farm/store.svelte';
 	import { openInMerger } from '$lib/farm/merge';
-	import { fetchAll, quickStash } from '$lib/graph/actions';
+	import { activity } from '$lib/activity/store.svelte';
+	import { quickStash } from '$lib/graph/actions';
+	import { graph } from '$lib/graph/store.svelte';
 	import { follow } from '$lib/notifications/act';
 	import { repo } from '$lib/repo.svelte';
 	import { requests } from '$lib/requests/store.svelte';
@@ -103,6 +105,31 @@
 		}
 	}
 
+	/**
+	 * Refresh: fetch, then read everything on the screen again — the working
+	 * copy, the branches, the commits, pull requests, pipelines, releases and
+	 * issues. A fetch that cannot run (offline, or another network operation
+	 * in the way) still leaves the rest read again; its failure is its notice.
+	 */
+	let refreshing = $state(false);
+
+	async function refresh() {
+		if (refreshing) return;
+		refreshing = true;
+		try {
+			// No remote is nothing to fetch, not a failure.
+			if (overview?.remote !== null && !activity.blocked('network')) {
+				if (await network.fetch()) await network.whenDone();
+			}
+			await Promise.allSettled([
+				repo.refresh().then(() => graph.reload()),
+				home.reload(repo.info?.head.branch ?? null)
+			]);
+		} finally {
+			refreshing = false;
+		}
+	}
+
 	async function stash() {
 		stashing = true;
 		try {
@@ -155,8 +182,13 @@
 				{#if facts.length}<div class="facts home-quiet">{facts.join(' · ')}</div>{/if}
 			</div>
 			<div class="actions">
-				<Btn disabled={network.running} busy={network.running && network.operation === 'fetch'} onclick={() => fetchAll()}>
-					Fetch all
+				<Btn
+					busy={refreshing}
+					disabled={refreshing}
+					title="Fetch, then read the working copy, branches, commits, pull requests and pipelines again"
+					onclick={refresh}
+				>
+					Refresh
 				</Btn>
 				<Btn primary onclick={startFarm}>New farm</Btn>
 			</div>

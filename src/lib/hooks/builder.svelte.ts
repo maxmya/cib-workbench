@@ -77,6 +77,15 @@ export const builder = {
 		if (!draft || this.readonly) return;
 		const block = makeBlock(kind, stage); draft.blocks.push(block); selected = block.id; void this.checkMatches();
 	},
+	/** A template's block (FEAT-176): the action as given, in its stage, under its title. */
+	addAction(action: Action, stage: Stage, label: string) {
+		if (!draft || this.readonly) return;
+		const block = { ...makeBlock(action.kind, stage), label, action: structuredClone(action) };
+		if (action.kind !== 'message') block.stage = stage;
+		draft.blocks.push(block); selected = block.id;
+		if (!draft.activeStages.includes(block.stage)) draft.activeStages = [...draft.activeStages, block.stage];
+		void this.checkMatches();
+	},
 	set(block: Block) {
 		if (!draft || this.readonly) return;
 		draft.blocks = draft.blocks.map((old) => old.id === block.id ? block : old); tried = null; void this.checkMatches();

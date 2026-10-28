@@ -226,6 +226,13 @@ rather than an audit.
 | [FEAT-170](items/FEAT-170-calls-in-the-repository-or-workbench-wide.md) | Calls in the repository, or Workbench-wide | 2C, 1K | Done |
 | [FEAT-171](items/FEAT-171-hooks-a-manager-runs-read-explained-and-edited.md) | Hooks a manager runs, read, explained and edited | 1X, 1K | Done |
 | [FEAT-172](items/FEAT-172-open-on-all-repositories.md) | Open on All repositories | 1K, 1J | Done |
+| [FEAT-173](items/FEAT-173-home-s-refresh-reloads-everything-and-commits-say-who.md) | Home's Refresh reloads everything, and its commits say who | 2A | Done |
+| [FEAT-174](items/FEAT-174-close-a-file-tab-the-others-or-all-of-them.md) | Close a file tab, the others, or all of them | 1U | Done |
+| [FEAT-175](items/FEAT-175-calls-side-panels-widen-and-the-variables-put-away.md) | Calls' side panels widen, and the variables can be put away | 2C | Done |
+| [FEAT-176](items/FEAT-176-hooks-in-two-tabs-current-hooks-and-create-hook.md) | Hooks in two tabs: Current hooks and Create hook | 1X | Done |
+| [FEAT-177](items/FEAT-177-a-scanned-endpoint-says-which-service-it-is-in.md) | A scanned endpoint says which service it is in | 2C | Done |
+| [FEAT-178](items/FEAT-178-import-as-a-sheet-over-calls-with-a-way-back.md) | Import as a sheet over Calls, with a way back | 2C | Done |
+| [FEAT-179](items/FEAT-179-a-call-s-rules-and-answers-from-its-code-and-openapi-out.md) | A call's rules and answers, from its code, and OpenAPI out | 2C | Done |
 
 ## Bugs
 
@@ -339,6 +346,12 @@ rather than an audit.
 | [BUG-105](items/BUG-105-importing-a-collection-shows-nothing-while-it-reads.md) | Importing a collection shows nothing while it reads | 2C | Fixed |
 | [BUG-106](items/BUG-106-a-calls-collection-cannot-be-removed.md) | A Calls collection cannot be removed | 2C | Fixed |
 | [BUG-107](items/BUG-107-git-failures-are-gits-text-not-what-went-wrong.md) | git's failures are git's text, not what went wrong | chrome, all | Fixed |
+| [BUG-108](items/BUG-108-a-gitlab-merge-request-s-files-fail-with-500.md) | A GitLab merge request's files fail with 500 | 1H, 1R | Fixed |
+| [BUG-109](items/BUG-109-the-review-bar-wraps-to-a-second-row.md) | The review bar wraps to a second row | 1R | Fixed |
+| [BUG-110](items/BUG-110-a-pipeline-graph-s-lines-cut-through-its-cards.md) | A pipeline graph's lines cut through its cards | 1Y | Fixed |
+| [BUG-111](items/BUG-111-the-terminal-is-slow-to-show-output.md) | The Terminal is slow to show output | 1T | Fixed |
+| [BUG-112](items/BUG-112-checkboxes-are-the-platform-s-not-the-theme-s.md) | Checkboxes are the platform's, not the theme's | 2B, all | Fixed |
+| [BUG-113](items/BUG-113-calls-fields-and-panes-are-a-different-colour.md) | Calls' fields and panes are a different colour | 2C | Fixed |
 
 `BUG-009b` carries a suffix rather than the next number because it is the same
 report, reopened on a corrected diagnosis, and BUG-009's own document keeps the
@@ -421,6 +434,7 @@ of its own.
 | [TASK-073](items/TASK-073-the-sweeps-refreshed-and-run-from-a-portal.md) | The sweeps, refreshed and run from a portal | — | Done |
 | [TASK-074](items/TASK-074-pull-requests-no-longer-list-gates-5-and-6.md) | Pull requests no longer list gates 5 and 6 | — | Done |
 | [TASK-075](items/TASK-075-remove-coderabbit.md) | Remove CodeRabbit | 1Q, 1A, Settings | Done |
+| [TASK-076](items/TASK-076-recipes-right-panel-says-less.md) | Recipes' right panel says less | 1V | Done |
 
 ## Skipped identifiers
 
@@ -475,3 +489,17 @@ missing documents are not listed here, and fails again if a row here is stale.
 | FEAT-170 | plan, automated, sweep | Built in one session from a request, with no plan written ahead. Covered by the Calls screen, store and import tests and `calls.rs`. The sweep, switching places with and without a repository open, is owed. |
 | FEAT-171 | plan, automated, sweep | Built in one session from a request, with no plan written ahead. Covered by the Hooks screen tests and `hooks.rs`. The sweep, with a Husky repository and a real agent, is owed. |
 | FEAT-172 | plan, automated, sweep | Built in one session from a request, with no plan written ahead. Covered by `session.test.ts`. The sweep, a launch with it on and off, is owed. |
+| FEAT-173 | plan, automated, sweep | Built in one session from a request, with no plan written ahead, and no test of its own yet. The sweep, a Refresh with a forge connected, is owed. |
+| FEAT-174 | plan, automated, sweep | Built in one session from a request, with no plan written ahead. Covered by `files/store.test.ts`. The sweep is owed. |
+| FEAT-175 | plan, automated, sweep | Built in one session from a request, with no plan written ahead. Covered by the panel layout tests. The sweep, dragging both edges and putting the variables away, is owed. |
+| FEAT-176 | plan, automated, sweep | Built in one session from a request, with no plan written ahead. Covered by `hooks/order.test.ts`, `hooks/builder.test.ts` and `hooks/steps.rs`. The sweep, with Husky, lefthook and pre-commit repositories, is owed. |
+| FEAT-177 | plan, automated, sweep | Built in one session from a request, with no plan written ahead. Covered by `import/service.rs`. The sweep, on a Maven multi-module and a Nest monorepo, is owed. |
+| FEAT-178 | plan, automated, sweep | Built in one session from a request, with no plan written ahead. Covered by `calls/ImportSheet.test.ts`. The sweep is owed. |
+| FEAT-179 | plan, automated, sweep | Built over two sessions from a request, with no plan written ahead. Covered by the import, contract, agent and OpenAPI tests in Rust and the Docs, Share and Import tests. The sweep, with real Spring and Nest services, a real agent, and the export opened in Swagger UI, is owed. |
+| BUG-108 | plan, automated, sweep | Fixed in one session from a report; covered by `forge/gitlab.rs` with simulated answers. The sweep, against the GitLab server that answered 500, is owed. |
+| BUG-109 | plan, automated, sweep | Fixed in one session from a report; covered by `review/pill.test.ts`. The sweep, zoomed in and with a wide side panel, is owed. |
+| BUG-110 | plan, automated, sweep | Fixed in one session from a screenshot; covered by `pipelines/pipelines.test.ts`. The sweep, on the pipeline in the screenshot, is owed. |
+| BUG-111 | plan, automated, sweep | Fixed in one session from a report; covered by `terminal.rs` and the batch and store tests. The sweep, on Windows with and without the multiplexer, is owed. |
+| BUG-112 | plan, automated, sweep | Fixed in one session from a report; a stylesheet change the test DOM cannot see. The sweep, in Day and Night, is owed. |
+| BUG-113 | plan, automated, sweep | Fixed in one session from a report; covered by `calls/varfield-paint.test.ts`. The sweep, in Day and Night, is owed. |
+| TASK-076 | plan, automated, sweep | Done in one session from a report; covered by `routes/recipes/page.test.ts`. The sweep is owed. |

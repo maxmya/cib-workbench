@@ -218,13 +218,12 @@
 		position: relative;
 		min-width: 0;
 		flex: 1;
-		background: var(--sunken);
 		border-radius: var(--r-field);
-		transition: background-color var(--t-fast) var(--ease);
 	}
 
+	/* The card's own colour, with the hairline the input draws (BUG-113). */
 	.field:focus-within {
-		background: color-mix(in srgb, var(--sunken) 82%, var(--accent) 4%);
+		box-shadow: 0 0 0 3px var(--ring);
 	}
 
 	.mirror,

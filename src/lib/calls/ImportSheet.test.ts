@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 /**
- * Calls › Import (FEAT-162): sources, endpoints with their tags, the
- * filters, what is ticked, and *Bring in*.
+ * Calls › Import (FEAT-162, FEAT-178): the sheet's three steps — where
+ * the calls come from, which of them, and where they are saved.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -45,12 +45,14 @@ vi.mock('./api', () => ({
 	cancelScan: vi.fn(async () => {}),
 	importFile: vi.fn(),
 	importText: vi.fn(),
-	bringIn: vi.fn()
+	bringIn: vi.fn(),
+	agents: vi.fn(async () => []),
+	agentRead: vi.fn()
 }));
 
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import * as api from './api';
-import ImportScreen from './ImportScreen.svelte';
+import ImportSheet from './ImportSheet.svelte';
 import { importer } from './import.svelte';
 import { calls } from './store.svelte';
 
@@ -111,6 +113,7 @@ function loaded(): Loaded {
 }
 
 let view: Mounted | null = null;
+const onclose = vi.fn();
 
 async function settle(): Promise<void> {
 	for (let i = 0; i < 6; i++) {
@@ -120,10 +123,12 @@ async function settle(): Promise<void> {
 	flushSync();
 }
 
-async function show(found: Found | null = FOUND): Promise<Mounted> {
+async function show(found: Found | null = FOUND, start: 1 | 2 | 3 = found ? 2 : 1): Promise<Mounted> {
 	vi.mocked(api.load).mockResolvedValue(loaded());
 	vi.mocked(api.found).mockResolvedValue(found);
-	view = render(ImportScreen, {});
+	await calls.load('/repos/orders-service', 'repository');
+	await importer.load('/repos/orders-service', 'repository');
+	view = render(ImportSheet, { start, scope: 'repository' as const, onscope: vi.fn(), onclose });
 	await settle();
 	return view;
 }
@@ -136,6 +141,7 @@ const rows = () =>
 	}));
 const button = (text: string) =>
 	view!.all('button').find((found) => found.textContent?.replace(/\s+/g, ' ').trim().startsWith(text)) as HTMLButtonElement;
+const step = () => view!.get('.steps [aria-current="step"]').textContent?.replace(/\d/g, '').trim();
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -157,10 +163,11 @@ afterEach(() => {
 	view = null;
 });
 
-describe('Import', () => {
-	it('groups sources and endpoints, ticking New and Changed', async () => {
+/** FEAT-178: Import is three steps in a sheet over Calls, each with a way back. */
+describe('the Import sheet', () => {
+	it('picks from the endpoints found, ticking New and Changed, and says what Import will do', async () => {
 		await show();
-		expect(view!.all('.sources .source:not(.all) .label').map((s) => s.textContent)).toEqual(['OrderController.java', 'orders.http']);
+		expect(step()).toBe('Pick');
 		expect(rows()).toEqual([
 			{ text: '/orders/{id}', tag: 'New', ticked: true },
 			{ text: '/orders', tag: 'Changed', ticked: true },
@@ -169,8 +176,30 @@ describe('Import', () => {
 		]);
 		// A changed one says what changed.
 		expect(view!.all('.endpoint')[1].textContent).toContain('CreateOrderRequest gained couponCode');
-		expect(view!.text()).toContain("2 calls had Postman script lines that are not run; they are in each call's notes.");
-		expect(button('Add 3 to orders-api')).toBeTruthy();
+		click(button('Next'));
+		expect(step()).toBe('Save');
+		expect(button('Import 3 calls into orders-api')).toBeTruthy();
+		click(button('Back'));
+		expect(step()).toBe('Pick');
+	});
+
+	/** FEAT-177: a controller says which service it is in. */
+	it('heads each service’s controllers with its name and what it is built as', async () => {
+		await show({
+			...FOUND,
+			endpoints: [
+				endpoint('e1', 'GET', '/invoices', { kind: 'new' }, { group: 'InvoiceController', file: 'billing/src/invoice.controller.ts', source: 'code:billing' }),
+				endpoint('e2', 'GET', '/orders', { kind: 'new' }, { file: 'services/orders/src/OrderController.java' })
+			],
+			services: [
+				{ name: 'orders-service', kind: 'Spring Boot', root: 'services/orders' },
+				{ name: 'billing-api', kind: 'NestJS', root: 'billing' }
+			]
+		});
+		const heads = view!.all('.list .service').map((head) => head.textContent?.replace(/\s+/g, ' ').trim());
+		// In the order the services were found, each above its own controllers.
+		expect(heads).toEqual(['orders-service Spring Boot services/orders', 'billing-api NestJS billing']);
+		expect(view!.all('.group-head .name').map((name) => name.textContent)).toEqual(['OrderController', 'InvoiceController']);
 	});
 
 	it('filters by status and by source', async () => {
@@ -178,20 +207,27 @@ describe('Import', () => {
 		click(button('Changed'));
 		expect(rows().map((row) => row.text)).toEqual(['/orders']);
 		click(button('All'));
-		click(view!.all('.sources .source').find((s) => s.textContent?.includes('orders.http'))!);
+		const source = view!.get('select[aria-label="Source"]') as HTMLSelectElement;
+		source.value = 'file:api/orders.http';
+		fire(source, 'change');
 		expect(rows().map((row) => row.text)).toEqual(['/health']);
 	});
 
-	it('brings the ticked ones in with the choices, into a new collection', async () => {
+	it('imports the ticked ones with the choices into a new collection, and closes on the collection', async () => {
 		await show();
 		vi.mocked(api.bringIn).mockResolvedValue({ stem: 'shop', brought: { added: 2, changed: 1, unchanged: 0 }, environments: 1 });
 		click(view!.get('input[aria-label="GET /health"]'));
-		click(button('New collection'));
+		click(button('Next'));
+		const fresh = view!.all('input[type="radio"][name="as"]')[1] as HTMLInputElement;
+		fresh.checked = true;
+		fire(fresh, 'change');
 		const name = view!.get('input[aria-label="The new collection\'s name"]') as HTMLInputElement;
 		name.value = 'shop';
 		fire(name, 'input');
-		click(button('By path'));
-		click(button('Create collection shop with 2'));
+		const byPath = view!.all('input[type="radio"][name="folders"]')[1] as HTMLInputElement;
+		byPath.checked = true;
+		fire(byPath, 'change');
+		click(button('Import 2 calls into shop'));
 		await settle();
 		expect(api.bringIn).toHaveBeenCalledWith({
 			ids: ['e1', 'e2'],
@@ -201,24 +237,34 @@ describe('Import', () => {
 			serverAddress: true
 		});
 		expect(notice.ok).toHaveBeenCalledWith('Brought into shop: 2 added, 1 updated, 1 environment made');
+		expect(onclose).toHaveBeenCalledWith('shop');
 	});
 
-	it('scans, says how far it has got, and takes what it found', async () => {
+	it('cancels without writing anything', async () => {
+		await show();
+		click(button('Cancel'));
+		expect(onclose).toHaveBeenCalledWith(null);
+		expect(api.bringIn).not.toHaveBeenCalled();
+	});
+
+	it('scans, says how far it has got, and moves on to what it found', async () => {
 		await show(null);
-		expect(view!.text()).toContain('Scan the code, or choose a file');
-		click(button('Scan the code'));
+		expect(step()).toBe('Source');
+		expect(button('Next').disabled).toBe(true);
+		click(button('Scan this repository’s code'));
 		await settle();
 		const id = vi.mocked(api.scan).mock.calls[0][0];
 		handlers.get('calls-scan')!({ payload: { scanId: id, files: 1200 } });
 		flushSync();
-		expect(view!.get('[role="status"]').textContent).toBe('Reading files… 1,200');
+		expect(view!.get('.progress').textContent).toBe('Reading files… 1,200');
 		handlers.get('calls-scan-done')!({ payload: { scanId: id, found: FOUND, error: null, cancelled: false } });
 		await settle();
+		expect(step()).toBe('Pick');
 		expect(rows()).toHaveLength(4);
 	});
 
-	it('adds a file chosen from outside and a pasted cURL', async () => {
-		await show();
+	it('reads a file chosen from outside, a Bruno folder and a pasted cURL', async () => {
+		await show(FOUND, 1);
 		const outside: Found = {
 			...FOUND,
 			sources: [...FOUND.sources, { id: 'file:C:/Downloads/shop.postman_collection.json', kind: 'postman', label: 'shop.postman_collection.json', file: 'C:/Downloads/shop.postman_collection.json', count: 1, error: null, inRepository: false }],
@@ -228,43 +274,45 @@ describe('Import', () => {
 			]
 		};
 		vi.mocked(api.importFile).mockResolvedValue(outside);
-		click(button('Choose a file…'));
+		click(button('A file'));
 		await settle();
 		expect(api.importFile).toHaveBeenCalledWith('C:/Downloads/shop.postman_collection.json');
-		// Shown on its own, ticked.
+		// On to choosing, the file's calls on their own, ticked.
+		expect(step()).toBe('Pick');
 		expect(rows()).toEqual([{ text: '/ping', tag: 'New', ticked: true }]);
 
+		click(button('Back'));
 		// A Bruno collection is chosen as its folder.
 		vi.mocked(openDialog).mockResolvedValueOnce('C:/Documents/collections/DXP');
-		click(button('Choose a Bruno folder…'));
+		click(button('A Bruno collection folder'));
 		await settle();
 		expect(openDialog).toHaveBeenLastCalledWith({ multiple: false, directory: true });
 		expect(api.importFile).toHaveBeenLastCalledWith('C:/Documents/collections/DXP');
 
+		click(button('Back'));
 		vi.mocked(api.importText).mockRejectedValue('this is not a cURL command');
-		click(button('Paste cURL'));
+		click(button('Paste a cURL command'));
 		const area = view!.get('textarea[aria-label="A cURL command"]') as HTMLTextAreaElement;
 		area.value = 'wget x';
 		fire(area, 'input');
 		click(button('Read it'));
 		await settle();
 		expect(notice.failed).toHaveBeenCalledWith('Could not read that cURL command', 'this is not a cURL command');
+		expect(step()).toBe('Source');
 	});
-});
 
-/** BUG-105: reading a collection says so while it reads, and what it found after. */
-describe('reading a file', () => {
-	it('says what it is reading, then how many calls came and what to do next', async () => {
-		await show();
+	/** BUG-105: reading a collection says so while it reads. */
+	it('says what it is reading, and keeps the sources still until it is done', async () => {
+		await show(FOUND, 1);
 		const source = { id: 'file:C:/Downloads/big.json', kind: 'postman' as const, label: 'big.json', file: 'C:/Downloads/big.json', count: 2, error: null, inRepository: false };
 		let answer: (found: Found) => void = () => {};
 		vi.mocked(api.importFile).mockReturnValue(new Promise<Found>((resolve) => (answer = resolve)));
 		vi.mocked(openDialog).mockResolvedValueOnce('C:/Downloads/big.json');
 
-		click(button('Choose a file…'));
+		click(button('A file'));
 		await settle();
 		expect(view!.text()).toContain('Reading big.json…');
-		expect(button('Choose a file…').disabled).toBe(true);
+		expect(button('A file').disabled).toBe(true);
 
 		answer({
 			...FOUND,
@@ -277,7 +325,37 @@ describe('reading a file', () => {
 		});
 		await settle();
 		expect(view!.text()).not.toContain('Reading big.json…');
-		expect(view!.get('.read').textContent).toBe('2 calls read from big.json. Choose where they go, then bring them in.');
-		expect(button('Choose a file…').disabled).toBe(false);
+		expect(step()).toBe('Pick');
+		expect(rows().map((row) => row.text)).toEqual(['/a', '/b']);
+	});
+});
+
+/** FEAT-179: an agent can be asked to read the chosen controllers too. */
+describe('asking an agent too', () => {
+	it('reads the chosen controllers, and says what it added', async () => {
+		vi.mocked(api.agents).mockResolvedValue([{ id: 'claude', name: 'Claude Code' }]);
+		const read = {
+			...FOUND,
+			endpoints: FOUND.endpoints.map((found) =>
+				found.id === 'e2' ? { ...found, call: { ...found.call, responses: [{ status: 409, says: 'Already paid', from: 'Claude Code' }] } } : found
+			)
+		};
+		vi.mocked(api.agentRead).mockResolvedValue({ agent: 'Claude Code', files: 1, added: 3, failed: [], found: read });
+		await show();
+		// e1 and e2 are from the controller; e4, from an .http file, is not for an agent.
+		expect(view!.text()).toContain('An agent can read the chosen controller');
+		click(button('Ask Claude Code'));
+		await settle();
+		expect(api.agentRead).toHaveBeenCalledWith(['e1', 'e2'], 'claude');
+		expect(view!.text()).toContain('Claude Code read 1 controller and added 3 rules and answers.');
+		expect(importer.found?.endpoints.find((found) => found.id === 'e2')?.call.responses?.[0].status).toBe(409);
+		expect(rows().filter((row) => row.ticked)).toHaveLength(3);
+	});
+
+	it('says where to set one up when none may be asked', async () => {
+		vi.mocked(api.agents).mockResolvedValue([]);
+		await show();
+		expect(view!.text()).toContain('set one up in Settings › Agents');
+		expect(button('Ask')).toBeUndefined();
 	});
 });

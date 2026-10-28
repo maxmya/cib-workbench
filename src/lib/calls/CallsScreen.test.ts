@@ -62,7 +62,9 @@ vi.mock('./api', () => ({
 	foundFiles: vi.fn(async () => ({ sources: [], endpoints: [], environments: [], scripted: 0, baseUrl: null, filesRead: 0, capped: false })),
 	importFile: vi.fn(),
 	importText: vi.fn(),
-	bringIn: vi.fn()
+	bringIn: vi.fn(),
+	sharePlan: vi.fn(async () => ({ files: [{ path: 'orders-api.openapi.json', size: 900 }], total: 900 })),
+	share: vi.fn()
 }));
 
 import * as api from './api';
@@ -473,6 +475,18 @@ describe('taking a collection away', () => {
 		await settle();
 
 		expect(api.deleteCollection).toHaveBeenCalledWith('broken');
+	});
+
+	it('exports one as OpenAPI from its menu (FEAT-179)', async () => {
+		await show();
+		click(head());
+		flushSync();
+		click(item('Export as OpenAPI'));
+		await settle();
+
+		const sheet = view!.get('.share');
+		expect(sheet.querySelector('[aria-checked="true"][class~="choice"]')?.textContent).toBe('OpenAPI 3.1');
+		expect(vi.mocked(api.sharePlan).mock.calls.at(-1)?.[0]).toMatchObject({ stem: 'orders-api', format: 'openapi' });
 	});
 });
 

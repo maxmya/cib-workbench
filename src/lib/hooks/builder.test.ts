@@ -7,7 +7,7 @@ import { makeBlock, steps, type Builder, type Run } from './builder-types';
 const listeners: (() => void)[] = [];
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(async (_name: string, callback: () => void) => { listeners.push(callback); return vi.fn(); }) }));
 vi.mock('$app/navigation', () => ({ goto: vi.fn(async () => {}) }));
-vi.mock('./builder-api', () => ({ load: vi.fn(), save: vi.fn(async () => {}), importManager: vi.fn(), matches: vi.fn(async () => ['a.txt']), runs: vi.fn(async () => []), run: vi.fn(), log: vi.fn(async () => 'checking\n'), dryRun: vi.fn(async () => ({ passed: true, output: '' })), tryMessage: vi.fn(async () => ({ passed: false, output: 'The subject does not match.' })), stop: vi.fn(async () => {}), undoRestage: vi.fn(async () => {}), agents: vi.fn(async () => [{ id: 'claude', name: 'Claude Code' }]), explain: vi.fn(async () => ({ agent: 'Claude Code', text: 'Runs lint-staged on what is staged.' })), write: vi.fn(async () => {}) }));
+vi.mock('./builder-api', () => ({ load: vi.fn(), save: vi.fn(async () => {}), importManager: vi.fn(), matches: vi.fn(async () => ['a.txt']), runs: vi.fn(async () => []), run: vi.fn(), log: vi.fn(async () => 'checking\n'), dryRun: vi.fn(async () => ({ passed: true, output: '' })), tryMessage: vi.fn(async () => ({ passed: false, output: 'The subject does not match.' })), stop: vi.fn(async () => {}), undoRestage: vi.fn(async () => {}), agents: vi.fn(async () => [{ id: 'claude', name: 'Claude Code' }]), explain: vi.fn(async () => ({ agent: 'Claude Code', text: 'Runs lint-staged on what is staged.' })), write: vi.fn(async () => {}), add: vi.fn(async () => '.husky/pre-push') }));
 
 import * as api from './builder-api';
 import { builder } from './builder.svelte';
@@ -82,32 +82,50 @@ describe('hook builder state', () => {
 });
 
 describe('the mounted Hooks screens', () => {
-	it('adds all seven kinds and edits a command through the real inputs', async () => {
-		await builder.load('/repo'); const view = render(HooksScreen, { mode: 'edit' });
-		for (const button of view.all('.catalogue-block')) click(button);
-		expect(builder.draft?.blocks).toHaveLength(7);
-		const script = builder.draft!.blocks.find((block) => block.action.kind === 'script')!; builder.select(script.id); flushSync();
+	/** FEAT-176: with no manager, a template is a block, edited in Current hooks. */
+	it('adds a template as a block and edits its command through the real inputs', async () => {
+		await builder.load('/repo');
+		const create = render(HooksScreen, { mode: 'create' });
+		const add = (title: string) =>
+			click([...create.get(`[aria-label="${title}"]`).querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Add as a block') as HTMLElement);
+		add('Tests before pushing');
+		add('TypeScript type check');
+		expect(builder.draft?.blocks.map((block) => [block.action.kind, block.stage])).toEqual([['tests', 'pre-push'], ['script', 'pre-commit']]);
+		create.destroy();
+
+		const view = render(HooksScreen, { mode: 'current' });
+		const script = builder.draft!.blocks.find((block) => block.action.kind === 'script')!;
+		click(view.all('.step').find((button) => button.textContent?.includes('TypeScript type check'))!);
+		expect(builder.block?.id).toBe(script.id);
 		const command = view.get('[aria-label="Block command"]') as HTMLTextAreaElement;
 		command.value = './check.sh'; fire(command, 'input');
 		expect(builder.block?.action).toEqual({ kind: 'script', command: './check.sh' });
 		click(view.all('button').find((button) => button.textContent?.trim() === 'Remove')!);
-		expect(builder.draft?.blocks).toHaveLength(6); view.destroy();
+		expect(builder.draft?.blocks).toHaveLength(1); view.destroy();
 	});
-	it('offers the import when a card is clicked while a manager owns the hooks (BUG-099)', async () => {
+	it('offers to take a manager’s hooks over as blocks (BUG-099)', async () => {
 		const managed = definition(); managed.info.manager = 'husky'; vi.mocked(api.load).mockResolvedValue(managed);
-		vi.mocked(api.importManager).mockResolvedValue({ ...managed.definition, blocks: [] });
-		await builder.load('/repo'); const view = render(HooksScreen, { mode: 'edit' });
-		const card = view.all('.catalogue-block')[0] as HTMLButtonElement;
-		expect(card.disabled).toBe(false);
-		click(card); await Promise.resolve();
+		vi.mocked(api.importManager).mockResolvedValue({ ...managed.definition, blocks: [makeBlock('tests')] });
+		await builder.load('/repo'); const view = render(HooksScreen, { mode: 'current' });
+		click(view.all('button').find((button) => button.textContent?.trim() === 'Import as blocks')!); await Promise.resolve();
 		expect(dialog.question?.title).toBe('Import the current hooks?');
 		dialog.accept(); await new Promise((resolve) => setTimeout(resolve, 0)); flushSync();
 		expect(builder.readonly).toBe(false);
 		expect(builder.draft?.blocks.map((block) => block.action.kind)).toEqual(['tests']);
 		view.destroy();
 	});
+	it('with Husky, adds a template’s command to its file and reads the hooks again', async () => {
+		const managed = definition(); managed.info.manager = 'husky'; vi.mocked(api.load).mockResolvedValue(managed);
+		await builder.load('/repo'); const view = render(HooksScreen, { mode: 'create' });
+		const card = view.get('[aria-label="Tests before pushing"]');
+		click([...card.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Add to .husky/pre-push') as HTMLElement);
+		await settle(); await settle(); flushSync();
+		expect(api.add).toHaveBeenCalledWith('pre-push', 'npm test');
+		expect(api.load).toHaveBeenCalledTimes(2);
+		view.destroy();
+	});
 	it('tries a message with the generated-script command instead of a frontend regex', async () => {
-		await builder.load('/repo'); builder.add('message'); const view = render(HooksScreen, { mode: 'edit' });
+		await builder.load('/repo'); builder.add('message'); const view = render(HooksScreen, { mode: 'current' });
 		const field = view.get('[aria-label="Try a message"]') as HTMLTextAreaElement; field.value = 'wrong'; fire(field, 'input');
 		click(view.all('button').find((button) => button.textContent?.trim() === 'Try message')!); await settle(); flushSync();
 		expect(api.tryMessage).toHaveBeenCalledWith(expect.objectContaining({ blocks: [expect.objectContaining({ stage: 'commit-msg' })] }), 'wrong');
@@ -144,6 +162,7 @@ describe('hooks a manager runs', () => {
 		const managed = definition();
 		managed.info.manager = 'husky';
 		managed.info.hooks = [{ name: 'pre-commit', path: '.husky/pre-commit', script: 'npx lint-staged\n', truncated: false, onCommit: true }];
+		managed.info.steps = [{ hook: 'pre-commit', order: 1, name: 'lint-staged', command: 'npx lint-staged', category: 'format', file: '.husky/pre-commit', line: 1, together: false }];
 		return managed;
 	};
 	const button = (view: { all: (selector: string) => Element[] }, text: string) =>
@@ -152,20 +171,23 @@ describe('hooks a manager runs', () => {
 	it('shows each script, coloured, and says who runs them', async () => {
 		vi.mocked(api.load).mockImplementation(async () => husky());
 		await builder.load('/repo');
-		const view = render(HooksScreen, { mode: 'edit' });
+		const view = render(HooksScreen, { mode: 'current' });
 		flushSync();
 
-		expect(view.text()).toContain('What Husky runs');
+		expect(view.text()).toContain('Run by Husky');
+		expect(view.text()).toContain('When you commit');
+		expect(view.get('.step').textContent).toContain('lint-staged');
+		expect(view.get('.step .tag').textContent).toBe('Format & lint');
 		expect(view.text()).toContain('.husky/pre-commit');
 		expect(view.all('.script .line')).toHaveLength(1);
-		expect(view.text()).not.toContain('the builder is read-only');
+		expect(view.all('.script .line.marked')).toHaveLength(1);
 		view.destroy();
 	});
 
 	it('asks an agent what a script does, and shows the answer under it', async () => {
 		vi.mocked(api.load).mockImplementation(async () => husky());
 		await builder.load('/repo');
-		const view = render(HooksScreen, { mode: 'edit' });
+		const view = render(HooksScreen, { mode: 'current' });
 		click(button(view, 'Explain'));
 		await settle(); await settle(); flushSync();
 
@@ -177,7 +199,7 @@ describe('hooks a manager runs', () => {
 	it('edits a script in place and reads the hooks again', async () => {
 		vi.mocked(api.load).mockImplementation(async () => husky());
 		await builder.load('/repo');
-		const view = render(HooksScreen, { mode: 'edit' });
+		const view = render(HooksScreen, { mode: 'current' });
 		click(button(view, 'Edit'));
 		flushSync();
 		const area = view.get('textarea[aria-label="Edit .husky/pre-commit"]') as HTMLTextAreaElement;

@@ -189,6 +189,22 @@ export const home = {
 		if (path) await readGit(epoch);
 	},
 
+	/**
+	 * Both halves again, now, keeping what is shown until the answers come:
+	 * Home's Refresh, after its fetch (FEAT-173).
+	 */
+	async reload(branch: string | null): Promise<void> {
+		if (!path || !api.inTauri()) return;
+		const ticket = ++epoch;
+		loading = true;
+		try {
+			await readGit(ticket);
+			await readForge(ticket, branch);
+		} finally {
+			if (ticket === epoch) loading = false;
+		}
+	},
+
 	/** While Home is on screen, its forge cards follow the watcher's clock. */
 	follow(branch: () => string | null): () => void {
 		unsubscribe?.();

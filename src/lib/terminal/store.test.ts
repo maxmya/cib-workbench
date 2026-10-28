@@ -490,18 +490,19 @@ describe('with no multiplexer', () => {
 });
 
 describe('what the program prints and what is typed', () => {
-	it('writes a frame’s output to the emulator once, as it was read', async () => {
+	it('writes the first piece after a pause at once, and the rest of its frame once (BUG-111)', async () => {
 		await terminal.enter('/repos/thing');
 		await settle();
 
 		opened[0].print('one ');
+		expect(emulators[0].text()).toBe('one ');
 		opened[0].print('two ');
 		opened[0].print('thr☃e');
-		expect(emulators[0].text()).toBe('');
+		expect(emulators[0].text()).toBe('one ');
 		await settle();
 
 		expect(emulators[0].text()).toBe('one two thr☃e');
-		expect(emulators[0].writes).toBe(1);
+		expect(emulators[0].writes).toBe(2);
 	});
 
 	/** The item: a million lines do not arrive as a million writes. */
