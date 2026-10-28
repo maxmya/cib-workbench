@@ -1667,6 +1667,16 @@ export interface Update {
 	url: string;
 }
 
+/**
+ * What preparing a self-update found (FEAT-187). `unsupported` builds — a
+ * development build, one with no update key, one no installer put there — fall
+ * back to `Update`'s notice and link.
+ */
+export type Prepared =
+	| { state: 'unsupported'; reason: string }
+	| { state: 'current'; version: string }
+	| { state: 'ready'; version: string; current: string };
+
 export interface Dependency {
 	name: string;
 	version: string;

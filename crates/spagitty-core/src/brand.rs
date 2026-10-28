@@ -25,9 +25,13 @@ pub const BASED_ON_SPAGITTY: &str = "4.0.1";
 /// version, nothing about the machine.
 pub const USER_AGENT: &str = concat!("workbench/", env!("CARGO_PKG_VERSION"));
 
-/// Whether the app asks for a newer release. Workbench comes through CIB's
-/// internal software channel, so it asks nobody and makes no request.
-pub const CHECKS_FOR_UPDATES: bool = false;
+/// Whether the app asks for a newer release. Workbench reads its own
+/// repository's GitHub releases, and installs from them (FEAT-187).
+pub const CHECKS_FOR_UPDATES: bool = true;
+
+/// Where a person goes for the release the notice names, when the host's
+/// answer carries no page of its own.
+pub const RELEASES_PAGE: &str = "https://github.com/maxmya/cib-workbench/releases";
 
 /// The `User-Agent` product token Calls sends: `Workbench/<version>`.
 pub fn user_agent(version: &str) -> String {

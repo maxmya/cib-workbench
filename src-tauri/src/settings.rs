@@ -359,8 +359,8 @@ mod tests {
         // history, so this is the one that defaults to on.
         assert!(Settings::default().confirm_history_rewrite);
         assert!(!Settings::default().show_git_commands);
-        // Workbench: off, since it comes through CIB's internal channel.
-        assert!(!Settings::default().check_for_updates);
+        // Workbench: on, since it updates itself from GitHub (FEAT-187).
+        assert!(Settings::default().check_for_updates);
     }
 
     #[test]

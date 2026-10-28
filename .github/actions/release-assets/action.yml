@@ -51,9 +51,18 @@ runs:
         # The `.zsync` is a download in its own right: it is the file an
         # updater fetches first, and an AppImage whose zsync was never attached
         # advertises an update source that answers 404.
+        #
+        # So are the updater's artefacts, when the build had the signing key
+        # (FEAT-187): the `.sig` beside each signed download, and the macOS
+        # app as the `.app.tar.gz` an installed copy replaces itself with.
+        # Gate 6 reads them to write `latest.json`.
         find . -path ./node_modules -prune -o \
                \( -name '*.AppImage' \
                -o -name '*.AppImage.zsync' \
+               -o -name '*.AppImage.sig' \
+               -o -name '*-setup.exe.sig' \
+               -o -name '*.app.tar.gz' \
+               -o -name '*.app.tar.gz.sig' \
                -o -name '*.deb' \
                -o -name '*.rpm' \
                -o -name '*-setup.exe' \
@@ -81,8 +90,14 @@ runs:
               # the pair breaks in-place updates. Nothing needs it anyway: the
               # suffix exists for the two macOS runners, and neither builds an
               # AppImage.
-              *.AppImage|*.AppImage.zsync) continue ;;
+              *.AppImage|*.AppImage.zsync|*.AppImage.sig) continue ;;
               *"-${SUFFIX}."*) continue ;;
+              # Two extensions, so the suffix goes before both, and the
+              # signature keeps the name of the archive it signs.
+              *.app.tar.gz|*.app.tar.gz.sig)
+                mv "$file" "${file/.app.tar.gz/-${SUFFIX}.app.tar.gz}"
+                continue
+                ;;
             esac
             base=${file%.*}
             extension=${file##*.}

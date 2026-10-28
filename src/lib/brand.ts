@@ -39,8 +39,8 @@ export const BASED_ON = {
 
 /** What Workbench leaves out of Spagitty. */
 export const FEATURES = {
-	/** Workbench comes through CIB's internal software channel; nothing asks GitHub. */
-	updateCheck: false,
+	/** Workbench updates itself from its own GitHub releases (FEAT-187). */
+	updateCheck: true,
 	/** The author's own section for the delight layer. */
 	godMode: false
 };

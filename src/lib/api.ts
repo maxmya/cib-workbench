@@ -86,6 +86,7 @@ import type {
 	ReviewVerdict,
 	Settings,
 	Signing,
+	Prepared,
 	Update,
 	Watched,
 	Snapshot,
@@ -1046,6 +1047,24 @@ export function clearSigning(scope: IdentityScope): Promise<Signing> {
  */
 export function checkUpdate(): Promise<Update> {
 	return invoke('check_update');
+}
+
+/**
+ * Look for a newer Workbench and, if there is one, download it (FEAT-187).
+ *
+ * Reads `latest.json` on the latest GitHub release, verifies the download
+ * against Workbench's own key, and holds it until `restartToUpdate`. Nothing
+ * is installed here. `progress` hears how much has arrived.
+ */
+export function prepareUpdate(progress: (received: number, total: number | null) => void): Promise<Prepared> {
+	const channel = new Channel<{ received: number; total: number | null }>();
+	channel.onmessage = ({ received, total }) => progress(received, total);
+	return invoke('update_prepare', { progress: channel });
+}
+
+/** Install the downloaded update and start the new version. */
+export function restartToUpdate(): Promise<void> {
+	return invoke('update_restart');
 }
 
 /** Spagitty's own behaviour toggles. */
