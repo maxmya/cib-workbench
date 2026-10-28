@@ -14,6 +14,8 @@ versions follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-28
+
 ### Added
 
 - **Workbench updates itself.** It looks for a newer release when it starts,
@@ -37,6 +39,14 @@ versions follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 - **The update notice links to Workbench's releases**, not Spagitty's, when
   GitHub's answer carries no page of its own (FEAT-187).
+
+### Downloads
+
+- **Windows, Linux and macOS on Apple silicon.** The Mac build is signed ad hoc
+  and is not notarized: on first open macOS says the developer cannot be
+  verified. Allow it under **System Settings › Privacy & Security ›
+  Open Anyway**, and macOS remembers the choice. If macOS says the app is
+  **damaged** instead, compare the download with `SHA256SUMS-*.txt`.
 
 ## [1.3.1] - 2026-10-28
 
