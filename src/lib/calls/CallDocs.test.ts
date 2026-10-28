@@ -49,5 +49,18 @@ describe('Docs', () => {
 		click(document.querySelector('.example') as HTMLElement);
 		flushSync();
 		expect(document.querySelector('pre')?.textContent).toBe('{\n  "error": "email"\n}');
+		click(document.querySelector('.example') as HTMLElement);
+		flushSync();
+		expect(document.querySelector('pre')).toBeNull();
+	});
+
+	it('shows an example that is not JSON as it was written', () => {
+		view = render(CallDocs, { rules: [], responses: [{ status: 500, says: 'Internal server error', body: 'upstream timed out' }] });
+		expect(document.querySelector('.status')?.classList.contains('danger')).toBe(true);
+		expect(document.querySelector('.from')).toBeNull();
+		click(document.querySelector('.example') as HTMLElement);
+		flushSync();
+		expect(document.querySelector('pre')?.textContent).toBe('upstream timed out');
+		expect(document.querySelector('.example')?.textContent).toBe('Hide example');
 	});
 });

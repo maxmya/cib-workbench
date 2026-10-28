@@ -352,6 +352,48 @@ describe('asking an agent too', () => {
 		expect(rows().filter((row) => row.ticked)).toHaveLength(3);
 	});
 
+	it('asks the agent chosen, and says when it added nothing or could not read a file', async () => {
+		vi.mocked(api.agents).mockResolvedValue([
+			{ id: 'claude', name: 'Claude Code' },
+			{ id: 'codex', name: 'Codex' }
+		]);
+		vi.mocked(api.agentRead).mockResolvedValue({
+			agent: 'Codex',
+			files: 2,
+			added: 0,
+			failed: ['src/Other.java: could not be read'],
+			found: FOUND
+		});
+		await show();
+		const select = view!.get('select[aria-label="The agent that reads"]') as HTMLSelectElement;
+		select.value = 'codex';
+		fire(select, 'change');
+		flushSync();
+		click(button('Ask Codex'));
+		await settle();
+		expect(api.agentRead).toHaveBeenCalledWith(['e1', 'e2'], 'codex');
+		expect(view!.text()).toContain(
+			'Codex read 2 controllers and found nothing more to add. 1 could not be read: src/Other.java: could not be read'
+		);
+	});
+
+	it('says plainly when the agent could not read them', async () => {
+		vi.mocked(api.agents).mockResolvedValue([{ id: 'claude', name: 'Claude Code' }]);
+		vi.mocked(api.agentRead).mockRejectedValue('This repository does not allow that agent.');
+		await show();
+		click(button('Ask Claude Code'));
+		await settle();
+		expect(notice.failed).toHaveBeenCalledWith('The agent could not read them', 'This repository does not allow that agent.');
+		expect(button('Next').disabled).toBe(false);
+	});
+
+	it('reads no agents when they cannot be listed', async () => {
+		vi.mocked(api.agents).mockRejectedValue('no repository');
+		await show();
+		expect(importer.agents).toEqual([]);
+		expect(importer.agent).toBeNull();
+	});
+
 	it('says where to set one up when none may be asked', async () => {
 		vi.mocked(api.agents).mockResolvedValue([]);
 		await show();
