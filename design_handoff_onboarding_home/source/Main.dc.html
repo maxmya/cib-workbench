@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Workbench — first launch</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&amp;family=Sora:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="min-height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; color: #ECEEF1; font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; font-size: 15px; line-height: 1.45; background-color: #0B0B0C; background-image: radial-gradient(1100px 640px at 50% 42%, rgba(12,82,154,0.26), rgba(11,11,12,0) 70%)">
+
+  <header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px 32px; padding: 24px 40px">
+    <div style="display: flex; align-items: baseline; gap: 12px">
+      <span style="font-family: 'Sora', 'Segoe UI', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.3em; color: rgba(236,238,241,0.66)">CIB</span>
+      <span role="img" aria-label="Workbench" style="display: inline-flex; align-items: baseline; font-family: 'Sora', 'Segoe UI', sans-serif; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; color: #FFFFFF"><span aria-hidden="true">W</span><img src="/_blob/8ed2904807391f8815df61b310da6e3b" alt="" style="height: 0.58em; width: auto; position: relative; top: 0.02em; margin: 0 0.03em"><span aria-hidden="true">rkbench</span></span>
+    </div>
+    <ol aria-label="Setting up Workbench" style="list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 14px">
+      <sc-for list="{{ steps }}" as="s" hint-placeholder-count="4">
+        <li aria-current="{{ s.current }}" style="display: flex; align-items: center; gap: 10px">
+          <sc-if value="{{ s.notFirst }}" hint-placeholder-val="{{ true }}"><span aria-hidden="true" style="{{ s.barStyle }}"></span></sc-if>
+          <span style="{{ s.dotStyle }}">
+            <sc-if value="{{ s.done }}" hint-placeholder-val="{{ false }}"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"></path></svg></sc-if>
+            <sc-if value="{{ s.notDone }}" hint-placeholder-val="{{ true }}">{{ s.n }}</sc-if>
+          </span>
+          <span style="{{ s.labelStyle }}">{{ s.label }}</span>
+        </li>
+      </sc-for>
+    </ol>
+  </header>
+
+  <main style="flex: 1 1 auto; display: flex; align-items: center; justify-content: center; padding: 16px 40px 24px">
+    <div style="width: 100%; max-width: 1120px">
+      <sc-if value="{{ w1 }}" hint-placeholder-val="{{ true }}">
+        <section aria-labelledby="w1h" style="display: flex; flex-direction: column; align-items: center; text-align: center; gap: 18px; padding: 8px 0">
+          <span style="font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #4D8FD6">Welcome</span>
+          <h1 id="w1h" role="img" aria-label="Workbench" style="margin: 0; display: inline-flex; align-items: baseline; font-family: 'Sora', 'Segoe UI', sans-serif; font-size: 104px; line-height: 1; font-weight: 600; letter-spacing: -0.035em; color: #FFFFFF"><span aria-hidden="true">W</span><img src="/_blob/8ed2904807391f8815df61b310da6e3b" alt="" style="height: 0.58em; width: auto; position: relative; top: 0.02em; margin: 0 0.02em; filter: drop-shadow(0 0 28px rgba(77,143,214,0.5))"><span aria-hidden="true">rkbench</span></h1>
+          <p style="margin: 0; font-size: 19px; color: rgba(236,238,241,0.74)">Git, reviews and agents in one place</p>
+          <p style="margin: 14px 0 0; max-width: 640px; font-size: 16px; color: rgba(236,238,241,0.74)">Workbench follows the CIB GitLab repositories you choose — merge requests, pipelines, issues and API calls across all of them — and works on one repository when you load it.</p>
+          <div style="margin-top: 22px; display: flex; flex-wrap: wrap; justify-content: center; gap: 12px">
+            <span style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; border: 1px solid rgba(236,238,241,0.14); background: rgba(17,18,20,0.7); font-size: 13.5px; color: rgba(236,238,241,0.8)"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4D8FD6" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"></path></svg>You need a CIB GitLab account</span>
+            <span style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; border: 1px solid rgba(236,238,241,0.14); background: rgba(17,18,20,0.7); font-size: 13.5px; color: rgba(236,238,241,0.8)"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4D8FD6" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"></path></svg>Four steps, all can be changed later</span>
+          </div>
+        </section>
+      </sc-if>
+      <sc-if value="{{ w2 }}" hint-placeholder-val="{{ false }}">
+        <section aria-labelledby="w2h" style="display: flex; flex-wrap: wrap; align-items: center; gap: 48px 64px">
+          <div style="flex: 1 1 420px; display: flex; flex-direction: column; gap: 18px">
+            <span style="font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #4D8FD6">Welcome · 2 of 3</span>
+            <h2 id="w2h" style="margin: 0; font-family: 'Sora', 'Segoe UI', sans-serif; font-size: 40px; line-height: 1.15; font-weight: 600; letter-spacing: -0.02em; color: #FFFFFF">Home follows your repositories</h2>
+            <p style="margin: 0; font-size: 16px; color: rgba(236,238,241,0.74)">Pick the GitLab projects you care about once. Home reads all of them, so you don’t open a repository to find out what it needs from you.</p>
+            <ul style="list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 14px">
+              <li style="display: flex; gap: 14px; align-items: flex-start"><span style="flex: none; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: rgba(77,143,214,0.14); color: #4D8FD6"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg></span><span><strong style="font-weight: 600; color: #FFFFFF">Needs you</strong><br><span style="color: rgba(236,238,241,0.7)">Reviews requested, failed pipelines and issues assigned to you, from every repository you follow.</span></span></li>
+              <li style="display: flex; gap: 14px; align-items: flex-start"><span style="flex: none; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: rgba(77,143,214,0.14); color: #4D8FD6"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="2.2"></circle><circle cx="12" cy="12" r="2.2"></circle><circle cx="19" cy="12" r="2.2"></circle><path d="M7.2 12h2.6M14.2 12h2.6"></path></svg></span><span><strong style="font-weight: 600; color: #FFFFFF">Pipelines and merge requests</strong><br><span style="color: rgba(236,238,241,0.7)">Side by side for all of them, without cloning or loading any.</span></span></li>
+              <li style="display: flex; gap: 14px; align-items: flex-start"><span style="flex: none; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: rgba(77,143,214,0.14); color: #4D8FD6"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h6l2-5 3 10 2-5h3"></path></svg></span><span><strong style="font-weight: 600; color: #FFFFFF">Calls</strong><br><span style="color: rgba(236,238,241,0.7)">Collections kept in Workbench work with no repository at all.</span></span></li>
+            </ul>
+          </div>
+          <div aria-hidden="true" style="flex: 1 1 440px; display: flex; flex-direction: column; gap: 14px">
+            <div style="padding: 22px; border-radius: 18px; background: #111214; border: 1px solid rgba(236,238,241,0.12); box-shadow: 0 24px 60px rgba(0,0,0,0.45); display: flex; flex-direction: column; gap: 10px">
+              <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px"><span style="font-family: 'Sora', sans-serif; font-weight: 600; font-size: 16px">Needs you</span><span style="font-size: 12.5px; color: rgba(236,238,241,0.62)">from 5 repositories</span></div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-radius: 10px; background: #17181B"><span style="width: 8px; height: 8px; border-radius: 50%; background: #4D8FD6; flex: none"></span><span style="flex: 1; min-width: 0"><span style="display: block; font-size: 14px">Review requested · !412 Retry failed SWIFT acks</span><span style="font-size: 12px; color: rgba(236,238,241,0.62)">18 min ago</span></span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; padding: 3px 8px; border-radius: 6px; background: rgba(236,238,241,0.08); color: rgba(236,238,241,0.8)">crx-transfers</span></div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-radius: 10px; background: #17181B"><span style="width: 8px; height: 8px; border-radius: 50%; background: #EC6A82; flex: none"></span><span style="flex: 1; min-width: 0"><span style="display: block; font-size: 14px">Pipeline failed on main · test:integration</span><span style="font-size: 12px; color: rgba(236,238,241,0.62)">41 min ago</span></span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; padding: 3px 8px; border-radius: 6px; background: rgba(236,238,241,0.08); color: rgba(236,238,241,0.8)">card-issuing-api</span></div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-radius: 10px; background: #17181B"><span style="width: 8px; height: 8px; border-radius: 50%; background: #E2A64E; flex: none"></span><span style="flex: 1; min-width: 0"><span style="display: block; font-size: 14px">Assigned to you · #88 Token refresh on cold start</span><span style="font-size: 12px; color: rgba(236,238,241,0.62)">2 h ago</span></span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; padding: 3px 8px; border-radius: 6px; background: rgba(236,238,241,0.08); color: rgba(236,238,241,0.8)">mobile-gateway</span></div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px; padding: 16px 18px; border-radius: 14px; background: #111214; border: 1px dashed rgba(236,238,241,0.2)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4D8FD6" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h6l2-5 3 10 2-5h3"></path></svg><span style="font-size: 14px">Calls · Core banking sandbox</span><span style="margin-left: auto; font-size: 12.5px; color: rgba(236,238,241,0.62)">no repository needed</span></div>
+          </div>
+        </section>
+      </sc-if>
+      <sc-if value="{{ w3 }}" hint-placeholder-val="{{ false }}">
+        <section aria-labelledby="w3h" style="display: flex; flex-wrap: wrap; align-items: center; gap: 48px 64px">
+          <div style="flex: 1 1 420px; display: flex; flex-direction: column; gap: 18px">
+            <span style="font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #4D8FD6">Welcome · 3 of 3</span>
+            <h2 id="w3h" style="margin: 0; font-family: 'Sora', 'Segoe UI', sans-serif; font-size: 40px; line-height: 1.15; font-weight: 600; letter-spacing: -0.02em; color: #FFFFFF">Load a repository when you need one</h2>
+            <p style="margin: 0; font-size: 16px; color: rgba(236,238,241,0.74)">There are no tabs. Workbench works on one repository at a time, and only when you ask it to.</p>
+            <ul style="list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 14px">
+              <li style="display: flex; gap: 14px; align-items: flex-start"><span style="flex: none; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: rgba(77,143,214,0.14); color: #4D8FD6"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6.5h6l2 2h10V19H3z"></path></svg></span><span><strong style="font-weight: 600; color: #FFFFFF">Load with Ctrl+O</strong><br><span style="color: rgba(236,238,241,0.7)">From this machine, or straight from CIB GitLab — Workbench clones it first.</span></span></li>
+              <li style="display: flex; gap: 14px; align-items: flex-start"><span style="flex: none; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: rgba(77,143,214,0.14); color: #4D8FD6"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="6" cy="6" r="2"></circle><circle cx="6" cy="18" r="2"></circle><circle cx="18" cy="9" r="2"></circle><path d="M6 8v8M18 11c0 4-6 3-10 6"></path></svg></span><span><strong style="font-weight: 600; color: #FFFFFF">Repository tools act on it</strong><br><span style="color: rgba(236,238,241,0.7)">Graph, working copy, branches, rebase and conflicts. With nothing loaded they wait on the rail, dimmed.</span></span></li>
+              <li style="display: flex; gap: 14px; align-items: flex-start"><span style="flex: none; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: rgba(77,143,214,0.14); color: #4D8FD6"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h11M4 7l3-3M4 7l3 3M20 17H9M20 17l-3-3M20 17l-3 3"></path></svg></span><span><strong style="font-weight: 600; color: #FFFFFF">Switch any time</strong><br><span style="color: rgba(236,238,241,0.7)">Loading another replaces it. What you follow stays on Home.</span></span></li>
+            </ul>
+          </div>
+          <div aria-hidden="true" style="flex: 1 1 440px; padding: 18px; border-radius: 18px; background: #111214; border: 1px solid rgba(236,238,241,0.12); box-shadow: 0 24px 60px rgba(0,0,0,0.45); display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 10px; background: #1B1C20; border: 1px solid rgba(77,143,214,0.55); box-shadow: 0 0 0 4px rgba(77,143,214,0.16)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(236,238,241,0.62)" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg><span style="font-size: 15px">crx</span><span style="width: 1.5px; height: 18px; background: #4D8FD6"></span><span style="margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; padding: 2px 7px; border-radius: 5px; border: 1px solid rgba(236,238,241,0.2); color: rgba(236,238,241,0.7)">Ctrl+O</span></div>
+            <span style="padding: 8px 6px 2px; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(236,238,241,0.6)">On this machine</span>
+            <div style="display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-radius: 10px; background: rgba(77,143,214,0.14)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4D8FD6" stroke-width="1.9" stroke-linejoin="round"><path d="M3 6.5h6l2 2h10V19H3z"></path></svg><span style="flex: 1; min-width: 0"><span style="display: block; font-size: 14px; font-weight: 600">payments/crx-transfers</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: rgba(236,238,241,0.62)">C:\Projects\crx-transfers · main</span></span><span style="font-size: 12.5px; color: #4D8FD6">Load</span></div>
+            <span style="padding: 8px 6px 2px; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(236,238,241,0.6)">On CIB GitLab</span>
+            <div style="display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-radius: 10px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(236,238,241,0.62)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"></path></svg><span style="flex: 1; min-width: 0"><span style="display: block; font-size: 14px">payments/crx-settlement</span><span style="font-size: 12px; color: rgba(236,238,241,0.62)">Not on this machine</span></span><span style="font-size: 12.5px; color: rgba(236,238,241,0.74)">Clone and load</span></div>
+          </div>
+        </section>
+      </sc-if>
+      <sc-if value="{{ s2 }}" hint-placeholder-val="{{ false }}">
+        <section aria-labelledby="s2h" style="display: flex; flex-wrap: wrap; align-items: flex-start; gap: 40px 64px">
+          <div style="flex: 1 1 520px; display: flex; flex-direction: column; gap: 18px">
+            <span style="font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #4D8FD6">Step 2 of 4 · GitLab</span>
+            <h2 id="s2h" style="margin: 0; font-family: 'Sora', 'Segoe UI', sans-serif; font-size: 40px; line-height: 1.15; font-weight: 600; letter-spacing: -0.02em; color: #FFFFFF">Connect to CIB GitLab</h2>
+            <p style="margin: 0; font-size: 16px; color: rgba(236,238,241,0.74)">Workbench talks to one GitLab, the bank’s. It needs a personal access token to read and act for you.</p>
+
+            <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 6px">
+              <label for="gl" style="font-size: 13.5px; font-weight: 600">GitLab address</label>
+              <div style="display: flex; align-items: center; gap: 10px; padding: 0 14px; height: 46px; border-radius: 9px; background: #17181B; border: 1px solid rgba(236,238,241,0.14)">
+                <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(236,238,241,0.62)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
+                <input id="gl" type="text" readOnly="{{ true }}" value="[COMPANY GITLAB URL]" style="flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: #ECEEF1; font-family: 'JetBrains Mono', monospace; font-size: 14px">
+                <span style="font-size: 12.5px; color: rgba(236,238,241,0.62)">Set in this build</span>
+              </div>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 14px; padding: 20px; border-radius: 14px; background: #111214; border: 1px solid rgba(236,238,241,0.12)">
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px">
+                <button type="button" onClick="{{ openToken }}" style="display: inline-flex; align-items: center; gap: 10px; height: 44px; padding: 0 18px; border-radius: 9px; border: 0; background: #0C529A; color: #FFFFFF; font: inherit; font-weight: 600; cursor: pointer">Open token page in your browser<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"></path></svg></button>
+                <button type="button" onClick="{{ copyLink }}" style="display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; border-radius: 9px; border: 1px solid rgba(236,238,241,0.2); background: transparent; color: #ECEEF1; font: inherit; cursor: pointer"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"></path></svg>{{ copyLabel }}</button>
+                <sc-if value="{{ opened }}" hint-placeholder-val="{{ false }}"><span role="status" style="display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: #5DBE8A"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"></path></svg>Opened in your browser</span></sc-if>
+              </div>
+              <code style="display: block; padding: 10px 12px; border-radius: 8px; background: #0B0B0C; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; line-height: 1.5; color: rgba(236,238,241,0.78); word-break: break-all">[COMPANY GITLAB URL]/-/user_settings/personal_access_tokens?name=Workbench&amp;scopes=api,read_repository,write_repository</code>
+              <div style="display: flex; flex-direction: column; gap: 8px">
+                <span style="font-size: 13px; color: rgba(236,238,241,0.66)">The page opens with these scopes ticked:</span>
+                <div style="display: flex; flex-wrap: wrap; gap: 8px">
+                  <span style="display: inline-flex; gap: 8px; align-items: baseline; padding: 6px 10px; border-radius: 8px; background: rgba(236,238,241,0.06); font-size: 13px"><code style="font-family: 'JetBrains Mono', monospace; color: #FFFFFF">api</code><span style="color: rgba(236,238,241,0.66)">merge requests, pipelines, issues</span></span>
+                  <span style="display: inline-flex; gap: 8px; align-items: baseline; padding: 6px 10px; border-radius: 8px; background: rgba(236,238,241,0.06); font-size: 13px"><code style="font-family: 'JetBrains Mono', monospace; color: #FFFFFF">read_repository</code><span style="color: rgba(236,238,241,0.66)">clone and fetch</span></span>
+                  <span style="display: inline-flex; gap: 8px; align-items: baseline; padding: 6px 10px; border-radius: 8px; background: rgba(236,238,241,0.06); font-size: 13px"><code style="font-family: 'JetBrains Mono', monospace; color: #FFFFFF">write_repository</code><span style="color: rgba(236,238,241,0.66)">push</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <aside aria-label="On the token page" style="flex: 1 1 340px; padding: 24px; border-radius: 18px; background: #111214; border: 1px solid rgba(236,238,241,0.12); box-shadow: 0 24px 60px rgba(0,0,0,0.45); display: flex; flex-direction: column; gap: 16px">
+            <h3 style="margin: 0; font-family: 'Sora', sans-serif; font-size: 17px; font-weight: 600">On the token page</h3>
+            <ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px">
+              <li style="display: flex; gap: 12px"><span style="flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 12.5px; font-weight: 600; border: 1.5px solid rgba(236,238,241,0.3)">1</span><span>Sign in to GitLab if it asks.</span></li>
+              <li style="display: flex; gap: 12px"><span style="flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 12.5px; font-weight: 600; border: 1.5px solid rgba(236,238,241,0.3)">2</span><span>Check the name is <strong style="font-weight: 600">Workbench</strong>, and pick an expiry date.</span></li>
+              <li style="display: flex; gap: 12px"><span style="flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 12.5px; font-weight: 600; border: 1.5px solid rgba(236,238,241,0.3)">3</span><span>Press <strong style="font-weight: 600">Create token</strong>.</span></li>
+              <li style="display: flex; gap: 12px"><span style="flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 12.5px; font-weight: 600; border: 1.5px solid rgba(236,238,241,0.3)">4</span><span>Copy it, then come back here.</span></li>
+            </ol>
+            <p style="margin: 4px 0 0; display: flex; gap: 10px; padding: 12px 14px; border-radius: 10px; background: rgba(226,166,78,0.12); color: #F1C98A; font-size: 13.5px"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-top: 1px"><path d="M12 3 2 20h20z"></path><path d="M12 10v4M12 17h.01"></path></svg>GitLab shows the token only once. Copy it before you leave the page.</p>
+          </aside>
+        </section>
+      </sc-if>
+      <sc-if value="{{ s3 }}" hint-placeholder-val="{{ false }}">
+        <section aria-labelledby="s3h" style="display: flex; flex-wrap: wrap; align-items: flex-start; gap: 40px 64px">
+          <div style="flex: 1 1 520px; display: flex; flex-direction: column; gap: 18px">
+            <span style="font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #4D8FD6">Step 3 of 4 · Token</span>
+            <h2 id="s3h" style="margin: 0; font-family: 'Sora', 'Segoe UI', sans-serif; font-size: 40px; line-height: 1.15; font-weight: 600; letter-spacing: -0.02em; color: #FFFFFF">Paste your token</h2>
+            <p style="margin: 0; font-size: 16px; color: rgba(236,238,241,0.74)">Workbench tries it against CIB GitLab before keeping it.</p>
+            <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 6px">
+              <label for="tok" style="font-size: 13.5px; font-weight: 600">Personal access token</label>
+              <div style="display: flex; flex-wrap: wrap; gap: 10px">
+                <div style="{{ tokBoxStyle }}">
+                  <input id="tok" type="{{ tokType }}" value="{{ token }}" onChange="{{ onToken }}" placeholder="glpat-…" autocomplete="off" spellcheck="false" style="flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: #ECEEF1; font-family: 'JetBrains Mono', monospace; font-size: 14px; letter-spacing: 0.02em">
+                  <button type="button" onClick="{{ toggleReveal }}" aria-label="{{ revealLabel }}" title="{{ revealLabel }}" style="width: 34px; height: 34px; border-radius: 7px; border: 0; background: transparent; color: rgba(236,238,241,0.7); display: grid; place-items: center; cursor: pointer"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+                </div>
+                <button type="button" onClick="{{ checkToken }}" disabled="{{ checkDisabled }}" style="{{ checkBtnStyle }}">{{ checkLabel }}</button>
+              </div>
+              <p role="status" style="{{ statusStyle }}">{{ statusText }}</p>
+            </div>
+            <sc-if value="{{ isOk }}" hint-placeholder-val="{{ true }}">
+              <div style="display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 12px; background: rgba(93,190,138,0.1); border: 1px solid rgba(93,190,138,0.35)">
+                <span aria-hidden="true" style="flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: #1F3A2C; color: #BDEBD2; font-weight: 600; font-size: 14px">NH</span>
+                <span style="flex: 1; min-width: 0"><span style="display: block; font-weight: 600; color: #FFFFFF">Nour Hassan <span style="font-weight: 400; color: rgba(236,238,241,0.66)">@n.hassan</span></span><span style="font-size: 13px; color: rgba(236,238,241,0.7)">Scopes api, read_repository, write_repository · expires 26 Jan 2027</span></span>
+              </div>
+            </sc-if>
+          </div>
+
+          <aside aria-label="Where the token is kept" style="flex: 1 1 340px; padding: 24px; border-radius: 18px; background: #111214; border: 1px solid rgba(236,238,241,0.12); box-shadow: 0 24px 60px rgba(0,0,0,0.45); display: flex; flex-direction: column; gap: 14px">
+            <span aria-hidden="true" style="{{ shieldStyle }}"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"></path><path d="m8.5 12 2.5 2.5 4.5-5"></path></svg></span>
+            <h3 style="margin: 0; font-family: 'Sora', sans-serif; font-size: 19px; line-height: 1.25; font-weight: 600">{{ storeTitle }}</h3>
+            <p style="margin: 0; color: rgba(236,238,241,0.74)">Windows Credential Manager on Windows, Keychain on macOS, the Secret Service on Linux — the same place your system keeps its own passwords.</p>
+            <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; font-size: 14px; color: rgba(236,238,241,0.8)">
+              <li style="display: flex; gap: 10px"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5DBE8A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-top: 3px"><path d="m5 12 5 5 9-10"></path></svg>Never written to Workbench’s settings or logs</li>
+              <li style="display: flex; gap: 10px"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5DBE8A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-top: 3px"><path d="m5 12 5 5 9-10"></path></svg>Sent only to <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px">[COMPANY GITLAB URL]</span></li>
+              <li style="display: flex; gap: 10px"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5DBE8A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-top: 3px"><path d="m5 12 5 5 9-10"></path></svg>Replace or remove it in Settings › GitLab</li>
+            </ul>
+          </aside>
+        </section>
+      </sc-if>
+      <sc-if value="{{ s4 }}" hint-placeholder-val="{{ false }}">
+        <section aria-labelledby="s4h" style="display: flex; flex-direction: column; gap: 20px">
+          <div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 32px">
+            <div style="display: flex; flex-direction: column; gap: 10px">
+              <span style="font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #4D8FD6">Step 4 of 4 · Home</span>
+              <h2 id="s4h" style="margin: 0; font-family: 'Sora', 'Segoe UI', sans-serif; font-size: 36px; line-height: 1.15; font-weight: 600; letter-spacing: -0.02em; color: #FFFFFF">Set up your Home</h2>
+            </div>
+            <p style="margin: 0; max-width: 440px; color: rgba(236,238,241,0.72)">What Home fetches, and in what order. Both can be changed later in Settings › Home.</p>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 20px">
+
+            <div style="flex: 1 1 520px; min-width: 0; padding: 18px; border-radius: 16px; background: #111214; border: 1px solid rgba(236,238,241,0.12); display: flex; flex-direction: column; gap: 12px">
+              <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px">
+                <h3 style="margin: 0; font-family: 'Sora', sans-serif; font-size: 16px; font-weight: 600">Repositories to follow</h3>
+                <span style="font-size: 13px; color: rgba(236,238,241,0.66)">{{ pickedLabel }}</span>
+              </div>
+              <div style="display: flex; gap: 10px">
+                <div style="flex: 1; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 8px; background: #1B1C20; border: 1px solid rgba(236,238,241,0.14)">
+                  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(236,238,241,0.62)" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
+                  <label for="rq" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Find a project</label>
+                  <input id="rq" type="search" value="{{ query }}" onChange="{{ onQuery }}" placeholder="Find a project on CIB GitLab" style="flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: #ECEEF1; font: inherit; font-size: 14px">
+                </div>
+                <button type="button" onClick="{{ clearPicked }}" style="height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid rgba(236,238,241,0.2); background: transparent; color: #ECEEF1; font: inherit; font-size: 14px; cursor: pointer; white-space: nowrap">Start empty</button>
+              </div>
+              <span style="font-size: 12.5px; color: rgba(236,238,241,0.62)">Projects you’re a member of, most active first</span>
+              <div style="display: flex; flex-direction: column; gap: 4px">
+                <sc-for list="{{ repos }}" as="r" hint-placeholder-count="7">
+                  <button type="button" aria-pressed="{{ r.pressed }}" onClick="{{ r.toggle }}" style="{{ r.rowStyle }}">
+                    <span aria-hidden="true" style="{{ r.boxStyle }}"><sc-if value="{{ r.on }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"></path></svg></sc-if></span>
+                    <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; text-align: left"><span style="font-family: 'JetBrains Mono', monospace; font-size: 13.5px; color: #FFFFFF">{{ r.path }}</span><span style="font-size: 12.5px; color: rgba(236,238,241,0.64)">{{ r.desc }}</span></span>
+                    <span style="font-size: 12.5px; color: rgba(236,238,241,0.62); white-space: nowrap">{{ r.when }}</span>
+                  </button>
+                </sc-for>
+                <sc-if value="{{ noMatch }}" hint-placeholder-val="{{ false }}"><p style="margin: 8px 0; font-size: 14px; color: rgba(236,238,241,0.66)">No project matches “{{ query }}”.</p></sc-if>
+              </div>
+            </div>
+
+            <div style="flex: 1 1 380px; min-width: 0; padding: 18px; border-radius: 16px; background: #111214; border: 1px solid rgba(236,238,241,0.12); display: flex; flex-direction: column; gap: 12px">
+              <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px">
+                <h3 style="margin: 0; font-family: 'Sora', sans-serif; font-size: 16px; font-weight: 600">Home sections</h3>
+                <span style="font-size: 13px; color: rgba(236,238,241,0.66)">Top to bottom</span>
+              </div>
+              <ol aria-label="Home sections, in order" style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px">
+                <sc-for list="{{ sections }}" as="x" hint-placeholder-count="7">
+                  <li style="{{ x.rowStyle }}">
+                    <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="rgba(236,238,241,0.45)" style="flex: none"><circle cx="9" cy="6" r="1.6"></circle><circle cx="15" cy="6" r="1.6"></circle><circle cx="9" cy="12" r="1.6"></circle><circle cx="15" cy="12" r="1.6"></circle><circle cx="9" cy="18" r="1.6"></circle><circle cx="15" cy="18" r="1.6"></circle></svg>
+                    <span style="width: 18px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: rgba(236,238,241,0.6)">{{ x.n }}</span>
+                    <span style="flex: 1; min-width: 0; display: flex; flex-direction: column"><span style="{{ x.nameStyle }}">{{ x.name }}</span><span style="font-size: 12px; color: rgba(236,238,241,0.62)">{{ x.desc }}</span></span>
+                    <button type="button" onClick="{{ x.up }}" disabled="{{ x.first }}" aria-label="{{ x.upLabel }}" title="Move up" style="{{ x.upStyle }}"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6"></path></svg></button>
+                    <button type="button" onClick="{{ x.down }}" disabled="{{ x.last }}" aria-label="{{ x.downLabel }}" title="Move down" style="{{ x.downStyle }}"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></button>
+                    <button type="button" role="switch" aria-checked="{{ x.checked }}" aria-label="{{ x.switchLabel }}" onClick="{{ x.toggle }}" style="{{ x.trackStyle }}"><span aria-hidden="true" style="{{ x.knobStyle }}"></span></button>
+                  </li>
+                </sc-for>
+              </ol>
+            </div>
+          </div>
+        </section>
+      </sc-if>
+
+    </div>
+  </main>
+
+  <footer style="padding: 0 40px 24px">
+    <div style="max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px">
+        <button type="button" onClick="{{ back }}" style="{{ backStyle }}"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"></path></svg>Back</button>
+        <sc-if value="{{ showDots }}" hint-placeholder-val="{{ true }}">
+          <div role="group" aria-label="Welcome pages" style="display: flex; gap: 4px">
+            <sc-for list="{{ dots }}" as="d" hint-placeholder-count="3">
+              <button type="button" onClick="{{ d.pick }}" aria-label="{{ d.label }}" aria-current="{{ d.current }}" style="width: 28px; height: 28px; border: 0; background: transparent; display: grid; place-items: center; cursor: pointer"><span aria-hidden="true" style="{{ d.style }}"></span></button>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ notLast }}" hint-placeholder-val="{{ true }}">
+          <button type="button" onClick="{{ next }}" disabled="{{ nextDisabled }}" style="{{ nextStyle }}">{{ nextLabel }}<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"></path></svg></button>
+        </sc-if>
+        <sc-if value="{{ isLast }}" hint-placeholder-val="{{ false }}">
+          <a href="{{ finishHref }}" style="display: inline-flex; align-items: center; gap: 10px; height: 46px; padding: 0 22px; border-radius: 9px; background: #0C529A; color: #FFFFFF; font-weight: 600; text-decoration: none">Open Workbench<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"></path></svg></a>
+        </sc-if>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 32px; padding-top: 16px; border-top: 1px solid rgba(236,238,241,0.1)">
+        <img src="/_blob/a3e65eef4d83f5b2b8873571038ea10e" alt="CIB" style="display: block; height: 26px; width: auto">
+        <p style="margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12.5px; color: rgba(236,238,241,0.7)"><span style="padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(236,238,241,0.3); color: #ECEEF1; font-size: 11px; font-weight: 600; letter-spacing: 0.04em">INTERNAL USE ONLY</span>In development and provided as is. Use at your own risk.</p>
+      </div>
+    </div>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"step":{"editor":"int","min":1,"max":4,"default":1},"page":{"editor":"int","min":0,"max":2,"default":0},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    const step = props.step ?? 1;
+    this.state = {
+      step: step,
+      page: props.page ?? 0,
+      token: step >= 3 ? 'glpat-7Qm2vR9kLp4Tt8wZs1aB' : '',
+      reveal: false,
+      check: step >= 3 ? 'ok' : 'idle',
+      opened: false,
+      copied: false,
+      picked: { crx: true, cards: true, mobile: true },
+      query: '',
+      order: ['needs', 'mrs', 'pipes', 'issues', 'calls', 'releases', 'activity'],
+      off: { activity: true }
+    };
+  }
+  componentWillUnmount() { clearTimeout(this.t); clearTimeout(this.c); }
+  next() {
+    const s = this.state;
+    if (s.step === 1 && s.page < 2) { this.setState({ page: s.page + 1 }); return; }
+    if (s.step === 3 && s.check !== 'ok') return;
+    if (s.step < 4) this.setState({ step: s.step + 1, page: 0 });
+  }
+  back() {
+    const s = this.state;
+    if (s.step === 1 && s.page > 0) { this.setState({ page: s.page - 1 }); return; }
+    if (s.step === 2) { this.setState({ step: 1, page: 2 }); return; }
+    if (s.step > 1) this.setState({ step: s.step - 1 });
+  }
+  checkToken() {
+    clearTimeout(this.t);
+    const tok = (this.state.token || '').trim();
+    this.setState({ check: 'checking' });
+    this.t = setTimeout(() => this.setState({ check: tok.length >= 20 ? 'ok' : 'bad' }), 900);
+  }
+  move(id, d) {
+    const o = this.state.order.slice();
+    const i = o.indexOf(id), j = i + d;
+    if (j < 0 || j >= o.length) return;
+    o[i] = o[j]; o[j] = id;
+    this.setState({ order: o });
+  }
+  renderVals() {
+    const s = this.state;
+    const step = s.step, page = s.page;
+
+    const labels = ['Welcome', 'GitLab', 'Token', 'Home'];
+    const steps = labels.map((label, i) => {
+      const n = i + 1, done = n < step, cur = n === step;
+      return {
+        n: n, label: label, done: done, notDone: !done, notFirst: i > 0, current: cur ? 'step' : 'false',
+        barStyle: 'display: block; width: 28px; height: 2px; border-radius: 1px; background: ' + (n <= step ? '#5DBE8A' : 'rgba(236,238,241,0.16)'),
+        dotStyle: 'width: 28px; height: 28px; box-sizing: border-box; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 600; ' +
+          (done ? 'color: #5DBE8A; border: 2px solid #5DBE8A' : cur ? 'color: #4D8FD6; border: 2px solid #4D8FD6; box-shadow: 0 0 0 5px rgba(77,143,214,0.2)' : 'color: rgba(236,238,241,0.62); border: 1.5px solid rgba(236,238,241,0.3)'),
+        labelStyle: cur ? 'font-weight: 600; color: #FFFFFF' : done ? 'color: #ECEEF1' : 'color: rgba(236,238,241,0.62)'
+      };
+    });
+
+    const dots = [0, 1, 2].map((p) => ({
+      label: 'Welcome page ' + (p + 1) + ' of 3',
+      current: p === page ? 'page' : 'false',
+      pick: () => this.setState({ page: p }),
+      style: 'display: block; height: 8px; border-radius: 4px; transition: width 160ms; ' + (p === page ? 'width: 22px; background: #4D8FD6' : 'width: 8px; background: rgba(236,238,241,0.28)')
+    }));
+
+    // token
+    const tok = s.token || '';
+    const isOk = s.check === 'ok', checking = s.check === 'checking', bad = s.check === 'bad';
+    let statusText = 'Starts with glpat-. Paste it with Ctrl+V.';
+    let statusColor = 'rgba(236,238,241,0.64)';
+    if (tok && s.check === 'idle') statusText = 'Press Check to try it against CIB GitLab.';
+    if (checking) statusText = 'Checking with CIB GitLab…';
+    if (isOk) { statusText = 'CIB GitLab accepted this token. It is saved — press Next.'; statusColor = '#5DBE8A'; }
+    if (bad) { statusText = 'CIB GitLab refused this token. Check you copied all of it, and that it hasn’t expired.'; statusColor = '#EC6A82'; }
+    const ring = bad ? '#EC6A82' : isOk ? 'rgba(93,190,138,0.6)' : 'rgba(236,238,241,0.18)';
+
+    // repos
+    const REPOS = [
+      { id: 'crx', path: 'payments/crx-transfers', desc: 'Cross-border transfers', when: '2 h ago' },
+      { id: 'cards', path: 'cards/card-issuing-api', desc: 'Card issuing and lifecycle', when: 'Today' },
+      { id: 'mobile', path: 'channels/mobile-gateway', desc: 'Mobile app gateway', when: 'Today' },
+      { id: 'profile', path: 'core/customer-profile', desc: 'Customer profile service', when: 'Yesterday' },
+      { id: 'ibweb', path: 'channels/internet-banking-web', desc: 'Internet banking front end', when: '3 d ago' },
+      { id: 'aml', path: 'risk/aml-screening', desc: 'Sanctions and AML screening', when: 'Last week' },
+      { id: 'ci', path: 'platform/ci-templates', desc: 'Shared CI templates', when: 'Last week' }
+    ];
+    const q = (s.query || '').trim().toLowerCase();
+    const repos = REPOS.filter((r) => !q || r.path.indexOf(q) >= 0 || r.desc.toLowerCase().indexOf(q) >= 0).map((r) => {
+      const on = !!s.picked[r.id];
+      return Object.assign({}, r, {
+        on: on, pressed: on ? 'true' : 'false',
+        toggle: () => { const p = Object.assign({}, this.state.picked); p[r.id] = !p[r.id]; this.setState({ picked: p }); },
+        rowStyle: 'display: flex; align-items: center; gap: 12px; width: 100%; min-height: 46px; padding: 6px 12px; border-radius: 9px; font: inherit; color: inherit; cursor: pointer; text-align: left; ' +
+          (on ? 'background: rgba(77,143,214,0.12); border: 1px solid rgba(77,143,214,0.45)' : 'background: transparent; border: 1px solid transparent'),
+        boxStyle: 'flex: none; width: 20px; height: 20px; box-sizing: border-box; border-radius: 5px; display: grid; place-items: center; ' +
+          (on ? 'background: #0C529A; border: 1.5px solid #4D8FD6' : 'border: 1.5px solid rgba(236,238,241,0.4)')
+      });
+    });
+    const pickedCount = REPOS.filter((r) => s.picked[r.id]).length;
+    const pickedLabel = pickedCount === 0 ? 'None — Home starts empty' : pickedCount === 1 ? '1 selected' : pickedCount + ' selected';
+
+    // sections
+    const META = {
+      needs: ['Needs you', 'Reviews, failed pipelines, issues waiting on you'],
+      mrs: ['Merge requests', 'Open in the repositories you follow'],
+      pipes: ['Pipelines', 'Latest run on default branches and yours'],
+      issues: ['Issues', 'Assigned to you'],
+      calls: ['Calls', 'Workbench-wide collections'],
+      releases: ['Releases', 'Latest releases and tags'],
+      activity: ['Activity', 'Sixteen weeks of commits']
+    };
+    const order = s.order;
+    const btn = (dis) => 'width: 30px; height: 30px; border-radius: 7px; border: 1px solid rgba(236,238,241,0.16); background: transparent; display: grid; place-items: center; ' + (dis ? 'color: rgba(236,238,241,0.25); cursor: default' : 'color: #ECEEF1; cursor: pointer');
+    const sections = order.map((id, i) => {
+      const on = !s.off[id];
+      const first = i === 0, last = i === order.length - 1;
+      return {
+        n: i + 1, name: META[id][0], desc: META[id][1], first: first, last: last,
+        checked: on ? 'true' : 'false',
+        switchLabel: 'Show ' + META[id][0] + ' on Home',
+        upLabel: 'Move ' + META[id][0] + ' up', downLabel: 'Move ' + META[id][0] + ' down',
+        up: () => this.move(id, -1), down: () => this.move(id, 1),
+        toggle: () => { const o = Object.assign({}, this.state.off); o[id] = !o[id]; this.setState({ off: o }); },
+        upStyle: btn(first), downStyle: btn(last),
+        rowStyle: 'display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 4px 8px 4px 10px; border-radius: 9px; background: #17181B; ' + (on ? '' : 'opacity: 0.6'),
+        nameStyle: 'font-size: 14px; font-weight: 600; color: ' + (on ? '#FFFFFF' : 'rgba(236,238,241,0.7)'),
+        trackStyle: 'position: relative; width: 40px; height: 24px; margin-left: 4px; border-radius: 12px; border: 0; padding: 0; cursor: pointer; background: ' + (on ? '#0C529A' : 'rgba(236,238,241,0.2)'),
+        knobStyle: 'position: absolute; top: 3px; left: ' + (on ? '19px' : '3px') + '; width: 18px; height: 18px; border-radius: 50%; background: #FFFFFF; transition: left 140ms'
+      };
+    });
+
+    const nextDisabled = step === 3 && !isOk;
+    const isLast = step === 4;
+    const nextLabel = step === 2 ? 'I have my token' : 'Next';
+    const backHidden = step === 1 && page === 0;
+
+    return {
+      steps: steps, dots: dots, showDots: step === 1,
+      w1: step === 1 && page === 0, w2: step === 1 && page === 1, w3: step === 1 && page === 2,
+      s2: step === 2, s3: step === 3, s4: step === 4,
+      opened: s.opened, copyLabel: s.copied ? 'Copied' : 'Copy link',
+      openToken: () => this.setState({ opened: true }),
+      copyLink: () => { clearTimeout(this.c); this.setState({ copied: true }); this.c = setTimeout(() => this.setState({ copied: false }), 1600); },
+      token: tok, tokType: s.reveal ? 'text' : 'password',
+      onToken: (e) => this.setState({ token: e.target.value, check: 'idle' }),
+      toggleReveal: () => this.setState({ reveal: !this.state.reveal }),
+      revealLabel: s.reveal ? 'Hide token' : 'Show token',
+      checkToken: () => this.checkToken(),
+      checkDisabled: !tok.trim() || checking,
+      checkLabel: checking ? 'Checking…' : isOk ? 'Checked' : 'Check',
+      checkBtnStyle: 'height: 48px; padding: 0 20px; border-radius: 9px; font: inherit; font-weight: 600; ' + (!tok.trim() || checking ? 'border: 1px solid rgba(236,238,241,0.14); background: transparent; color: rgba(236,238,241,0.45); cursor: default' : 'border: 1px solid rgba(236,238,241,0.28); background: #1B1C20; color: #FFFFFF; cursor: pointer'),
+      tokBoxStyle: 'flex: 1 1 360px; display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 6px 0 14px; border-radius: 9px; background: #17181B; border: 1px solid ' + ring,
+      statusText: statusText,
+      statusStyle: 'margin: 0; min-height: 21px; font-size: 13.5px; color: ' + statusColor,
+      isOk: isOk,
+      storeTitle: isOk ? 'Saved to your system’s secure store' : 'It goes into your system’s secure store',
+      shieldStyle: 'width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; ' + (isOk ? 'background: rgba(93,190,138,0.14); color: #5DBE8A' : 'background: rgba(77,143,214,0.14); color: #4D8FD6'),
+      query: s.query, onQuery: (e) => this.setState({ query: e.target.value }),
+      repos: repos, noMatch: repos.length === 0, pickedLabel: pickedLabel,
+      clearPicked: () => this.setState({ picked: {} }),
+      sections: sections,
+      back: () => this.back(),
+      backStyle: 'display: inline-flex; align-items: center; gap: 8px; height: 46px; padding: 0 16px; border-radius: 9px; border: 1px solid rgba(236,238,241,0.2); background: transparent; color: #ECEEF1; font: inherit; cursor: pointer; visibility: ' + (backHidden ? 'hidden' : 'visible'),
+      next: () => this.next(), nextDisabled: nextDisabled, nextLabel: nextLabel,
+      nextStyle: 'display: inline-flex; align-items: center; gap: 10px; height: 46px; padding: 0 22px; border-radius: 9px; border: 0; font: inherit; font-weight: 600; ' + (nextDisabled ? 'background: rgba(236,238,241,0.1); color: rgba(236,238,241,0.45); cursor: default' : 'background: #0C529A; color: #FFFFFF; cursor: pointer'),
+      notLast: !isLast, isLast: isLast,
+      finishHref: pickedCount === 0 ? 'HomeEmpty.dc.html' : 'Home.dc.html'
+    };
+  }
+}
+</script>
+</body>
+</html>

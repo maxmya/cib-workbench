@@ -274,7 +274,7 @@
 				<span class="word">commits</span>
 			{:else if step.block === 'check'}
 				{#if checks.length === 0 && !step.params.command}
-					<span class="note">This repository has no checks. Add them in Farm.</span>
+					<span class="note">No checks. Add them in Farm.</span>
 				{:else}
 					<select
 						class="mono"

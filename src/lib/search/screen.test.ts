@@ -29,7 +29,7 @@ describe('LogScreen', () => {
 
 		expect(view.get('.title').textContent).toBe('Log');
 		expect(view.all('.status')).toHaveLength(0);
-		expect(view.text()).toContain('Matches appear as history is walked');
+		expect(view.text()).toContain('Matches appear here');
 		expect(view.text()).toContain('Open a result to read it');
 		view.destroy();
 	});

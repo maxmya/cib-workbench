@@ -319,6 +319,27 @@ describe('the builder’s keys', () => {
 	});
 });
 
+describe('its panels (BUG-115)', () => {
+	it('resizes both sides, and puts the right one away and back', async () => {
+		const { panels } = await import('$lib/panels.svelte');
+		panels.reset();
+		await show();
+
+		expect(view!.all('[role="separator"]').map((each) => each.getAttribute('aria-label'))).toEqual([
+			'Resize the blocks',
+			'Resize how it runs'
+		]);
+
+		click(view!.get('button[aria-label="Put the panel away"]'));
+		expect(view!.find('.panel')).toBeNull();
+		expect(view!.all('[role="separator"]')).toHaveLength(1);
+
+		click(view!.get('button[title="Show how it runs"]'));
+		expect(view!.find('.panel')).not.toBeNull();
+		panels.reset();
+	});
+});
+
 /** The item: component tests for live validation. */
 describe('live validation', () => {
 	it('shows what the validator found under the block it is about, and stops Run', async () => {
@@ -486,7 +507,7 @@ describe('a block’s parameters', () => {
 		);
 		await show();
 		key('t');
-		expect(cards()[6].textContent).toContain('This repository has no checks.');
+		expect(cards()[6].textContent).toContain('No checks. Add them in Farm.');
 	});
 });
 
@@ -646,7 +667,7 @@ describe('the level', () => {
 		const run = button('Run · 6 steps');
 		expect(run.disabled).toBe(true);
 		expect(run.title).toBe('Read-only runs nothing. Copy the script, or choose another level.');
-		expect(said('.panel')).toContain('Copy as script is the way out.');
+		expect(said('.panel')).toContain('Copy the script to use it.');
 	});
 
 	it('shows the level the repository allows when the recipe asks for more', async () => {

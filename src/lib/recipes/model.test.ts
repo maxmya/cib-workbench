@@ -184,7 +184,7 @@ describe('the words', () => {
 		]);
 		expect(levelWords('suggest').says).toContain('Nothing runs');
 		expect(levelWords('signOff').says).toContain('Push and Delete branch');
-		expect(levelWords('unattended').says).toContain('still stops it');
+		expect(levelWords('unattended').says).toContain('rejected push stops it');
 	});
 
 	it('says how many steps Run runs, or how many problems stand in the way', () => {

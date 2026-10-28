@@ -234,12 +234,9 @@
 				{find}
 				{names}
 			/>
-			{#if body.type === 'json' || body.type === 'xml' || body.type === 'form'}
-				<p class="hint">Content-Type follows the body unless a header here sets it.</p>
-			{/if}
 		{:else if tab === 'body'}
 			{#if body.type === 'none'}
-				<p class="hint">This call sends no body. Choose a type on the right to give it one.</p>
+				<p class="hint">No body</p>
 			{:else if body.type === 'form' || body.type === 'multipart'}
 				<PairsTable
 					noun="field"
@@ -294,7 +291,7 @@
 				{/each}
 			</div>
 			{#if auth.type === 'none'}
-				<p class="hint">No Authorization is added. A header set by hand is still sent.</p>
+				<p class="hint">No auth</p>
 			{:else if auth.type === 'bearer'}
 				<label class="inline">
 					<span>Token</span>

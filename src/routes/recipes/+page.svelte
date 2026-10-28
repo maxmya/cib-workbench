@@ -20,6 +20,9 @@
 	import Btn from '$lib/ui/Btn.svelte';
 	import EmptyState from '$lib/ui/EmptyState.svelte';
 	import { notice } from '$lib/ui/notice.svelte';
+	import Icon from '$lib/ui/Icon.svelte';
+	import Splitter from '$lib/ui/Splitter.svelte';
+	import { panels } from '$lib/panels.svelte';
 
 	/**
 	 * Recipes (1V, FEAT-133): git steps in blocks.
@@ -244,6 +247,7 @@
 		{#if draft}
 			<div class="body">
 				<Catalogue onadd={(block) => draft.steps.length < MAX_STEPS && recipes.add(block)} />
+				<Splitter panel="recipesBlocks" label="Resize the blocks" />
 
 				<section class="stack" aria-label="The recipe">
 					<div class="start">
@@ -298,7 +302,15 @@
 					</div>
 				</section>
 
-				<AgentPanel />
+				{#if panels.isHidden('recipesRun')}
+					<button type="button" class="run-tab" title="Show how it runs" onclick={() => panels.toggleHidden('recipesRun')}>
+						<Icon name="chevron-left" size="0.95em" weight={2.2} />
+						<span class="tab-label">Run</span>
+					</button>
+				{:else}
+					<Splitter panel="recipesRun" label="Resize how it runs" />
+					<AgentPanel onhide={() => panels.toggleHidden('recipesRun')} />
+				{/if}
 			</div>
 		{/if}
 	</div>
@@ -480,6 +492,31 @@
 		gap: 14px;
 		font-size: var(--fs-secondary);
 		color: var(--muted);
+	}
+
+	/* The run panel, put away (BUG-115): a strip that brings it back. */
+	.run-tab {
+		flex: none;
+		width: 30px;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 8px;
+		padding: 10px 0;
+		border-radius: var(--r-panel);
+		background: var(--surface);
+		border: 1px solid var(--pane-edge);
+		color: var(--muted);
+	}
+
+	.run-tab:hover {
+		color: var(--ink);
+		background: var(--hover);
+	}
+
+	.tab-label {
+		writing-mode: vertical-rl;
+		font-size: var(--fs-secondary);
 	}
 
 	kbd {

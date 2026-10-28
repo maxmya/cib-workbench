@@ -87,7 +87,7 @@
 
 	{#if steps.length === 0}
 		<div class="pane empty">
-			<EmptyState message="No hook runs in this repository yet. Git runs none when you commit or push." />
+			<EmptyState message="No hooks yet" />
 			<Btn primary onclick={() => goto('/hooks/create')}>Create a hook</Btn>
 		</div>
 	{:else}

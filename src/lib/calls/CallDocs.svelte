@@ -79,7 +79,6 @@
 		</section>
 	{/if}
 
-	<p class="hint">From the code, when it was scanned. A scan reads it again; it goes into an OpenAPI export.</p>
 </div>
 
 <style>

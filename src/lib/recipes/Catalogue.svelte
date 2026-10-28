@@ -41,7 +41,9 @@
 
 <style>
 	.catalogue {
-		flex: 0 0 244px;
+		flex: none;
+		width: var(--recipes-blocks-w, 244px);
+		min-width: 0;
 		min-height: 0;
 		display: flex;
 		flex-direction: column;

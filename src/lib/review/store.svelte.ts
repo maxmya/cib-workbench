@@ -249,6 +249,13 @@ export const review = {
 		return record;
 	},
 
+	/** Forget a record: its pending comments, its summary and its viewed files (FEAT-186). */
+	async forgetRecord(key: ReviewKey): Promise<void> {
+		if (api.inTauri()) await api.setReviewState(key, null);
+		else localWrite(key, null);
+		delete records[keyString(key)];
+	},
+
 	/**
 	 * Read this repository's pull requests once per repository.
 	 *

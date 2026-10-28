@@ -863,12 +863,6 @@ a {
 	 * family. A shade darker on light surfaces, lighter on dark ones.
 	 */
 	--brand: #b8321f;
-	/*
-	 * Workbench: the glow round the wordmark's globe on the launch screen, in
-	 * CIB orange (#F58420). The only place the orange is used outside CIB's own
-	 * images.
-	 */
-	--globe-glow: rgba(245, 132, 32, 0.3);
 }
 
 :root[data-theme='dark'] {
@@ -885,7 +879,6 @@ a {
 		0 10px 30px color-mix(in srgb, #000 45%, transparent),
 		0 1px 3px color-mix(in srgb, #000 30%, transparent);
 	--brand: #f2715a;
-	--globe-glow: rgba(245, 132, 32, 0.42);
 }
 
 :root[data-diff='classic'] {

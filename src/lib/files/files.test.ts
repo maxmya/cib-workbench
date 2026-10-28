@@ -863,7 +863,8 @@ describe('a selection longer than the screen (FEAT-152)', () => {
 		} finally {
 			tall.mockRestore();
 		}
-	});
+		// Three thousand lines: past the default five seconds under coverage on a busy machine.
+	}, 20_000);
 });
 
 describe('usages (FEAT-154)', () => {
@@ -929,7 +930,7 @@ describe('usages (FEAT-154)', () => {
 
 		const said = view.text().replace(/\s+/g, ' ');
 		expect(said).toContain('two · 1 definition, 2 uses, 1 mention in 3 files');
-		expect(said).toContain('By name, not by type');
+		expect(said).toContain('Matched by name');
 		expect(view.all('.section .head').map((head) => head.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
 			'Defined 1',
 			'Used 2',

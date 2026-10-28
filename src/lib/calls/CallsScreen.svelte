@@ -109,11 +109,6 @@
 		void settings.choose('callsScope', next);
 	}
 
-	const where = $derived(
-		calls.scope === 'global'
-			? `in ${PRODUCT_NAME}, for every repository, and never committed`
-			: 'in this repository, as JSON, so they can be committed'
-	);
 	const hiddenCollections = $derived(calls.collections.filter((stored) => calls.hidden.includes(stored.stem)));
 
 	/** Delete a collection's file, after saying which file and that it is for good (BUG-106). */
@@ -163,6 +158,14 @@
 	};
 
 	let envButton = $state<HTMLButtonElement | null>(null);
+	/** The open calls' strip, one row that scrolls (BUG-114). */
+	let strip = $state<HTMLDivElement | null>(null);
+	// The call shown is the chip in view, wherever it sits on the strip.
+	$effect(() => {
+		if (current === null) return;
+		keyOf(current.opened);
+		strip?.querySelector('.chip.on')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+	});
 	/** FEAT-164: the Share dialog is open. */
 	let sharing = $state(false);
 	/** Share opened from a collection's `⋯`: that collection, and OpenAPI first (FEAT-179). */
@@ -248,7 +251,7 @@
 		<header class="head">
 			<span class="title">Calls</span>
 			<ScopeSwitch scope={calls.scope} repository={info?.name ?? null} onchoose={chooseScope} />
-			<div class="chips" role="tablist" aria-label="Open calls">
+			<div class="chips" role="tablist" aria-label="Open calls" bind:this={strip}>
 				{#each calls.tabs as { opened, call } (keyOf(opened))}
 					{@const on = current !== null && keyOf(current.opened) === keyOf(opened)}
 					{@const method = methodOf(call)}
@@ -297,7 +300,7 @@
 			<button
 				type="button"
 				class="env"
-				title="A collection as one file, a zip, or a commit; secrets stay here"
+				title="Export a collection; secrets stay here"
 				disabled={!calls.collections.some((stored) => stored.value)}
 				onclick={() => (sharing = true)}>Share</button
 			>
@@ -342,7 +345,6 @@
 					shareFor = { stem, openapi };
 					sharing = true;
 				}}
-				{where}
 			/>
 			<Splitter panel="callsTree" label="Resize the collections" />
 
@@ -427,7 +429,7 @@
 					</div>
 				{:else if calls.loaded}
 					<div class="card grow">
-						<EmptyState message="Open a call on the left, or press + for a new one." />
+						<EmptyState message="No call open" />
 					</div>
 				{/if}
 			</main>
@@ -517,13 +519,17 @@
 		background-color: transparent;
 	}
 
+	/* One row: the open calls scroll rather than wrap onto a second (BUG-114). */
 	.head {
 		flex: none;
 		display: flex;
-		flex-wrap: wrap;
 		align-items: center;
 		gap: 8px;
 		padding: 12px 16px 10px;
+	}
+
+	.head > :not(.chips, .gap) {
+		flex: none;
 	}
 
 	.title {
@@ -533,13 +539,16 @@
 	}
 
 	.chips {
+		flex: 0 1 auto;
 		display: flex;
-		flex-wrap: wrap;
 		gap: 6px;
 		min-width: 0;
+		overflow-x: auto;
+		scrollbar-width: thin;
 	}
 
 	.chip {
+		flex: none;
 		display: inline-flex;
 		align-items: center;
 		border: 1px solid var(--soft);

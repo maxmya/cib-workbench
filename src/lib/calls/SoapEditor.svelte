@@ -309,7 +309,6 @@
 						>Digest</button
 					>
 				</div>
-				<p class="hint">A nonce and the time it was sent are added to each call. Keep the password a variable so it stays out of the file.</p>
 			{:else}
 				<p class="hint">No WS-Security header is added.</p>
 			{/if}

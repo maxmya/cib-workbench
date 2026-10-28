@@ -64,7 +64,6 @@
 <button type="button" class="add" onclick={() => onchange([...rules, { var: '', from: start, every: true }])}
 	>+ Keep a value</button
 >
-<p class="hint">A rule reads a JSONPath or XPath from the response into a variable, so a later call can use it.</p>
 
 <style>
 	.rule {
@@ -87,16 +86,10 @@
 	}
 
 	.from,
-	.every,
-	.hint {
+	.every {
 		color: var(--muted);
 		font-size: var(--fs-secondary);
 		white-space: nowrap;
-	}
-
-	.hint {
-		margin: 0;
-		white-space: normal;
 	}
 
 	.every {

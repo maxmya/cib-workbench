@@ -549,7 +549,7 @@ describe('MessageBox', () => {
 
 		control.setAmend(true);
 		const amending = render(MessageBox, {});
-		expect(amending.text()).toContain('rewrites the last commit');
+		expect(amending.text()).toContain('Rewrites the last commit');
 		amending.destroy();
 	});
 });

@@ -100,7 +100,7 @@
 		<span class="tile" aria-hidden="true"><Icon name="rebase" size="1.25em" weight={1.9} /></span>
 		<div class="titles">
 			<h1 class="title">Rebase</h1>
-			<span class="note">Replay a branch onto another, editing its commits on the way.</span>
+			
 		</div>
 		<span class="status tone-{status.tone}"><span class="pip" aria-hidden="true"></span>{status.text}</span>
 	</header>
@@ -231,7 +231,7 @@
 								{#each rows as row (row.id)}<span class:red={row.mayConflict}></span>{/each}
 							</div>
 						{/if}
-						<span class="note small">Judged by the files each commit touches; git decides as it replays.</span>
+						
 					</div>
 				{/if}
 				<div class="actions">
@@ -287,7 +287,7 @@
 			<section class="card plan-card" aria-label="The plan">
 				<div class="card-head">
 					<span class="label">The plan</span>
-					<span class="note small">replayed top to bottom · drag or Alt+↑ / Alt+↓ to reorder</span>
+					<span class="note small">top to bottom · drag or Alt+↑↓</span>
 				</div>
 				<RebasePlan {locked} />
 				{#if rebase.todo?.truncated}

@@ -176,12 +176,8 @@
 			<div class="heading">
 				<span class="step-of">Step {wizard.step} of 4{wizard.step === 2 ? ' · optional' : ''}</span>
 				<h2 id="wizard-question">{question}</h2>
-				{#if wizard.step === 2}
-					<p class="lead">The planner reads all of it, with the goal.</p>
-				{:else if wizard.step === 3}
+				{#if wizard.step === 3}
 					<p class="lead">{rememberedLine(remembered)}</p>
-				{:else if wizard.step === 4}
-					<p class="lead">Nothing runs until you accept the tasks.</p>
 				{/if}
 			</div>
 

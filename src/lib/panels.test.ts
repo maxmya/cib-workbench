@@ -25,6 +25,8 @@ import {
 	ROOM_FILES_W,
 	CALLS_TREE_W,
 	CALLS_VARS_W,
+	RECIPES_BLOCKS_W,
+	RECIPES_RUN_W,
 	STASH_ENTRIES_W
 } from './metrics';
 
@@ -208,7 +210,10 @@ describe('reset', () => {
 			roomConversation: ROOM_CONVERSATION_W,
 			// Calls' two sides (FEAT-175).
 			callsTree: CALLS_TREE_W,
-			callsVars: CALLS_VARS_W
+			callsVars: CALLS_VARS_W,
+			// Recipes' two sides (BUG-115).
+			recipesBlocks: RECIPES_BLOCKS_W,
+			recipesRun: RECIPES_RUN_W
 		});
 	});
 });

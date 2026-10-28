@@ -89,7 +89,7 @@
 				<span class="note signing" class:warn={willSign.tone === 'warn'}>{willSign.text}</span>
 			{/if}
 			{#if changes.amend}
-				<span class="note">This rewrites the last commit rather than adding to history.</span>
+				<span class="note">Rewrites the last commit</span>
 			{/if}
 		</div>
 	{/if}

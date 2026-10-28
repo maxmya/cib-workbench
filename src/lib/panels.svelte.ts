@@ -23,6 +23,8 @@ import {
 	FILES_BLAME_W,
 	FILES_TREE_W,
 	RAIL_W,
+	RECIPES_BLOCKS_W,
+	RECIPES_RUN_W,
 	REQUESTS_DETAIL_W,
 	REVIEW_PREVIEW_W,
 	ROOM_CONVERSATION_W,
@@ -155,6 +157,21 @@ export const PANELS = {
 		min: 200,
 		max: 640
 	},
+	// Recipes (BUG-115): the blocks on the left, how it runs on the right.
+	recipesBlocks: {
+		variable: 'recipes-blocks-w',
+		side: 'left',
+		initial: RECIPES_BLOCKS_W,
+		min: 200,
+		max: 480
+	},
+	recipesRun: {
+		variable: 'recipes-run-w',
+		side: 'right',
+		initial: RECIPES_RUN_W,
+		min: 260,
+		max: 640
+	},
 	farmLog: {
 		variable: 'farm-log-h',
 		side: 'bottom',
@@ -193,6 +210,8 @@ let extra = $state<Record<string, number>>({
 	filesTree: FILES_TREE_W,
 	callsTree: CALLS_TREE_W,
 	callsVars: CALLS_VARS_W,
+	recipesBlocks: RECIPES_BLOCKS_W,
+	recipesRun: RECIPES_RUN_W,
 	farmLog: FARM_LOG_H
 });
 /**
@@ -384,6 +403,8 @@ export const panels = {
 			filesTree: FILES_TREE_W,
 			callsTree: CALLS_TREE_W,
 			callsVars: CALLS_VARS_W,
+			recipesBlocks: RECIPES_BLOCKS_W,
+			recipesRun: RECIPES_RUN_W,
 			farmLog: FARM_LOG_H
 		};
 		railCollapsed = false;

@@ -282,7 +282,7 @@
 						/>
 					</div>
 				{/if}
-				<div class="row wrap" title="For mutual TLS: a certificate and key, as PEM files on this computer, for a host that asks.">
+				<div class="row wrap" title="Mutual TLS: a PEM certificate and key">
 					<span class="label">Client certificates{@render over('clientCerts')}</span>
 					{#if !adding}
 						<button type="button" class="act" onclick={() => (adding = { host: '', cert: '', key: '' })}>Add…</button>
@@ -334,7 +334,7 @@
 					'Beautify responses',
 					'JSON and XML that arrive minified are shown formatted. The Beautify button still switches one back.'
 				)}
-				<div class="row" title="Sent with every call that does not set the same header itself. One per line.">
+				<div class="row" title="Sent with every call that does not set it. One per line.">
 					<span class="label">Header on every call{@render over('everyHeader')}</span>
 					<input
 						class="mono text"
@@ -404,7 +404,7 @@
 			<div class="group">
 				<h3>Kept values</h3>
 				{@render toggle('clickToKeep', 'Click a response value to keep it', 'JSONPath for JSON, XPath for XML and SOAP.')}
-				<div class="row" title="Whether a value kept from now on is read again after every call, or kept once.">
+				<div class="row" title="Update kept values after every call, or keep them once">
 					<span class="label">A new kept value updates{@render over('keepEvery')}</span>
 					<div class="segments" role="radiogroup" aria-label="A new kept value updates">
 						<button
@@ -434,7 +434,7 @@
 					<span class="label">Secrets and kept values go in</span>
 					<span class="fixed">System keychain</span>
 				</div>
-				<div class="row" title="Sends kept per repository, on this computer. The oldest go first.">
+				<div class="row" title="Per repository, on this computer; oldest go first">
 					<span class="label">Keep history{@render over('history')}</span>
 					<span class="unit"
 						><input

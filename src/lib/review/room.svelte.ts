@@ -763,6 +763,28 @@ export const room = {
 		});
 	},
 
+	/**
+	 * Throw the review away (FEAT-186): every pending comment, the summary and
+	 * the viewed ticks. Nothing has reached the host before Finish review, so
+	 * there is nothing to take back there.
+	 */
+	async discard(): Promise<boolean> {
+		if (!current || sending) return false;
+		const opened = current;
+		if (bodyTimer) clearTimeout(bodyTimer);
+		bodyTimer = null;
+		try {
+			await review.forgetRecord(opened.key);
+		} catch (e) {
+			notice.failed('The review was not discarded', e);
+			return false;
+		}
+		body = '';
+		composer = null;
+		notice.ok('Review discarded');
+		return true;
+	},
+
 	async jumpToDraft(draft: PendingComment): Promise<void> {
 		await goTo(draft.path, draft.side, draft.line, `${draft.path}\ndraft\n${draft.id}`);
 	},

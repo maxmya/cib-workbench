@@ -15,11 +15,9 @@
 	interface Props {
 		/** Font size in px. */
 		size?: number;
-		/** The launch screen's soft orange glow round the globe. */
-		glow?: boolean;
 	}
 
-	let { size = 15, glow = false }: Props = $props();
+	let { size = 15 }: Props = $props();
 
 	const at = PRODUCT_NAME.indexOf('o');
 	const head = PRODUCT_NAME.slice(0, at);
@@ -29,7 +27,6 @@
 <span class="wordmark" style="font-size: {size}px" role="img" aria-label={PRODUCT_NAME}
 	><span aria-hidden="true">{head}</span><img
 		class="globe"
-		class:glow
 		src={BRAND_ASSETS.globe}
 		alt=""
 		aria-hidden="true"
@@ -55,9 +52,5 @@
 		vertical-align: -0.02em;
 		/* The o's bearings; the right one less the letter-spacing text would add. */
 		margin: 0 0.023em 0 0.043em;
-	}
-
-	.glow {
-		filter: drop-shadow(0 0 0.23em var(--globe-glow));
 	}
 </style>
