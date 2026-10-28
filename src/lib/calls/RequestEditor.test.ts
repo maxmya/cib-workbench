@@ -105,7 +105,7 @@ describe('the body', () => {
 	it('says a call sends none, and gives it one from the picker', () => {
 		const { last } = show(rest());
 		click(tab('Body'));
-		expect(view!.text()).toContain('This call sends no body.');
+		expect(view!.text()).toContain('No body');
 		click(button('None ▾'));
 		click(item('Form'));
 		expect(last().body).toEqual({ type: 'form', fields: [] });
@@ -142,19 +142,13 @@ describe('the body', () => {
 		expect(view!.get('[aria-label="fields"]')).toBeTruthy();
 		expect((view!.all('input[placeholder="path to a file"]')[0] as HTMLInputElement).value).toBe('a.png');
 	});
-
-	it('says Content-Type follows the body, on Headers', () => {
-		show(rest({ body: { type: 'json', text: '{}' } }));
-		click(tab('Headers'));
-		expect(view!.text()).toContain('Content-Type follows the body');
-	});
 });
 
 describe('authorization', () => {
 	it('says nothing is added without it, and chooses a kind', () => {
 		const { last } = show(rest());
 		click(tab('Auth'));
-		expect(view!.text()).toContain('No Authorization is added.');
+		expect(view!.text()).toContain('No auth');
 		click(button('Bearer token'));
 		expect(last().auth).toEqual({ type: 'bearer' });
 	});

@@ -863,7 +863,8 @@ describe('a selection longer than the screen (FEAT-152)', () => {
 		} finally {
 			tall.mockRestore();
 		}
-	});
+		// Three thousand lines: past the default five seconds under coverage on a busy machine.
+	}, 20_000);
 });
 
 describe('usages (FEAT-154)', () => {
