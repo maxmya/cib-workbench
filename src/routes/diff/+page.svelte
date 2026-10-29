@@ -146,6 +146,7 @@
 				loading={diff.fileLoading}
 				view={diff.view}
 				{focus}
+				rev={diff.commit?.id}
 			/>
 		</div>
 	{/if}

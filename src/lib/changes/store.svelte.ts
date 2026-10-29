@@ -18,7 +18,7 @@ import { commitLanded } from '$lib/delight/watch';
 import { repo } from '../repo.svelte';
 import { hooks } from '$lib/hooks/store.svelte';
 import { dialog } from '$lib/ui/dialog.svelte';
-import type { DiffSide, FileDiff, Signing, StatusEntry, WorkingCopy } from '../types';
+import type { DiffLine, DiffSide, FileDiff, Signing, StatusEntry, WorkingCopy } from '../types';
 
 /** Which file is open, and which side of the index it is being read from. */
 export interface Selection {
@@ -37,6 +37,24 @@ let selection = $state<Selection | null>(null);
 let file = $state<FileDiff | null>(null);
 let fileError = $state<string | null>(null);
 let fileLoading = $state(false);
+
+/**
+ * Whether the open file is shown whole (FEAT-189): its hunks, with the
+ * unchanged lines between them filled in from the file read whole. Kept
+ * across files and restarts, as the Diff screen keeps unified or split.
+ */
+const WHOLE_KEY = 'spagitty.changesWhole';
+let whole = $state(readWhole());
+/** The open file whole: null while it is read, and while it is not shown so. */
+let wholeLines = $state.raw<DiffLine[] | null>(null);
+
+function readWhole(): boolean {
+	try {
+		return localStorage.getItem(WHOLE_KEY) === 'true';
+	} catch {
+		return false;
+	}
+}
 
 let subject = $state('');
 let body = $state('');
@@ -75,6 +93,21 @@ function stillListed(next: WorkingCopy, current: Selection | null): boolean {
 	return list.some((entry) => entry.path === current.path);
 }
 
+/**
+ * Read the selected file whole. A file that cannot be read whole is still
+ * shown by its hunks, so a failure here is not the pane's error.
+ */
+function readWholeLines(next: Selection, seq: number): void {
+	api
+		.workingFileLines(next.path, next.side)
+		.then((result) => {
+			if (seq === fileSeq && whole) wholeLines = result;
+		})
+		.catch(() => {
+			// The hunks alone, as with the toggle off.
+		});
+}
+
 export const changes = {
 	get work(): WorkingCopy {
 		return work;
@@ -103,6 +136,24 @@ export const changes = {
 	},
 	get fileLoading(): boolean {
 		return fileLoading;
+	},
+	get whole(): boolean {
+		return whole;
+	},
+	get wholeLines(): DiffLine[] | null {
+		return wholeLines;
+	},
+
+	/** Show the open file whole, or only its hunks. */
+	setWhole(next: boolean): void {
+		whole = next;
+		try {
+			localStorage.setItem(WHOLE_KEY, String(next));
+		} catch {
+			// Storage unavailable; the choice just won't survive a restart.
+		}
+		if (!next) wholeLines = null;
+		else if (selection !== null) readWholeLines(selection, fileSeq);
 	},
 	get subject(): string {
 		return subject;
@@ -220,10 +271,12 @@ export const changes = {
 
 		selection = next;
 		file = null;
+		wholeLines = null;
 		fileError = null;
 		fileLoading = true;
 
 		const seq = ++fileSeq;
+		if (whole) readWholeLines(next, seq);
 		api
 			.workingDiff(next.path, next.side)
 			.then((result) => {
@@ -367,6 +420,7 @@ export const changes = {
 		loading = false;
 		selection = null;
 		file = null;
+		wholeLines = null;
 		fileError = null;
 		fileLoading = false;
 		subject = '';

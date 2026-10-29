@@ -11,6 +11,7 @@
 	import { detectLanguage, highlightLine } from '$lib/diff/highlight';
 	import { pairWords } from '$lib/diff/words';
 	import { timing } from '$lib/timing.svelte';
+	import { fileAttrs, numbersIn, revOfChange } from '$lib/files/open';
 
 	/**
 	 * The hunks of the selected file, unified or side by side.
@@ -37,6 +38,8 @@
 		binaryDiff?: BinaryDiff | null;
 		commitId?: string | null;
 		side?: DiffSide | null;
+		/** The commit the file is from. Given, each line opens in Files where it is (FEAT-189). */
+		rev?: string | null;
 	}
 
 	let {
@@ -48,8 +51,29 @@
 		focus = 0,
 		binaryDiff = null,
 		commitId = null,
-		side = null
+		side = null,
+		rev = null
 	}: Props = $props();
+
+	/**
+	 * Where each line is in the version Files reads (FEAT-189): the commit's,
+	 * or its parent's for a file the commit deleted.
+	 */
+	const lineAt = $derived.by(() => {
+		const at = new Map<DiffLine, number>();
+		if (!rev || !file || file.binary) return at;
+		const version = file.status === 'deleted' ? 'old' : 'new';
+		for (const hunk of file.hunks) {
+			const numbers = numbersIn(hunk.lines, version);
+			hunk.lines.forEach((line, index) => at.set(line, numbers[index]));
+		}
+		return at;
+	});
+
+	function inFiles(line: DiffLine) {
+		if (!rev || !file) return {};
+		return fileAttrs(file.path, revOfChange(rev, file.status), undefined, { line: lineAt.get(line) });
+	}
 	const language = $derived(detectLanguage(path));
 	/** The changed words in each hunk's changed lines (FEAT-090). */
 	const marks = $derived(file && !file.binary ? file.hunks.map((hunk) => pairWords(hunk.lines)) : []);
@@ -137,7 +161,7 @@
 			<section class="hunk" bind:this={hunkEls[index]}>
 				<div class="hunk-head mono">{hunk.header}</div>
 				{#each hunk.lines as line, row (row)}
-					<div class="line {line.origin}">
+					<div class="line {line.origin}" {...inFiles(line)}>
 						<span class="num">{line.old ?? ''}</span>
 						<span class="num">{line.new ?? ''}</span>
 						<span class="sign">{sign(line)}</span>
@@ -160,13 +184,13 @@
 				<div class="hunk-head mono">{hunk.header}</div>
 				{#each splitRows(hunk.lines) as row, i (i)}
 					<div class="pair">
-						<div class="side {row.left?.origin ?? 'blank'}">
+						<div class="side {row.left?.origin ?? 'blank'}" {...row.left ? inFiles(row.left) : {}}>
 							{#if row.left}
 								<span class="num">{row.left.old ?? ''}</span>
 								<span class="text">{@html highlightLine(row.left.text, language)}</span>
 							{/if}
 						</div>
-						<div class="side {row.right?.origin ?? 'blank'}">
+						<div class="side {row.right?.origin ?? 'blank'}" {...row.right ? inFiles(row.right) : {}}>
 							{#if row.right}
 								<span class="num">{row.right.new ?? ''}</span>
 								<span class="text">{@html highlightLine(row.right.text, language)}</span>

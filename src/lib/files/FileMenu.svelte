@@ -2,7 +2,7 @@
 <script lang="ts">
 	import Menu from '$lib/ui/Menu.svelte';
 	import type { MenuItem } from '$lib/ui/menu';
-	import { openInFiles, targetOf } from './open';
+	import { lineInView, openInFiles, targetOf, type FileTarget } from './open';
 	import { revisionLabel } from './store.svelte';
 
 	/**
@@ -15,6 +15,9 @@
 	 * Opening does not need the menu (FEAT-150): a double-click, or a click
 	 * with Ctrl or ⌘, opens the file from any row, and a row marked
 	 * `data-file-open="click"` opens on a plain click.
+	 *
+	 * A row that is not a line opens at the line a viewer on screen shows the
+	 * file at, when one does (FEAT-189).
 	 */
 	let menu = $state<{
 		x: number;
@@ -22,8 +25,16 @@
 		anchor: HTMLElement;
 		path: string;
 		rev: string | undefined;
+		line: number | undefined;
 		absent: string | undefined;
 	} | null>(null);
+
+	/** What `row` opens: at its own line, or at the one on screen. */
+	function opening(row: HTMLElement): FileTarget | null {
+		const target = targetOf(row);
+		if (!target || target.line !== undefined) return target;
+		return { ...target, line: lineInView(target, row) };
+	}
 
 	function oncontextmenu(event: MouseEvent) {
 		if (event.defaultPrevented) return;
@@ -37,6 +48,7 @@
 			anchor: row,
 			path,
 			rev: row.dataset.fileRev || undefined,
+			line: opening(row)?.line,
 			absent: row.dataset.fileAbsent || undefined
 		};
 	}
@@ -57,14 +69,14 @@
 		// A control inside a plain-click row keeps its own click.
 		const inner = (event.target as Element).closest('button, a, [role="button"]');
 		if (!modified && inner && inner !== row && row.contains(inner)) return;
-		const target = targetOf(row);
+		const target = opening(row);
 		if (target) void openInFiles(target);
 	}
 
 	function ondblclick(event: MouseEvent) {
 		if (event.defaultPrevented) return;
 		const row = rowOf(event);
-		const target = row ? targetOf(row) : null;
+		const target = row ? opening(row) : null;
 		if (!target) return;
 		event.preventDefault();
 		void openInFiles(target);
@@ -72,7 +84,7 @@
 
 	const items = $derived.by((): MenuItem[] => {
 		if (!menu) return [];
-		const { path, rev, absent } = menu;
+		const { path, rev, line, absent } = menu;
 		return [
 			{
 				id: 'open-in-files',
@@ -80,7 +92,7 @@
 				note: rev ? revisionLabel(rev) : undefined,
 				disabled: !!absent,
 				reason: absent,
-				run: () => void openInFiles({ path, rev })
+				run: () => void openInFiles({ path, rev, line })
 			}
 		];
 	});

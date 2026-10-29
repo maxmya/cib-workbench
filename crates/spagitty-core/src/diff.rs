@@ -529,6 +529,34 @@ pub fn working_file_diff(repo: &gix::Repository, path: &str, side: Side) -> Resu
     })
 }
 
+/// One working-copy file whole, on either side of the index: every line of
+/// the new version with the removed lines in place (FEAT-189).
+///
+/// The Working copy screen keeps its hunks, since they are what is staged,
+/// and fills the unchanged lines between them from these. Both are cut by the
+/// same diff, so a line between two hunks here is a line no hunk holds. Empty
+/// for a file that is binary or too large, which has no hunks either.
+pub fn working_file_lines(repo: &gix::Repository, path: &str, side: Side) -> Result<Vec<DiffLine>> {
+    let (old, new) = match side {
+        Side::Staged => (head_blob(repo, path)?, index_bytes(repo, path)?),
+        Side::Unstaged => (index_bytes(repo, path)?, worktree_bytes(repo, path)?),
+    };
+    if old.is_none() && new.is_none() {
+        return Err(Error::UnknownPath(path.to_string()));
+    }
+
+    let old = old.unwrap_or_default();
+    let new = new.unwrap_or_default();
+    if is_binary(&old)
+        || is_binary(&new)
+        || old.len() > MAX_BLOB_BYTES
+        || new.len() > MAX_BLOB_BYTES
+    {
+        return Ok(Vec::new());
+    }
+    Ok(full_lines(&old, &new))
+}
+
 /// A patch containing exactly one hunk of one file, ready for `git apply`.
 ///
 /// The hunk is identified by its position and its header rather than sent as

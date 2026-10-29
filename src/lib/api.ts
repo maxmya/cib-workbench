@@ -24,6 +24,7 @@ import type {
 	ConflictSideName,
 	ConflictSides,
 	ConflictState,
+	DiffLine,
 	DiffSide,
 	DraftComment,
 	ExternalToolInfo,
@@ -193,6 +194,11 @@ export function workingCopy(): Promise<WorkingCopy> {
 /** One working-copy file's hunks, on either side of the index. */
 export function workingDiff(path: string, side: DiffSide): Promise<FileDiff> {
 	return invoke('working_diff', { path, side });
+}
+
+/** One working-copy file whole, on either side of the index (FEAT-189). */
+export function workingFileLines(path: string, side: DiffSide): Promise<DiffLine[]> {
+	return invoke('working_file_lines', { path, side });
 }
 
 /** Detailed binary / image diff metadata for working copy (FEAT-065). */

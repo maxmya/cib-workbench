@@ -242,6 +242,7 @@ rather than an audit.
 | [FEAT-186](items/FEAT-186-discard-a-review-before-it-is-sent.md) | Discard a review before it is sent | Review | Done |
 | [FEAT-187](items/FEAT-187-workbench-installs-its-own-updates.md) | Workbench installs its own updates, from its own installer | 1K, chrome | Done |
 | [FEAT-188](items/FEAT-188-continuous-corners-and-liquid-glass.md) | Continuous corners, and liquid glass on three things only | all | Done |
+| [FEAT-189](items/FEAT-189-whole-file-on-commit-and-files-at-the-line-on-screen.md) | The whole file on Commit, and Files at the line on screen | Commit, Diff, Stash, Review | Open |
 
 ## Bugs
 

@@ -6,7 +6,7 @@
 	import type { MenuItem } from '$lib/ui/menu';
 	import * as api from '$lib/api';
 	import { notice } from '$lib/ui/notice.svelte';
-	import { openInFiles, revOfChange } from '$lib/files/open';
+	import { fileAttrs, lineInView, openInFiles, revOfChange } from '$lib/files/open';
 
 	/**
 	 * The files a commit touched, with what each one cost in lines.
@@ -34,7 +34,10 @@
 		label?: string;
 		/** Shown when there are no files at all. */
 		empty?: string;
-		/** The commit these files are from. Given, a file opens in Files there. */
+		/**
+		 * The commit these files are from. Given, a file opens in Files there,
+		 * on a double-click too, and at the line the diff beside it shows.
+		 */
 		rev?: string | null;
 	}
 
@@ -79,7 +82,7 @@
 			items.push({
 				id: 'open-in-files',
 				label: 'Open in Files',
-				run: () => void openInFiles({ path: filePath, rev: at })
+				run: () => void openInFiles({ path: filePath, rev: at, line: lineInView({ path: filePath, rev: at }) })
 			});
 		}
 		items.push({
@@ -119,6 +122,7 @@
 			onclick={() => onselect(file.path)}
 			oncontextmenu={(e) => oncontextmenu(e, file.path)}
 			title={file.path}
+			{...rev ? fileAttrs(file.path, revOfChange(rev, file.status)) : {}}
 		>
 			<FileName path={file.path} status={file.status} />
 			{#if file.binary}

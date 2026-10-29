@@ -15,9 +15,15 @@
  *
  * A screen whose rows already have a menu of their own puts the same entry
  * in it with `openInFiles`.
+ *
+ * **At the line on screen** (FEAT-189). Every line a diff viewer draws is a
+ * row too, with `data-file-line` the number Files has it at, so a line opens
+ * where it is. A file opened from a list while a viewer shows it opens at the
+ * viewer's first line in view (`lineInView`).
  */
 
 import { goto } from '$app/navigation';
+import type { DiffLine } from '$lib/types';
 
 export interface FileTarget {
 	path: string;
@@ -53,10 +59,44 @@ export function revOfChange(commit: string, status: string): string {
 export function pullFileAttrs(
 	path: string,
 	status: string,
-	head: { head: string; mergeBase: string } | null
+	head: { head: string; mergeBase: string } | null,
+	opening: FileOpening = {}
 ) {
 	if (!head) return fileAttrs(path, null, 'Not fetched');
-	return fileAttrs(path, status === 'deleted' ? head.mergeBase : head.head);
+	return fileAttrs(path, status === 'deleted' ? head.mergeBase : head.head, undefined, opening);
+}
+
+/**
+ * A working-copy file, as Files can read it: at the branch, since Files
+ * reads commits and not the working copy. A file new since then is not in
+ * one yet.
+ */
+export function workingFileAttrs(
+	path: string,
+	status: string,
+	head: string | null,
+	opening: FileOpening = {}
+) {
+	const fresh = status === 'added' || status === 'untracked';
+	return fileAttrs(path, head, fresh ? 'Not in a commit yet' : undefined, opening);
+}
+
+/**
+ * Each of a diff's lines by its number in one version of the file, the one
+ * Files reads (FEAT-189). A line that version does not have — one added,
+ * read in the old; one removed, read in the new — takes the number of the
+ * line it comes before there.
+ *
+ * The lines run from the start of a file or of a hunk: a hunk that starts
+ * without a line of context starts the file.
+ */
+export function numbersIn(lines: readonly DiffLine[], version: 'old' | 'new'): number[] {
+	let last = 0;
+	return lines.map((line) => {
+		const own = line[version];
+		if (own !== null) last = own;
+		return own ?? last + 1;
+	});
 }
 
 /** How a marked row opens, beyond the right-click menu (FEAT-150). */
@@ -96,4 +136,39 @@ export function targetOf(row: HTMLElement): FileTarget | null {
 		rev: row.dataset.fileRev || undefined,
 		line: Number.isInteger(line) && line > 0 ? line : undefined
 	};
+}
+
+/**
+ * The line a viewer on screen shows `target`'s file at: the first of its
+ * marked lines in view at the same revision, or undefined when no viewer
+ * has the file open. Lines inside `from`, the row being opened, are not a
+ * viewer of it.
+ */
+export function lineInView(target: FileTarget, from?: Element): number | undefined {
+	let clip: { top: number; bottom: number } | null = null;
+	for (const row of document.querySelectorAll<HTMLElement>('[data-file-line]')) {
+		if (row.dataset.filePath !== target.path || from?.contains(row)) continue;
+		const at = targetOf(row);
+		if (!at?.line || at.rev !== target.rev) continue;
+		clip ??= clipOf(row);
+		const rect = row.getBoundingClientRect();
+		const middle = (rect.top + rect.bottom) / 2;
+		if (middle >= clip.top && middle < clip.bottom) return at.line;
+	}
+	return undefined;
+}
+
+const CLIPS = new Set(['auto', 'scroll', 'hidden', 'clip']);
+
+/** Where `row` can be seen: the window, cut by every scrolling box round it. */
+function clipOf(row: Element): { top: number; bottom: number } {
+	let top = 0;
+	let bottom = window.innerHeight;
+	for (let box = row.parentElement; box; box = box.parentElement) {
+		if (!CLIPS.has(getComputedStyle(box).overflowY)) continue;
+		const rect = box.getBoundingClientRect();
+		top = Math.max(top, rect.top);
+		bottom = Math.min(bottom, rect.bottom);
+	}
+	return { top, bottom };
 }

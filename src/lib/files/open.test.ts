@@ -12,7 +12,7 @@ const { goto } = vi.hoisted(() => ({ goto: vi.fn() }));
 vi.mock('$app/navigation', () => ({ goto }));
 
 import FileMenu from './FileMenu.svelte';
-import { fileAttrs, filesHref, pullFileAttrs, revOfChange } from './open';
+import { fileAttrs, filesHref, numbersIn, pullFileAttrs, revOfChange, workingFileAttrs } from './open';
 
 const SHA = 'c'.repeat(40);
 
@@ -39,6 +39,24 @@ describe('the address', () => {
 		expect(fileAttrs('a.rs', 'main', 'Not in a commit yet')['data-file-absent']).toBe(
 			'Not in a commit yet'
 		);
+	});
+
+	it('reads a working-copy file at the branch, and has no new one to read (FEAT-189)', () => {
+		expect(workingFileAttrs('a.rs', 'modified', 'main')['data-file-rev']).toBe('main');
+		expect(workingFileAttrs('a.rs', 'untracked', 'main')['data-file-absent']).toBe('Not in a commit yet');
+		expect(workingFileAttrs('a.rs', 'added', 'main', { line: 4 })['data-file-line']).toBe('4');
+	});
+
+	it('numbers a line a version does not have where it would be in it (FEAT-189)', () => {
+		const lines = [
+			{ origin: 'removed' as const, old: 1, new: null, text: 'a' },
+			{ origin: 'added' as const, old: null, new: 1, text: 'A' },
+			{ origin: 'context' as const, old: 2, new: 2, text: 'b' },
+			{ origin: 'added' as const, old: null, new: 3, text: 'c' },
+			{ origin: 'removed' as const, old: 3, new: null, text: 'd' }
+		];
+		expect(numbersIn(lines, 'new')).toEqual([1, 1, 2, 3, 4]);
+		expect(numbersIn(lines, 'old')).toEqual([1, 2, 2, 3, 3]);
 	});
 
 	it('reads a pull request’s file at its head, and a deleted one where the head left the target', () => {
@@ -149,6 +167,54 @@ describe('the menu', () => {
 			press(at.firstElementChild!, {}, 'dblclick');
 			press(at.querySelector('input')!, {}, 'dblclick');
 			expect(goto).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('at the line on screen (FEAT-189)', () => {
+		const dblclick = (target: Element) =>
+			target.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+
+		/** A diff of lines 1–3, the first scrolled out of view above the pane. */
+		function viewer(rev = 'main'): string {
+			return [1, 2, 3]
+				.map((n) => `<div class="line" data-file-path="a.rs" data-file-rev="${rev}" data-file-line="${n}">${n}</div>`)
+				.join('');
+		}
+
+		function scrolledPast(at: HTMLElement) {
+			const first = at.querySelector<HTMLElement>('.line')!;
+			first.getBoundingClientRect = () => ({ top: -40, bottom: -20 }) as DOMRect;
+		}
+
+		it('opens a file from a list at the first line a viewer shows of it', () => {
+			const at = screen(`<button class="row" data-file-path="a.rs" data-file-rev="main">a.rs</button>${viewer()}`);
+			scrolledPast(at);
+
+			dblclick(at.querySelector('.row')!);
+			expect(goto).toHaveBeenCalledWith('/files?path=a.rs&rev=main&line=2');
+		});
+
+		it('opens a line at its own number', () => {
+			const at = screen(viewer());
+
+			dblclick(at.querySelectorAll('.line')[2]);
+			expect(goto).toHaveBeenCalledWith('/files?path=a.rs&rev=main&line=3');
+		});
+
+		it('does not take the line of a viewer showing the file at another revision', () => {
+			const at = screen(`<button class="row" data-file-path="a.rs" data-file-rev="main">a.rs</button>${viewer('dev')}`);
+
+			dblclick(at.querySelector('.row')!);
+			expect(goto).toHaveBeenCalledWith('/files?path=a.rs&rev=main');
+		});
+
+		it('offers the line in the menu too', () => {
+			const at = screen(`<button class="row" data-file-path="a.rs" data-file-rev="main">a.rs</button>${viewer()}`);
+			scrolledPast(at);
+
+			rightClick(at.querySelector('.row')!);
+			click(entry()!);
+			expect(goto).toHaveBeenCalledWith('/files?path=a.rs&rev=main&line=2');
 		});
 	});
 

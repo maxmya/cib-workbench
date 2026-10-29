@@ -174,6 +174,7 @@ const READERS: &[&str] = &[
     "file_diff",
     "working_copy",
     "working_diff",
+    "working_file_lines",
     "binary_file_diff",
     "binary_working_diff",
     "hooks",
@@ -647,6 +648,18 @@ pub fn working_copy(state: State<'_, AppState>) -> Result<WorkingCopy> {
 pub fn working_diff(state: State<'_, AppState>, path: String, side: Side) -> Result<FileDiff> {
     state.with_session("working_diff", |session| {
         diff::working_file_diff(&session.repo.to_thread_local(), &path, side)
+    })
+}
+
+/// One working-copy file whole, on either side of the index (FEAT-189).
+#[tauri::command(async)]
+pub fn working_file_lines(
+    state: State<'_, AppState>,
+    path: String,
+    side: Side,
+) -> Result<Vec<diff::DiffLine>> {
+    state.with_session("working_file_lines", |session| {
+        diff::working_file_lines(&session.repo.to_thread_local(), &path, side)
     })
 }
 

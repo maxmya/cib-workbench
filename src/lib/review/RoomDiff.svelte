@@ -9,9 +9,9 @@
 	import Icon from '$lib/ui/Icon.svelte';
 	import Markdown from '$lib/ui/Markdown.svelte';
 	import VirtualRows from '$lib/ui/VirtualRows.svelte';
-	import { pullFileAttrs } from '$lib/files/open';
+	import { numbersIn, pullFileAttrs } from '$lib/files/open';
 	import { room } from './room.svelte';
-	import type { ConflictFix } from '$lib/types';
+	import type { ConflictFix, DiffLine } from '$lib/types';
 	import { holds, lineOfRow, lineRows, rowsOf, sideBySide, type LineRow, type Row, type SideName } from './rows';
 	import { draftsByPlace } from './drafts';
 	import { paint } from '$lib/diff/highlight';
@@ -243,6 +243,24 @@
 	function fileOf(path: string) {
 		return room.files.find((file) => file.path === path);
 	}
+
+	/** Each file's lines by the number Files has them at, worked out once a file. */
+	const numbered = new WeakMap<readonly DiffLine[], number[]>();
+
+	/**
+	 * A line opens in Files where it is (FEAT-189): in the head, or where the
+	 * head left the target for a file the pull request deletes.
+	 */
+	function inFiles(row: LineRow) {
+		const status = fileOf(row.path)?.status ?? 'modified';
+		const lines = room.contentOf(row.path)?.lines;
+		let numbers = lines && numbered.get(lines);
+		if (lines && !numbers) {
+			numbers = numbersIn(lines, status === 'deleted' ? 'old' : 'new');
+			numbered.set(lines, numbers);
+		}
+		return pullFileAttrs(row.path, status, room.head, { line: numbers?.[row.index] });
+	}
 </script>
 
 <svelte:window {onkeydown} />
@@ -269,6 +287,7 @@
 		class:focused
 		class:ruled={room.ruler && focused}
 		class:dim={room.ruler && room.rulerMode === 'chunk' && focusChunk !== null && row.chunk !== focusChunk}
+		{...inFiles(row)}
 	>
 		<span class="marker"></span>
 		<button
@@ -284,7 +303,8 @@
 					class="plus"
 					class:shown={focused || (covered !== null && covered.path === row.path && covered.to === row.index)}
 					aria-label="Comment on this line"
-					onclick={() => compose(row)}><Icon name="plus" size="0.75em" weight={2.6} /></button
+					onclick={() => compose(row)}
+					ondblclick={(event) => event.stopPropagation()}><Icon name="plus" size="0.75em" weight={2.6} /></button
 				>
 			{/if}
 		</span>

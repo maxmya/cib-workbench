@@ -222,6 +222,28 @@ describe('DiffPane', () => {
 		view.destroy();
 	});
 
+	it('opens each line in Files where the commit has it, given the commit (FEAT-189)', () => {
+		const sha = 'c'.repeat(40);
+		const view = render(DiffPane, pane({ file: file('a.txt'), path: 'a.txt', rev: sha }));
+
+		const lines = view.all('.line');
+		expect(lines.every((line) => line.dataset.filePath === 'a.txt' && line.dataset.fileRev === sha)).toBe(true);
+		// The removed line, read in the new version, sits where the line after it is.
+		expect(lines.map((line) => line.dataset.fileLine)).toEqual(['1', '2', '2', '3']);
+		view.destroy();
+
+		const deleted = render(DiffPane, pane({ file: file('a.txt', { status: 'deleted' }), path: 'a.txt', rev: sha }));
+		expect(deleted.get('.line').dataset.fileRev).toBe(`${sha}^`);
+		deleted.destroy();
+	});
+
+	it('leaves its lines alone when it is not told the commit', () => {
+		const view = render(DiffPane, pane({ file: file('a.txt'), path: 'a.txt' }));
+
+		expect(view.get('.line').dataset.filePath).toBeUndefined();
+		view.destroy();
+	});
+
 	it('renders the same lines side by side in split view', () => {
 		const view = render(DiffPane, pane({ file: file('a.txt'), path: 'a.txt', view: 'split' }));
 

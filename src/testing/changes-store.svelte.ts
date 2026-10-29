@@ -11,7 +11,7 @@
  * coverage floor.
  */
 
-import type { FileDiff, WorkingCopy, Signing } from '$lib/types';
+import type { DiffLine, FileDiff, WorkingCopy, Signing } from '$lib/types';
 import type { Selection } from '$lib/changes/store.svelte';
 
 const EMPTY: WorkingCopy = { staged: [], unstaged: [], conflicted: [] };
@@ -24,6 +24,8 @@ let selection = $state<Selection | null>(null);
 let file = $state<FileDiff | null>(null);
 let fileError = $state<string | null>(null);
 let fileLoading = $state(false);
+let whole = $state(false);
+let wholeLines = $state.raw<DiffLine[] | null>(null);
 let subject = $state('');
 let body = $state('');
 let amend = $state(false);
@@ -62,6 +64,9 @@ export const control = {
 	setFileLoading(next: boolean) {
 		fileLoading = next;
 	},
+	setWholeLines(next: DiffLine[] | null) {
+		wholeLines = next;
+	},
 	setError(next: string | null) {
 		error = next;
 	},
@@ -95,6 +100,8 @@ export const control = {
 		file = null;
 		fileError = null;
 		fileLoading = false;
+		whole = false;
+		wholeLines = null;
 		subject = '';
 		body = '';
 		amend = false;
@@ -137,6 +144,15 @@ export const changes = {
 	},
 	get fileLoading() {
 		return fileLoading;
+	},
+	get whole() {
+		return whole;
+	},
+	get wholeLines() {
+		return wholeLines;
+	},
+	setWhole(next: boolean) {
+		whole = next;
 	},
 	get subject() {
 		return subject;
