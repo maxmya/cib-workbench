@@ -14,6 +14,19 @@ versions follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-10-29
+
+### Changed
+
+- **The Mac build is signed and notarized.** It opens on first launch with
+  no *developer cannot be verified* dialog and no trip to Privacy & Security.
+
+### Downloads
+
+- **Windows, Linux and macOS on Apple silicon.** The Mac build is signed with
+  a Developer ID and notarized by Apple. If macOS says the app is **damaged**,
+  compare the download with `SHA256SUMS-*.txt`.
+
 ## [2.0.1] - 2026-10-29
 
 ### Fixed

@@ -129,16 +129,14 @@ jobs:
         shell: bash
         run: echo "tag=v$(bun -e "console.log(require('./package.json').version)")" >> "$GITHUB_OUTPUT"
 
-      # `interim` until an Apple Developer ID exists: with no certificate the
-      # Mac build is signed ad hoc, and the version's changelog section says
-      # what that means on first open. Once APPLE_CERTIFICATE and the
-      # notarization secrets are in place, switch this to `production` so a
-      # release can never again go out unsigned by accident (TASK-040).
+      # `production`: the Developer ID certificate and the notarization
+      # secrets are in place (2.0.2), so a release can never again go out
+      # unsigned by accident (TASK-040). Missing secrets fail the build.
       - id: signing
         uses: ./.github/actions/macos-signing
         if: runner.os == 'macOS'
         with:
-          lane: interim
+          lane: production
           certificate: ${{ secrets.APPLE_CERTIFICATE }}
           certificate-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           apple-id: ${{ secrets.APPLE_ID }}
