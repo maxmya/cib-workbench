@@ -608,6 +608,16 @@ fn drive<R: Runtime>(app: AppHandle<R>, live: Arc<Live>, woken: Receiver<()>) {
         let (more, over) = {
             let mut run = live.run.lock().unwrap_or_else(|p| p.into_inner());
             let mut host = host_for(&app, &live, &run);
+            // Stopped while waiting, by a stop that could not take the run
+            // because it was being kept: it is ended here (BUG-117).
+            if live.stop.load(Ordering::SeqCst)
+                && run
+                    .stop
+                    .as_ref()
+                    .is_some_and(|stop| stop.choices.contains(&Choice::End))
+            {
+                let _ = run.answer(&live.repo, Choice::End, &mut host);
+            }
             live.working.store(true, Ordering::SeqCst);
             let starting = view(&live, &run);
             remember(&live, &starting);
@@ -1396,6 +1406,24 @@ mod tests {
             app.state::<RecipesState>(),
         )
         .expect("stopped");
+
+        let ended = ends(&app);
+        assert_eq!(ended.run.outcome, Some(Outcome::Ended));
+        assert_eq!(fixture.git(&["log", "-1", "--format=%s"]).trim(), "First");
+    }
+
+    /// Stop could not take the run, because its thread was keeping it, so
+    /// it only raised the flag and woke the thread (BUG-117).
+    #[test]
+    fn a_stop_that_could_not_take_the_run_still_ends_it() {
+        let fixture = two_branches();
+        let app = app_on(&fixture);
+        start(&app, merge_other(Level::StepByStep)).expect("started");
+        waits(&app);
+        let live = live_for(&app.state::<RecipesState>(), fixture.path()).expect("a run");
+
+        live.stop.store(true, Ordering::SeqCst);
+        let _ = live.wake.lock().expect("the wake").send(());
 
         let ended = ends(&app);
         assert_eq!(ended.run.outcome, Some(Outcome::Ended));

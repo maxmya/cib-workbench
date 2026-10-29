@@ -364,6 +364,7 @@ rather than an audit.
 | [BUG-114](items/BUG-114-calls-open-calls-wrap-onto-a-second-row.md) | Calls' open calls wrap onto a second row | 2C | Fixed |
 | [BUG-115](items/BUG-115-recipes-panels-cannot-be-resized-and-the-right-one-scrolls-sideways.md) | Recipes' panels cannot be resized, and the right one scrolls sideways | 1V | Fixed |
 | [BUG-116](items/BUG-116-the-launch-screen-s-globe-sits-on-a-glow-and-cib-is-off-centre.md) | The launch screen's globe sits on a glow, and "CIB" is off centre | Launch | Fixed |
+| [BUG-117](items/BUG-117-stop-is-lost-when-a-waiting-run-is-being-kept.md) | Stop is lost when a waiting run is being kept | 1V | Fixed |
 
 `BUG-009b` carries a suffix rather than the next number because it is the same
 report, reopened on a corrected diagnosis, and BUG-009's own document keeps the
@@ -519,5 +520,6 @@ missing documents are not listed here, and fails again if a row here is stale.
 | BUG-114 | plan, automated, sweep | Fixed in one session from a report; covered by `calls/CallsScreen.test.ts`. The sweep, with a dozen calls open at a narrow width, is owed. |
 | BUG-115 | plan, automated, sweep | Fixed in one session from a report; covered by `routes/recipes/page.test.ts` and `panels.test.ts`. The sweep, dragging both sides and an agent with a long name, is owed. |
 | BUG-116 | plan, automated, sweep | Fixed in one session from a report, with no test of its own; a stylesheet change the test DOM cannot see. The sweep, in Day and Night, is owed. |
+| BUG-117 | plan, automated, sweep | Fixed in one session from a CI failure; covered by `a_stop_that_could_not_take_the_run_still_ends_it` in `recipes.rs`. The sweep, pressing *Stop* the moment a run stops to ask, is owed. |
 | TASK-076 | plan, automated, sweep | Done in one session from a report; covered by `routes/recipes/page.test.ts`. The sweep is owed. |
 | TASK-077 | plan, automated, sweep | Done in one session from a report, in two passes; copy only, covered by the screens' existing tests. The sweep is owed. |
