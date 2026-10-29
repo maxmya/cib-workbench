@@ -4,7 +4,7 @@
 
 **Prepared:** 2026-10-28  
 **Target:** Workbench 2.0.0, set by the author on 2026-10-28. The tab strip going is a change in how the application is used, so it is a major version.  
-**Status:** Recorded 2026-10-28. Six backlog items, FEAT-180 to FEAT-185, are in [section 13](#13-backlog-items) and in `agile/items/`. The author's answers to the questions are in [section 15](#15-questions-for-the-author).  
+**Status:** FEAT-180 to FEAT-184 built on `feature/workbench-2.0.0` as 2.0.0, 2026-10-29; FEAT-185 is backlog. Where the build differs from this proposal, each item's *As built* says so. The author's answers to the questions are in [section 15](#15-questions-for-the-author).  
 **Raised by:** the author, 2026-10-28: "now this software is repo oriented, but a lot of features should not be repo oriented … 1 – when one installs it the first time, they get onboarded to a screen with Next buttons that explains what this software is. 2 – save our company GitLab link and allow them to open the token export URL from the app. 3 – then they paste the token and we tell them it's in a secured store and press Next. 4 – allow them to order the Home screen, which is renewed to fetch [selected repos or empty]. 5 – LOAD A REPO FLOW — instead of multiple tabs, a load-repo function that makes the app load a specific repo to act upon, or work generally with calls and pipelines of selected repos."  
 **Screens:** 2D Onboarding (new), 2A Home (changed), 2E Load repository (new, a dialog), 1K Settings › GitLab (new) and Settings › Home (changed), chrome (title bar, rail; the tab strip goes).  
 **Designs:** [`design_handoff_onboarding_home/`](../../design_handoff_onboarding_home/), listed in [section 14](#14-designs).
@@ -113,7 +113,7 @@ export const GITLAB = {
 export const FEATURES = { …, workbenchWide: true };
 ```
 
-The host is the one the author's installed Workbench is connected to, and the author confirmed on 2026-10-28 that it is the one to build in. The GitLab is Enterprise Edition 16.6.2 (`/help`), so `personal_access_tokens/self` ([6.4](#64-reading-the-token-back)) exists. Newer GitLab releases moved the token page under `/-/user_settings/`. Which path 16.6.2 serves could not be checked without signing in, because the instance sends every unknown path to the sign-in page. Open the URL from [6.2](#62-the-token-page-url) once while signed in and confirm it before FEAT-181 merges. The manual sweep checks it too.
+The host is the one the author's installed Workbench is connected to, and the author confirmed on 2026-10-28 that it is the one to build in. The GitLab is Enterprise Edition 16.6.2 (`/help`), so `personal_access_tokens/self` ([6.4](#64-reading-the-token-back)) exists. Newer GitLab releases moved the token page under `/-/user_settings/`. The author opened both while signed in on 2026-10-28: `/-/profile/personal_access_tokens` is the Access Tokens page and `/-/user_settings/personal_access_tokens` is a 404. On 16.6.2 the form is behind *Add new token* and is not filled in from the query, so onboarding guides the person through it (the author's decision).
 
 `brand.rs` has no `FEATURES` today, only `CHECKS_FOR_UPDATES`. FEAT-181 adds the Rust mirror. The comment on `FEATURES` in `brand.ts` ("What Workbench leaves out of Spagitty") is reworded to cover a switch that adds something.
 

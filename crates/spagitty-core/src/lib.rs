@@ -66,6 +66,7 @@ pub mod untrack;
 pub mod update;
 pub mod usages;
 pub mod work;
+pub mod workbench;
 pub mod worktrees;
 
 /// Repository fixtures, shared by the tests of every module that reads one,

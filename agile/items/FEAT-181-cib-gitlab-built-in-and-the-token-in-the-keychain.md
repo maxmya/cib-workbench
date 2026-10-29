@@ -2,8 +2,8 @@
 
 # FEAT-181 — CIB GitLab built in, and the token kept in the keychain
 
-**Status:** Backlog — proposed in `docs/proposals/workbench-wide-home-and-load-repository.md` § 6.
-**Branch:** none yet.
+**Status:** Done — on `feature/workbench-2.0.0`, as Workbench 2.0.0, from the proposal's § 6. The manual sweep is still to run.
+**Branch:** `feature/workbench-2.0.0`, with the other four of FEAT-180 to FEAT-184.
 **Screens:** 2D steps 2–3, Settings › GitLab (new).
 **Raised by:** the author, 2026-10-28: "save our company GitLab link and allow them to open the token export URL from the app; then they paste the token and we tell them it's in a secured store."
 
@@ -28,3 +28,11 @@
 4. Settings › GitLab *Disconnect* removes the keychain entry before the account (as `forge_disconnect` does).
 5. With `FEATURES.workbenchWide` off, the generic accounts section is unchanged, and `forge_connect`'s tests pass as they are.
 6. Signed in to CIB's GitLab, the token page link opens the token form with the name and scopes filled in.
+
+## As built
+
+- The token page path, `/-/profile/personal_access_tokens`, was confirmed signed in on 2026-10-28; `/-/user_settings/personal_access_tokens` is a 404 on 16.6.2.
+- **Criterion 6 does not hold on 16.6.2, by the author's decision.** The form is behind *Add new token* and GitLab does not fill in the name or scopes from the query. The author decided on 2026-10-28 that guiding the person is enough, so onboarding step 2 carries a numbered guide and *Copy scopes*. The query string stays in the link for a GitLab that honours it.
+- The checks live in `crates/spagitty-core/src/workbench.rs` rather than in `forge/gitlab.rs`, so that a Spagitty merge never meets them.
+- `gitlab_connect` disconnects any other account on the built-in host, keychain first: one GitLab, one person.
+- Plan: [`FEAT-181-plan.md`](../plans/FEAT-181-plan.md). Tests: [`FEAT-181-automated.md`](../testing/FEAT-181-automated.md). Sweep: [`FEAT-181-sweep.md`](../testing/FEAT-181-sweep.md).

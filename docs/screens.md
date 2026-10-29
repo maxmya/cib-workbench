@@ -12,7 +12,9 @@ defect.
 
 | Code | Screen | Route | Rail | State | Item |
 | --- | --- | --- | --- | --- | --- |
-| 2A | Home | `/home` | yes, top | Built | FEAT-140 |
+| 2A | Home | `/home` | yes, top | Built | FEAT-140; Workbench: FEAT-183 |
+| 2D | Onboarding (Workbench) | `/welcome` | no | Built | FEAT-180 |
+| 2E | Load repository (Workbench) | dialog, Ctrl+O | no | Built | FEAT-184 |
 | 1A | Graph | `/` | yes | Built | FEAT-001 |
 | 1B | Diff | `/diff` | no | Built | FEAT-002 |
 | 1C | Working copy | `/changes` | yes | Built | FEAT-003 |
@@ -76,6 +78,24 @@ an honest empty one.
 The top of the rail, above a divider and the Farm, and the screen a launch opens on: the last session's tab and selected commit come back, the screen is Home. The header names the repository, the branch against its upstream, when it was last fetched, and the remote, licence and version; `Fetch all` and `New farm`.
 
 **Needs you** lists what waits on the person now, most urgent first — merge ready, review requested, task stuck, checks failed, changes requested, assigned to you — with All, Reviews, Failing and Farm chips. A row leaves when its thing is done. Each kind's colour, icon and button come from `src/lib/notifications/kinds.ts`, which the notification center reads too. Beside it, the Farm card and Working copy; below, Branches, Pull requests and Latest commits, then sixteen weeks of commits, Pipelines and Releases. The git half is one read (`home_overview`); the forge half rides the watcher's clock and Home adds no timer.
+
+### Workbench: across followed repositories (FEAT-183)
+
+With `FEATURES.workbenchWide` on, Home reads every CIB GitLab project the person follows, loaded or not. The header says "Following N repositories on CIB GitLab · updated … · *Change*", with *Refresh* and *Customise Home*; with a followed project loaded, *All followed* | *<repo> only* filters every card to it. While a repository is loaded, a *Loaded* band above the cards holds its Working copy, its Branch against upstream with *Push*, and Recent commits, with *Open graph* and *Commit…*.
+
+The cards, in the order chosen in onboarding or Settings › Home: Needs you (review requests anywhere on the host, a failed latest run in a followed project, issues assigned to you), Merge requests, Pipelines (the latest run on each default branch and on the person's own merge request branches), Issues, Calls (the three Workbench-wide collections used last) and Releases. Every row names its project; one project that fails shows its error in its card. A row whose screen needs the repository loads it first. One read, `home_workbench_wide`, makes at most four requests at a time; the last answer paints first, and a project read within the watcher's interval is not read again. Following nothing shows *Choose repositories* and *Load a repository*, and Calls.
+
+## 2D — Onboarding (Workbench)
+
+**Item:** [FEAT-180](../agile/items/FEAT-180-first-launch-onboarding.md). **Route:** `/welcome`.
+
+The first launch, full window: no rail, no status strip, the title bar only its window buttons. Steps *Welcome · GitLab · Token · Home* across the top; Back, the Welcome page dots and Next at the bottom; CIB's logo and the internal-use notice below a hairline. Welcome is three pages. GitLab shows the built-in address, *Open token page in your browser*, *Copy link*, the URL, the scopes with *Copy scopes*, and a numbered guide to GitLab 16.6.2's token page. Token checks the pasted token against CIB GitLab and keeps it in the system keychain; Next waits for it. Steps 2 and 3 carry *Set up later*. Home chooses the projects to follow and the order of Home's sections, written only by *Open Workbench*. With an account already connected, GitLab and Token are passed over. Settings › Behaviour › *Run setup again* shows it again.
+
+## 2E — Load repository (Workbench)
+
+**Item:** [FEAT-184](../agile/items/FEAT-184-load-repository-instead-of-tabs.md). **Route:** a dialog, Ctrl+O, the title bar, or a dimmed rail row.
+
+Replaces the tab strip. One search over *On this machine* (recent repositories, including clones of CIB GitLab projects) and *On CIB GitLab* (followed first, then the search) with *Clone and load*, which clones into the remembered folder and shows progress in the row. *Open a folder…* at the foot. One repository is loaded at a time; loading another replaces it. The title bar says "No repository loaded · Load repository Ctrl+O", or names the loaded one with its branch and ↑/↓, *Switch* and *Unload*. With nothing loaded the rail's repository rows are dimmed and open this dialog, then their screen.
 
 ## 2B — Untrack
 
@@ -678,6 +698,14 @@ Calls, Personality, God mode, Appearance, Rail, License — because these are re
 changed rarely, and one route that says which part of itself is showing is
 easier to link to than eight rail entries. The section is in the URL fragment,
 so `/settings#accounts` lands where the Pull requests screen points.
+
+**Workbench** (`FEATURES.workbenchWide`, FEAT-181, FEAT-182, FEAT-180):
+*GitLab* follows *You* and stands in for the accounts section — the built-in
+address, who is signed in, the scopes, the token's expiry (a warning in its
+last 14 days), *Replace token*, *Open token page* and *Disconnect*. *Home*
+chooses the CIB GitLab projects Home follows and the order of its sections.
+*Behaviour* has *Run setup again*, and FEAT-172's switch reads *Open with
+nothing loaded*.
 
 **You holds everything about who you are**: the identity, the signing key, the
 saved profiles and the connected hosting accounts. Accounts was its own chip

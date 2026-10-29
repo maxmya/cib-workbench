@@ -235,7 +235,7 @@
 						/>
 					{:else if card.id === 'commits'}
 						<CommitsCard {now} />
-					{:else}
+					{:else if card.id === 'heat' || card.id === 'pipelines' || card.id === 'releases'}
 						<ActivityCards
 							card={card.id}
 							{overview}

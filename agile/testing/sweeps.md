@@ -12,7 +12,7 @@ screen recording to attach. Results are written into the sweep documents
 themselves. Attached files are kept under `agile/testing/evidence/`, which is
 not committed.
 
-**1962 tickets in 305 sweeps:** 194 passed, 0 failed, 0 blocked, 0 partly passed, 42 obsolete, 1724 not run, 2 with a note only.
+**2016 tickets in 311 sweeps:** 194 passed, 0 failed, 0 blocked, 0 partly passed, 42 obsolete, 1778 not run, 2 with a note only.
 
 | Item | Title | Status | Tickets | Passed | Failed | Blocked | Obsolete | Not run | Sweep |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -163,7 +163,13 @@ not committed.
 | FEAT-157 | Close a terminal session, and give tmux Spagitty's colours | Done | 5 | 0 | 0 | 0 | 0 | 5 | [FEAT-157-sweep.md](FEAT-157-sweep.md) |
 | FEAT-158 | Type to search any list | Done | 9 | 0 | 0 | 0 | 0 | 9 | [FEAT-158-sweep.md](FEAT-158-sweep.md) |
 | FEAT-159 | Clear all notifications | Done | 3 | 0 | 0 | 0 | 0 | 3 | [FEAT-159-sweep.md](FEAT-159-sweep.md) |
+| FEAT-180 | First-launch onboarding | Done | 9 | 0 | 0 | 0 | 0 | 9 | [FEAT-180-sweep.md](FEAT-180-sweep.md) |
+| FEAT-181 | CIB GitLab built in, and the token kept in the keychain | Done | 11 | 0 | 0 | 0 | 0 | 11 | [FEAT-181-sweep.md](FEAT-181-sweep.md) |
+| FEAT-182 | Follow repositories on CIB GitLab | Done | 7 | 0 | 0 | 0 | 0 | 7 | [FEAT-182-sweep.md](FEAT-182-sweep.md) |
+| FEAT-183 | Home across followed repositories | Done | 9 | 0 | 0 | 0 | 0 | 9 | [FEAT-183-sweep.md](FEAT-183-sweep.md) |
+| FEAT-184 | Load repository instead of tabs | Done | 11 | 0 | 0 | 0 | 0 | 11 | [FEAT-184-sweep.md](FEAT-184-sweep.md) |
 | FEAT-187 | Workbench installs its own updates, from its own installer | Done | 10 | 0 | 0 | 0 | 0 | 10 | [FEAT-187-sweep.md](FEAT-187-sweep.md) |
+| FEAT-188 | Continuous corners, and liquid glass on three things only | Done | 7 | 0 | 0 | 0 | 0 | 7 | [FEAT-188-sweep.md](FEAT-188-sweep.md) |
 | TASK-001 | Records baseline | Done | 8 | 0 | 0 | 0 | 0 | 8 | [TASK-001-sweep.md](TASK-001-sweep.md) |
 | TASK-002 | Test and CI baseline | Done | 10 | 0 | 0 | 0 | 0 | 10 | [TASK-002-sweep.md](TASK-002-sweep.md) |
 | TASK-003 | Make the Tauri layer generic over `Runtime` | Done | 6 | 0 | 0 | 0 | 0 | 6 | [TASK-003-sweep.md](TASK-003-sweep.md) |

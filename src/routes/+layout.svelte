@@ -5,6 +5,9 @@
 	import { page } from '$app/state';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import '../app.css';
+	// Workbench's corners and glass, over the tokens above (FEAT-188).
+	import '$lib/workbench/surfaces.css';
+	import GlassFilter from '$lib/workbench/GlassFilter.svelte';
 
 	import { farmStore } from '$lib/farm/store.svelte';
 	import * as api from '$lib/api';
@@ -61,8 +64,14 @@
 	import SpeedSearchBox from '$lib/ui/SpeedSearchBox.svelte';
 	import { updates } from '$lib/updates/store.svelte';
 	import { theme } from '$lib/theme.svelte';
-	import { resumeSession } from '$lib/session';
+	import { HOME_ROUTE, resumeSession } from '$lib/session';
 	import { nameOf, workspace } from '$lib/workspace.svelte';
+	import { FEATURES } from '$lib/brand';
+	import LoadDialog from '$lib/workbench/LoadDialog.svelte';
+	import { loader } from '$lib/workbench/loader.svelte';
+	import { onboard } from '$lib/workbench/onboard.svelte';
+	import { isScoped } from '$lib/workbench/scoped';
+	import { workbench } from '$lib/workbench/state.svelte';
 	import { DESKTOP_THEME_EVENT, REPO_CHANGED_EVENT, type RepoChangedEvent } from '$lib/types';
 	import type { DesktopTheme } from '$lib/omarchy';
 
@@ -195,6 +204,9 @@
 			// ever opening Settings, and until this read lands they answer from
 			// the defaults instead of from what the user chose.
 			settings.load();
+			// Workbench: whether onboarding is due and who is connected, read
+			// before the launch decides anything (FEAT-180). Local files only.
+			if (FEATURES.workbenchWide) await workbench.load();
 
 			const off: UnlistenFn = await listen<RepoChangedEvent>(
 				REPO_CHANGED_EVENT,
@@ -258,7 +270,23 @@
 						return false;
 					}
 				},
-				rest: () => workspace.rest()
+				rest: () => workspace.rest(),
+				// Workbench: onboarding first, and a launch that loads nothing
+				// lands on Home (FEAT-180, FEAT-184).
+				...(FEATURES.workbenchWide
+					? {
+							onboard: () =>
+								workbench.onboarded
+									? Promise.resolve()
+									: onboard.run(() => {
+											// The launch screen waits for the whole launch, and
+											// onboarding is part of it: it gives way now.
+											launching = false;
+											return goto('/welcome');
+										}),
+							restingRoute: HOME_ROUTE
+						}
+					: {})
 			});
 		})();
 		// Workbench: whatever happened above, the launch screen gives way, so a
@@ -322,6 +350,12 @@
 				event.preventDefault();
 				palette.toggle();
 				return;
+			// Workbench: Load repository, from every screen (FEAT-184).
+			case 'o':
+				if (!FEATURES.workbenchWide || onboard.showing) return;
+				event.preventDefault();
+				loader.toggle();
+				return;
 			// `=` is the unshifted key most keyboards put `+` on, and browsers
 			// report both. Accepting only one means the shortcut works on some
 			// layouts and not others.
@@ -340,6 +374,21 @@
 				return;
 		}
 	}
+
+	/*
+	 * Workbench: a repository screen reached with nothing loaded — a deep
+	 * link, the back button — opens Load repository over Home rather than
+	 * drawing an empty screen (FEAT-184).
+	 */
+	$effect(() => {
+		if (!FEATURES.workbenchWide || launching || onboard.showing) return;
+		const path = page.url.pathname;
+		if (repo.info || repo.busy || loader.busy || loader.unloading || !isScoped(path)) return;
+		void goto(HOME_ROUTE).then(() => loader.show({ then: path }));
+	});
+
+	/** Workbench: onboarding owns the window, with no rail and no tools (FEAT-180). */
+	const bare = $derived(FEATURES.workbenchWide && onboard.showing);
 
 	// A newly opened repository means a fresh walk.
 	let lastGeneration = 0;
@@ -489,9 +538,9 @@
 			and one row below. The title bar carries the tabs; the status strip
 			carries the toolbar, centred, as an ornament under the pane.
 		-->
-		<TitleBar />
+		<TitleBar {bare} />
 		<div class="stage">
-			<NavRail />
+			{#if !bare}<NavRail />{/if}
 			<main class="window-pane">
 				<!--
 					Screens arrive rather than appear (FEAT-053).
@@ -508,11 +557,19 @@
 				{/key}
 			</main>
 		</div>
-		<StatusStrip>
-			<Toolbar />
-		</StatusStrip>
+		{#if !bare}
+			<StatusStrip>
+				<Toolbar />
+			</StatusStrip>
+		{/if}
 	</div>
 </div>
+
+<!-- Workbench: Load repository, in place of the tab strip (FEAT-184). -->
+{#if FEATURES.workbenchWide}<LoadDialog />{/if}
+
+<!-- Workbench: what the toolbar's glass refracts through (FEAT-188). -->
+<GlassFilter />
 
 <!--
 	Mounted here rather than by a screen: a clone keeps running while the user

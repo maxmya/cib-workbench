@@ -33,7 +33,9 @@ export type NeedSource =
 	| { kind: 'task'; task: Task }
 	| { kind: 'pr'; pr: PullRequest }
 	| { kind: 'run'; run: Run }
-	| { kind: 'issue'; issue: Issue };
+	| { kind: 'issue'; issue: Issue }
+	// Workbench-wide Home (FEAT-183): a merge request on CIB GitLab, by its page.
+	| { kind: 'link'; url: string };
 
 export interface Need {
 	key: string;
@@ -43,6 +45,8 @@ export interface Need {
 	meta: string;
 	/** When it started waiting, in milliseconds. */
 	since: number;
+	/** The project it is in, on Workbench's Home across projects (FEAT-183). */
+	project?: string;
 	source: NeedSource;
 }
 

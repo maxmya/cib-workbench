@@ -32,6 +32,7 @@ import type {
 
 export type Section =
 	| 'you'
+	| 'gitlab'
 	| 'agents'
 	| 'remotes'
 	| 'hooks'
@@ -59,6 +60,9 @@ export type ChoiceSetting = Exclude<keyof Settings, BooleanSetting>;
 /** The chip index, in the order it is shown. */
 export const SECTIONS: { id: Section; label: string }[] = [
 	{ id: 'you', label: 'You' },
+	// Workbench: CIB GitLab, built in (FEAT-181). Only offered under
+	// `FEATURES.workbenchWide`; the page filters it out otherwise.
+	{ id: 'gitlab', label: 'GitLab' },
 	// After You: agents are about who works with you (2.0).
 	{ id: 'agents', label: 'Agents' },
 	{ id: 'remotes', label: 'Remotes' },

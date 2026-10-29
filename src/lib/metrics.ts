@@ -622,8 +622,35 @@ const RADII: Record<string, number> = {
 	'r-panel': 10,
 	'r-floating': 16,
 	'r-pane': 18,
-	'r-ornament': 24
+	'r-ornament': 24,
+	// Workbench: the notice toast (2.0.0).
+	'r-toast': 22
 };
+
+/**
+ * Workbench (2.0.0): the same roles, where the webview draws continuous
+ * corners (`corner-shape: superellipse(2)`).
+ *
+ * A squircle hugs its corner much closer than a circle of the same radius —
+ * at 45° about 0.16r from the corner instead of 0.29r — so each is larger,
+ * by eye, to look like the circular design. A copy of the `@supports` block
+ * in `src/lib/workbench/surfaces.css`. Pills and ornaments are capsules and
+ * keep their round ends, so they are not here.
+ */
+export const CONTINUOUS_RADII: Record<string, number> = {
+	'r-field': 11,
+	'r-button': 14,
+	'r-row': 6,
+	'r-panel': 15,
+	'r-floating': 24,
+	'r-pane': 27,
+	'r-toast': 30
+};
+
+/** True where the webview draws continuous corners. */
+export function continuousCorners(): boolean {
+	return typeof CSS !== 'undefined' && typeof CSS.supports === 'function' && CSS.supports('corner-shape', 'superellipse(2)');
+}
 
 /**
  * Publish the metrics to CSS so stylesheets can size things without
@@ -638,7 +665,8 @@ const RADII: Record<string, number> = {
 export function applyMetrics(
 	root: HTMLElement = document.documentElement,
 	zoom = 1,
-	pitchScale = zoom
+	pitchScale = zoom,
+	continuous = continuousCorners()
 ): void {
 	const px: Record<string, number> = {
 		'lane-pitch': LANE_PITCH,
@@ -666,7 +694,8 @@ export function applyMetrics(
 		// A person's mark beside a commit is the graph node's own diameter, so
 		// the Author column, the commit detail and the canvas agree (FEAT-081).
 		'avatar-d': NODE_R * 2,
-		...RADII
+		...RADII,
+		...(continuous ? CONTINUOUS_RADII : {})
 	};
 	for (const [name, value] of Object.entries(px)) {
 		root.style.setProperty(`--${name}`, `${Math.round(value * zoom)}px`);

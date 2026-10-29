@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { BASED_ON, LICENCE, PRODUCT_NAME } from '../src/lib/brand';
+import { BASED_ON, FEATURES, GITLAB, LICENCE, PRODUCT_NAME, tokenPageUrl } from '../src/lib/brand';
 
 const read = (path: string) => readFileSync(path, 'utf8');
 const rust = read('crates/spagitty-core/src/brand.rs');
@@ -27,6 +27,24 @@ describe('the Workbench brand seam', () => {
 		expect(tauri.productName).toBe(PRODUCT_NAME);
 		expect(tauri.app.windows[0].title).toBe(PRODUCT_NAME);
 		expect(constant('APP_ID')).toBe(tauri.identifier);
+	});
+
+	it('builds in the same GitLab in TypeScript and in Rust (FEAT-181)', () => {
+		expect(constant('HOST')).toBe(GITLAB.host);
+		expect(constant('TOKEN_PATH')).toBe(GITLAB.tokenPath);
+		expect(constant('TOKEN_NAME')).toBe(GITLAB.tokenName);
+		const scopes = rust.match(/pub const SCOPES: \[&str; \d+\] = \[([^\]]+)\];/)?.[1];
+		expect(scopes?.split(',').map((s) => s.trim().replace(/"/g, ''))).toEqual([...GITLAB.scopes]);
+		expect(rust).toMatch(new RegExp(`pub const WORKBENCH_WIDE: bool = ${FEATURES.workbenchWide};`));
+	});
+
+	it('links to the token page with the name and scopes (FEAT-181)', () => {
+		expect(tokenPageUrl()).toBe(
+			'https://gitlab.apps.ocp-nonprod-01.hodomain.local/-/profile/personal_access_tokens?name=Workbench&scopes=api,read_repository,write_repository'
+		);
+		expect(
+			tokenPageUrl({ host: 'gitlab.example.com', tokenPath: '/t', tokenName: 'A b', scopes: ['api'] })
+		).toBe('https://gitlab.example.com/t?name=A%20b&scopes=api');
 	});
 
 	it('is based on a Spagitty release that CHANGELOG.md has', () => {

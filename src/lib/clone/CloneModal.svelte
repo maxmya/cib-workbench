@@ -123,7 +123,10 @@
 	.scrim {
 		position: fixed;
 		inset: 0;
-		background: color-mix(in srgb, var(--umbra) 40%, transparent);
+		/* The scrim: dimmed and blurred behind a modal (FEAT-188). */
+		background: var(--scrim);
+		-webkit-backdrop-filter: var(--scrim-blur);
+		backdrop-filter: var(--scrim-blur);
 		display: flex;
 		align-items: center;
 		justify-content: center;

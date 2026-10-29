@@ -152,7 +152,10 @@
 		/* Not centred: the palette appears where the eye already is on a screen
 		   read top-down, and centring it would move the list under the cursor. */
 		padding-top: 12vh;
-		background: color-mix(in srgb, var(--umbra) 38%, transparent);
+		/* The scrim: dimmed and blurred behind a modal (FEAT-188). */
+		background: var(--scrim);
+		-webkit-backdrop-filter: var(--scrim-blur);
+		backdrop-filter: var(--scrim-blur);
 		z-index: 40;
 	}
 

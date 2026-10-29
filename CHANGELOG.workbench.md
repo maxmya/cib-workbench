@@ -14,6 +14,42 @@ versions follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- **A first-launch setup.** Workbench opens on four steps: what it is, CIB
+  GitLab, your token, and your Home. The token page opens from the app with a
+  guide to what to press there; the token is checked against CIB GitLab and
+  kept in your system's keychain. *Set up later* gets you in off the VPN, and
+  Settings › Behaviour › *Run setup again* shows it again (FEAT-180, FEAT-181).
+- **CIB GitLab is built in.** Settings › GitLab shows who you are signed in
+  as, the token's scopes and when it expires, with *Replace token* and
+  *Disconnect*. A token missing a scope is refused by name (FEAT-181).
+- **Follow repositories on CIB GitLab.** Choose them in setup or Settings ›
+  Home; a renamed project stays followed (FEAT-182).
+- **Home across what you follow.** Needs you, merge requests, pipelines,
+  issues and releases from every followed project, with no repository loaded,
+  and your Workbench-wide Calls. Every row names its project, and one project
+  that fails does not blank the rest. *<repo> only* narrows Home to the loaded
+  one (FEAT-183).
+- **Load repository.** Ctrl+O, or the title bar, finds a repository on this
+  machine or on CIB GitLab, and clones it first when it is not here (FEAT-184).
+
+### Changed
+
+- **No more repository tabs.** One repository is loaded at a time, and
+  loading another replaces it. With nothing loaded, the repository tools wait
+  on the rail, dimmed, and choosing one loads a repository first. Upgrading
+  keeps where you were in each repository, and loads the last one (FEAT-184).
+- **Settings › Behaviour's start-up switch reads *Open with nothing loaded*,**
+  and lands on Home (FEAT-184).
+- **Softer, continuous corners.** Where the system draws them, cards, panes,
+  buttons, fields and dialogs have smooth squircle corners; elsewhere they are
+  as before (FEAT-188).
+- **Glass in three places only.** The toolbar is liquid glass, bending what
+  is behind it on Windows; the notice is frosted glass; and the screen behind a
+  dialog is dimmed and blurred. Menus, dialogs, the palette and the rail are
+  solid (FEAT-188).
+
 ## [1.4.0] - 2026-10-28
 
 ### Added
