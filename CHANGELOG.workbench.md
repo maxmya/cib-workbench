@@ -14,6 +14,12 @@ versions follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+
+- **Stop ends a recipe run that is waiting**, also when it is pressed the
+  moment the run stops to ask. It could be lost, leaving the run waiting
+  (BUG-117).
+
 ## [2.0.0] - 2026-10-29
 
 ### Added
