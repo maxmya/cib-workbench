@@ -8,6 +8,7 @@
 	import MessageBox from '$lib/changes/MessageBox.svelte';
 	import { repo } from '$lib/repo.svelte';
 	import Btn from '$lib/ui/Btn.svelte';
+	import Chip from '$lib/ui/Chip.svelte';
 	import Splitter from '$lib/ui/Splitter.svelte';
 	import ContributedActions from '$lib/extensions/ContributedActions.svelte';
 	import ExtensionPanels from '$lib/extensions/ExtensionPanels.svelte';
@@ -83,6 +84,12 @@
 			{#if changes.loaded}<span class="note">{summary}</span>{/if}
 		</div>
 		<div class="right">
+			{#if changes.loaded && !clean}
+				<Chip active={!changes.whole} title="Only the hunks" onclick={() => changes.setWhole(false)}>changes</Chip>
+				<Chip active={changes.whole} title="The hunks in the whole file" onclick={() => changes.setWhole(true)}
+					>whole file</Chip
+				>
+			{/if}
 			<ContributedActions context="workingCopy" />
 			{#if changes.loading}<Loader size="inline" label="Reading…" />{/if}
 			<Btn disabled={changes.busy} onclick={() => changes.load()}>Refresh</Btn>

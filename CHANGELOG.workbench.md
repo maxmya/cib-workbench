@@ -14,6 +14,25 @@ versions follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-10-29
+
+### Added
+
+- **Commit shows the whole file.** *whole file*, beside *changes*, fills in
+  the unchanged lines between the hunks. Each hunk keeps its stage, unstage
+  and discard buttons (FEAT-189).
+- **Files opens at the line on screen.** Double-click a line in a diff on
+  Commit, Diff, Stash or Review, and Files opens there. A file opened from a
+  list while a diff of it is showing opens at the diff's top line (FEAT-189).
+- **The Diff and Stash file lists open in Files on a double-click** too,
+  like every other file list.
+
+### Downloads
+
+- **Windows, Linux and macOS on Apple silicon.** The Mac build is signed with
+  a Developer ID and notarized by Apple. If macOS says the app is **damaged**,
+  compare the download with `SHA256SUMS-*.txt`.
+
 ## [2.0.2] - 2026-10-29
 
 ### Changed

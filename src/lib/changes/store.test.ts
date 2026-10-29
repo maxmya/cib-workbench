@@ -6,6 +6,7 @@ import type { DiffSide, FileDiff, StatusEntry, WorkingCopy } from '$lib/types';
 vi.mock('$lib/api', () => ({
 	workingCopy: vi.fn(),
 	workingDiff: vi.fn(),
+	workingFileLines: vi.fn(),
 	stage: vi.fn(),
 	unstage: vi.fn(),
 	stageHunk: vi.fn(),
@@ -26,6 +27,7 @@ import { changes } from './store.svelte';
 const workingCopy = vi.mocked(api.workingCopy);
 const signing = vi.mocked(api.signing);
 const workingDiff = vi.mocked(api.workingDiff);
+const workingFileLines = vi.mocked(api.workingFileLines);
 const stage = vi.mocked(api.stage);
 const unstage = vi.mocked(api.unstage);
 const stageHunk = vi.mocked(api.stageHunk);
@@ -78,6 +80,9 @@ beforeEach(() => {
 		work({ staged: [entry('a.txt')], unstaged: [entry('b.txt'), entry('c.txt', 'untracked')] })
 	);
 	workingDiff.mockImplementation((path: string) => Promise.resolve(diff(path)));
+	workingFileLines.mockImplementation((path: string) =>
+		Promise.resolve([{ origin: 'context', old: 1, new: 1, text: path }])
+	);
 	stage.mockResolvedValue(undefined);
 	unstage.mockResolvedValue(undefined);
 	stageHunk.mockResolvedValue(undefined);
@@ -247,6 +252,48 @@ describe('open', () => {
 		await settle();
 
 		expect(changes.file?.path).toBe('a.txt');
+	});
+});
+
+describe('the whole file (FEAT-189)', () => {
+	it('is read for the open file when asked for, and dropped when not', async () => {
+		await changes.load();
+		await settle();
+		expect(workingFileLines).not.toHaveBeenCalled();
+
+		changes.setWhole(true);
+		await settle();
+		expect(workingFileLines).toHaveBeenCalledWith('b.txt', 'unstaged');
+		expect(changes.wholeLines?.[0].text).toBe('b.txt');
+		expect(localStorage.getItem('spagitty.changesWhole')).toBe('true');
+
+		changes.setWhole(false);
+		expect(changes.wholeLines).toBeNull();
+	});
+
+	it('is read with every file opened while it is asked for', async () => {
+		changes.setWhole(true);
+		await changes.load();
+		await settle();
+
+		changes.open({ path: 'a.txt', side: 'staged' });
+		await settle();
+
+		expect(workingFileLines).toHaveBeenLastCalledWith('a.txt', 'staged');
+		expect(changes.wholeLines?.[0].text).toBe('a.txt');
+		changes.setWhole(false);
+	});
+
+	it('leaves the hunks shown when the file cannot be read whole', async () => {
+		workingFileLines.mockRejectedValue(new Error('gone'));
+		changes.setWhole(true);
+		await changes.load();
+		await settle();
+
+		expect(changes.file?.path).toBe('b.txt');
+		expect(changes.fileError).toBeNull();
+		expect(changes.wholeLines).toBeNull();
+		changes.setWhole(false);
 	});
 });
 

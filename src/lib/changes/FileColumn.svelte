@@ -2,7 +2,7 @@
 <script lang="ts">
 	import { changes } from '$lib/changes/store.svelte';
 	import { discardAll, discardPaths } from '$lib/changes/discard';
-	import { fileAttrs } from '$lib/files/open';
+	import { workingFileAttrs } from '$lib/files/open';
 	import { repo } from '$lib/repo.svelte';
 	import FileName from '$lib/ui/FileName.svelte';
 	import Icon from '$lib/ui/Icon.svelte';
@@ -66,8 +66,7 @@
 	const head = $derived(repo.info?.head.branch ?? repo.info?.head.id ?? null);
 
 	function inFiles(entry: StatusEntry) {
-		const fresh = entry.status === 'added' || entry.status === 'untracked';
-		return fileAttrs(entry.path, head, fresh ? 'Not in a commit yet' : undefined);
+		return workingFileAttrs(entry.path, entry.status, head);
 	}
 </script>
 

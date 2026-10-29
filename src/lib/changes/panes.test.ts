@@ -257,6 +257,40 @@ describe('HunkPane', () => {
 		view.destroy();
 	});
 
+	it('marks each line with where Files has it, by the old side (FEAT-189)', () => {
+		control.setSelection({ path: 'core.txt', side: 'unstaged' });
+		control.setFile(diff());
+		const view = render(HunkPane, {});
+
+		const lines = view.all('.line');
+		expect(lines.map((line) => line.dataset.filePath)).toEqual(['core.txt', 'core.txt', 'core.txt']);
+		// Kept, gone, and the added line where the old file's line 3 would be.
+		expect(lines.map((line) => line.dataset.fileLine)).toEqual(['1', '2', '3']);
+		view.destroy();
+	});
+
+	it('fills in the unchanged lines around the hunks when the file is shown whole (FEAT-189)', () => {
+		control.setSelection({ path: 'core.txt', side: 'unstaged' });
+		control.setFile(diff());
+		changesStore.setWhole(true);
+		control.setWholeLines([
+			{ origin: 'context', old: 1, new: 1, text: 'kept' },
+			{ origin: 'removed', old: 2, new: null, text: 'gone' },
+			{ origin: 'added', old: null, new: 2, text: 'arrived' },
+			{ origin: 'context', old: 3, new: 3, text: 'after' },
+			{ origin: 'context', old: 4, new: 4, text: 'last' }
+		]);
+		const view = render(HunkPane, {});
+
+		const texts = view.all('.line .text').map((text) => text.textContent);
+		expect(texts).toEqual(['kept', 'gone', 'arrived', 'after', 'last']);
+		// The hunk keeps its header and its actions.
+		expect(view.all('.hunk')).toHaveLength(1);
+		expect(view.text()).toContain('stage hunk');
+		expect(view.all('.line').at(-1)?.dataset.fileLine).toBe('4');
+		view.destroy();
+	});
+
 	it('colours the code by its language, and still marks the changed words (BUG-096)', () => {
 		control.setSelection({ path: 'src/lib.rs', side: 'unstaged' });
 		control.setFile(

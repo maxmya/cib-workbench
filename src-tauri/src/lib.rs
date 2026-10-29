@@ -72,6 +72,7 @@ pub fn run() {
             commands::binary_file_diff,
             commands::working_copy,
             commands::working_diff,
+            commands::working_file_lines,
             commands::binary_working_diff,
             commands::stage,
             commands::unstage,

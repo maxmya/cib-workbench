@@ -407,6 +407,35 @@ mod tests {
     }
 
     #[test]
+    fn a_file_read_whole_holds_every_line_and_its_hunks_lines_in_place() {
+        let fixture = Fixture::woven();
+        two_hunks_with_crlf(&fixture);
+        let hunks = unstaged_hunks(&fixture, "wide.txt");
+
+        let whole =
+            diff::working_file_lines(&fixture.open(), "wide.txt", Side::Unstaged).expect("whole");
+
+        assert_eq!(
+            whole.len(),
+            42,
+            "forty lines and the two that replaced two of them"
+        );
+        assert_eq!(whole[21].text, "line 21");
+        assert_eq!((whole[21].old, whole[21].new), (Some(21), Some(21)));
+        // Each hunk's lines are where the whole file has them.
+        for hunk in &hunks {
+            let at = whole
+                .iter()
+                .position(|line| line.old == hunk.lines[0].old && line.new == hunk.lines[0].new)
+                .expect("the hunk's first line");
+            let texts = |lines: &[crate::diff::DiffLine]| {
+                lines.iter().map(|l| l.text.clone()).collect::<Vec<_>>()
+            };
+            assert_eq!(texts(&whole[at..at + hunk.lines.len()]), texts(&hunk.lines));
+        }
+    }
+
+    #[test]
     fn a_partly_staged_file_appears_in_both_lists() {
         let fixture = Fixture::woven();
         two_hunks(&fixture);

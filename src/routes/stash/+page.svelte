@@ -131,6 +131,7 @@
 				loading={stash.fileLoading}
 				view={diff.view}
 				{focus}
+				rev={stash.contents?.id}
 			/>
 			<Splitter panel="detail" label="Resize the stash detail panel" />
 			<StashDetail />
