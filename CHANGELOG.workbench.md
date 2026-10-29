@@ -14,6 +14,8 @@ versions follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-29
+
 ### Added
 
 - **A first-launch setup.** Workbench opens on four steps: what it is, CIB
@@ -49,6 +51,14 @@ versions follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
   is behind it on Windows; the notice is frosted glass; and the screen behind a
   dialog is dimmed and blurred. Menus, dialogs, the palette and the rail are
   solid (FEAT-188).
+
+### Downloads
+
+- **Windows, Linux and macOS on Apple silicon.** The Mac build is signed ad hoc
+  and is not notarized: on first open macOS says the developer cannot be
+  verified. Allow it under **System Settings › Privacy & Security ›
+  Open Anyway**, and macOS remembers the choice. If macOS says the app is
+  **damaged** instead, compare the download with `SHA256SUMS-*.txt`.
 
 ## [1.4.0] - 2026-10-28
 
