@@ -171,6 +171,11 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
+      # Apple's verdict, waited for outside the bundler so a slow queue or a
+      # network blip does not throw the submission away (2.0.2).
+      - uses: ./.github/actions/macos-notarize
+        if: runner.os == 'macOS' && steps.signing.outputs.notarized == 'true'
+
       # The container, the signature, Gatekeeper's verdict and the
       # architecture, asked of the finished .dmg before it is uploaded.
       - uses: ./.github/actions/macos-verify

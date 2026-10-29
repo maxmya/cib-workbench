@@ -10,16 +10,17 @@
 # every machine except the one that built it. A file that cannot tell a draft
 # from a release is the wrong place for the decision.
 #
-# `tauri-bundler` takes the identity from `APPLE_SIGNING_IDENTITY` and the
-# notarization credentials from `APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID`
-# (or `APPLE_API_*`), all read from the environment of the build step. So the
+# `tauri-bundler` takes the identity from `APPLE_SIGNING_IDENTITY`, read from
+# the environment of the build step. The notarization credentials are exported
+# as `NOTARIZE_*` for `macos-notarize`, never as the `APPLE_ID` /
+# `APPLE_PASSWORD` / `APPLE_TEAM_ID` the bundler would notarize with. So the
 # whole interface here is a set of exported variables plus a refusal.
 #
 # # The three outcomes
 #
 # | Certificate secret | lane        | Result |
 # |--------------------|-------------|--------|
-# | present            | any         | Developer ID signing, notarized and stapled by the bundler |
+# | present            | any         | Developer ID signing by the bundler, notarized and stapled by `macos-notarize` |
 # | absent             | interim     | Ad-hoc signature (`-`). Verifiable, not trusted. |
 # | absent             | production  | **The job fails.** |
 #
@@ -125,11 +126,15 @@ runs:
           # presence of credentials. A signed-but-not-notarized build still
           # warns on first open, so the two are reported separately rather than
           # collapsed into "signed".
+          #
+          # Not as `APPLE_ID` and friends: under those names the bundler
+          # notarizes inside `tauri build`, in one poll that a network blip
+          # ends (2.0.2). `macos-notarize` reads these after the build.
           if [ -n "${APPLE_ID_IN}" ] && [ -n "${APPLE_PASSWORD_IN}" ] && [ -n "${APPLE_TEAM_ID_IN}" ]; then
             {
-              echo "APPLE_ID=${APPLE_ID_IN}"
-              echo "APPLE_PASSWORD=${APPLE_PASSWORD_IN}"
-              echo "APPLE_TEAM_ID=${APPLE_TEAM_ID_IN}"
+              echo "NOTARIZE_APPLE_ID=${APPLE_ID_IN}"
+              echo "NOTARIZE_APPLE_PASSWORD=${APPLE_PASSWORD_IN}"
+              echo "NOTARIZE_APPLE_TEAM_ID=${APPLE_TEAM_ID_IN}"
             } >> "$GITHUB_ENV"
             echo "notarized=true" >> "$GITHUB_OUTPUT"
           else

@@ -30,6 +30,7 @@ import { sectionFor } from './release-notes.mjs';
 
 const SIGNING = '.github/actions/macos-signing/action.yml';
 const VERIFY = '.github/actions/macos-verify/action.yml';
+const NOTARIZE = '.github/actions/macos-notarize/action.yml';
 const COLLECT = '.github/actions/release-assets/action.yml';
 const CONFIG = 'src-tauri/tauri.conf.json';
 
@@ -115,6 +116,36 @@ describe('every lane decides a signing policy before it builds', () => {
 			text.indexOf('./.github/actions/macos-verify'),
 			'verification must precede collection, or a broken bundle is already an asset'
 		).toBeLessThan(text.indexOf('./.github/actions/release-assets'));
+	});
+
+	/**
+	 * 2.0.2. Notarizing inside `tauri build` is one `notarytool --wait` poll,
+	 * and three attempts of two to four hours each ended in a network error
+	 * while Apple still had the submission. The bundler must never be handed
+	 * the credentials it would notarize with; the lane notarizes after it.
+	 */
+	it('the bundler is never given the credentials to notarize with', () => {
+		expect(read(SIGNING)).not.toMatch(/echo "APPLE_(ID|PASSWORD|TEAM_ID|API_[A-Z_]+)=/);
+		expect(read(SIGNING)).toContain('NOTARIZE_APPLE_ID=');
+	});
+
+	it.each(LANES)('%s notarizes after the build and before verifying', (lane) => {
+		const text = read(lane);
+		const notarize = text.indexOf('- uses: ./.github/actions/macos-notarize');
+		expect(notarize, 'no notarize step').toBeGreaterThan(-1);
+		expect(notarize).toBeGreaterThan(text.indexOf('tauri build'));
+		expect(notarize).toBeLessThan(text.indexOf('- uses: ./.github/actions/macos-verify'));
+		expect(text).toMatch(/steps\.signing\.outputs\.notarized == 'true'/);
+	});
+
+	/** A failed question about a submission is not a failed submission. */
+	it('waits on one submission, and staples what Apple accepted', () => {
+		const notarize = read(NOTARIZE);
+		expect(notarize).toMatch(/notarytool submit [^\n]*--no-wait/);
+		expect(notarize).not.toMatch(/xcrun notarytool [^\n]* --wait/);
+		expect(notarize).toMatch(/notarytool info "\$id"/);
+		expect(notarize).toMatch(/notarytool log "\$id"/);
+		expect(notarize).toMatch(/stapler staple "\$dmg"/);
 	});
 
 	/**

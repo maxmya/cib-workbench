@@ -144,10 +144,11 @@ runs:
         echo "::endgroup::"
 
         # A ticket is stapled to the artefact, so it can be validated offline.
-        # Only asked for where one was meant to be attached.
+        # Only asked for where one was meant to be attached. `macos-notarize`
+        # submits and staples the image; the app inside it is covered by the
+        # same ticket, which `spctl` above has already asked Apple about.
         if [ "${NOTARIZED}" = "true" ]; then
           echo "::group::stapler — is the notarization ticket attached?"
-          xcrun stapler validate "$app"
           xcrun stapler validate "$dmg"
           echo "::endgroup::"
         fi

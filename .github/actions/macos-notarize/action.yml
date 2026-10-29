@@ -1,0 +1,136 @@
+# SPDX-License-Identifier: MIT
+#
+# Have Apple notarize the finished .dmg, wait for the answer however long it
+# takes, and staple the ticket to it.
+#
+# # Why the bundler does not do this
+#
+# `tauri build` notarizes the app itself when it finds `APPLE_ID` in its
+# environment, and it waits with `notarytool submit --wait`: one long poll that
+# dies on the first network error and takes the submission with it. Apple took
+# hours over 2.0.2's first Developer ID submissions, and every attempt (2 h, 2 h
+# and 4 h) ended in `NSURLErrorDomain -1009`, "The Internet connection appears
+# to be offline", while the submission was still in Apple's queue. A rerun
+# rebuilt, resubmitted and joined the back of that queue.
+#
+# So `macos-signing` gives the bundler the certificate and not the notary
+# credentials: it signs the app, the bundled tmux and the .dmg, and notarizes
+# nothing. This action submits once, asks Apple for the verdict every minute,
+# and treats a failed question as a failed question, not a failed submission.
+#
+# # Why the .dmg and not the app
+#
+# The .dmg is what somebody downloads, and Apple tickets every piece of code
+# inside a submission, so one submission covers the image and the app in it.
+# The ticket is stapled to the image, which is the file Gatekeeper meets first.
+# The app inside it carries no stapled ticket of its own (stapling it would
+# change the image after Apple saw it); Gatekeeper finds its ticket from Apple,
+# which is what `spctl` in `macos-verify` checks next.
+name: Notarize the macOS artefact
+description: Submit the .dmg to Apple's notary service, wait out its queue without losing the submission, and staple the ticket
+
+inputs:
+  deadline-minutes:
+    description: >
+      How long to wait for Apple's verdict before failing. A job may run six
+      hours, the build takes about fifteen minutes of it, and Apple has taken
+      four.
+    required: false
+    default: '300'
+
+runs:
+  using: composite
+  steps:
+    - name: Submit, wait for the verdict, staple
+      shell: bash
+      env:
+        DEADLINE_MINUTES: ${{ inputs.deadline-minutes }}
+      run: |
+        set -euo pipefail
+
+        # Exported by `macos-signing` only when it decided to notarize.
+        for name in NOTARIZE_APPLE_ID NOTARIZE_APPLE_PASSWORD NOTARIZE_APPLE_TEAM_ID; do
+          if [ -z "${!name:-}" ]; then
+            echo "::error::${name} is not set; run ./.github/actions/macos-signing first, with the notarization secrets"
+            exit 1
+          fi
+        done
+        auth=(--apple-id "$NOTARIZE_APPLE_ID" --password "$NOTARIZE_APPLE_PASSWORD" --team-id "$NOTARIZE_APPLE_TEAM_ID")
+
+        # The same search `macos-verify` and `release-assets` do.
+        dmg=$(find . -path ./node_modules -prune -o -name '*.dmg' -print -quit)
+        if [ -z "$dmg" ]; then
+          echo "::error::no .dmg in the build tree; nothing to notarize"
+          exit 1
+        fi
+
+        work=$(mktemp -d)
+        field() { plutil -extract "$1" raw -o - "$work/answer.json"; }
+
+        # --- 1. submit -------------------------------------------------------
+        # Retried: an upload that failed before Apple answered with an id has
+        # submitted nothing, and one that did answer is not sent again.
+        id=""
+        for attempt in 1 2 3 4 5; do
+          if xcrun notarytool submit "$dmg" "${auth[@]}" --no-wait --output-format json \
+              >"$work/answer.json" 2>"$work/error.log"; then
+            id=$(field id) && break
+          fi
+          cat "$work/error.log" "$work/answer.json" 2>/dev/null || true
+          echo "::warning::upload attempt ${attempt} failed; trying again"
+          sleep $((attempt * 30))
+        done
+        if [ -z "$id" ]; then
+          echo "::error::Apple's notary service did not accept the upload"
+          exit 1
+        fi
+        echo "::notice::${dmg##*/} submitted to Apple as ${id}. If this job dies, ask Apple with: xcrun notarytool info ${id}"
+
+        # --- 2. wait ---------------------------------------------------------
+        # Apple's queue is the slow part, and it does not care whether anybody
+        # is asking. A question that fails is asked again a minute later.
+        deadline=$(( $(date +%s) + DEADLINE_MINUTES * 60 ))
+        while :; do
+          if xcrun notarytool info "$id" "${auth[@]}" --output-format json \
+              >"$work/answer.json" 2>"$work/error.log"; then
+            status=$(field status || echo "unreadable")
+          else
+            status="unanswered: $(tail -n 1 "$work/error.log")"
+          fi
+          echo "$(date -u +%H:%M:%S) ${status}"
+
+          case "$status" in
+            Accepted) break ;;
+            Invalid|Rejected)
+              # Tauri never printed this, which is why the unsigned tmux in
+              # 2.0.2's first submission took a second run to find.
+              xcrun notarytool log "$id" "${auth[@]}" || true
+              echo "::error::Apple did not notarize ${dmg##*/} (${status}); its reasons are above"
+              exit 1
+              ;;
+          esac
+
+          if [ "$(date +%s)" -ge "$deadline" ]; then
+            echo "::error::no verdict from Apple in ${DEADLINE_MINUTES} minutes; the submission ${id} is still Apple's to answer"
+            exit 1
+          fi
+          sleep 60
+        done
+
+        # Accepted can still carry warnings worth reading.
+        xcrun notarytool log "$id" "${auth[@]}" || true
+
+        # --- 3. staple -------------------------------------------------------
+        # Retried: right after Accepted the ticket is not always served yet.
+        for attempt in 1 2 3 4 5; do
+          if xcrun stapler staple "$dmg"; then
+            stapled=true
+            break
+          fi
+          sleep 30
+        done
+        if [ "${stapled:-false}" != true ]; then
+          echo "::error::Apple notarized ${dmg##*/} as ${id} and the ticket could not be stapled"
+          exit 1
+        fi
+        echo "::notice::${dmg##*/}: notarized as ${id} and stapled"
