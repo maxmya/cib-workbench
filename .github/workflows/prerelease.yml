@@ -140,6 +140,11 @@ jobs:
           # release exists — which is what every alpha did until TASK-037.
           SPAGITTY_RELEASE: ${{ needs.tag.outputs.tag }}
 
+      # Apple's verdict, waited for outside the bundler so a slow queue or a
+      # network blip does not throw the submission away (2.0.2).
+      - uses: ./.github/actions/macos-notarize
+        if: runner.os == 'macOS' && steps.signing.outputs.notarized == 'true'
+
       - uses: ./.github/actions/macos-verify
         if: runner.os == 'macOS'
         with:

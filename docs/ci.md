@@ -81,7 +81,9 @@ the gate**.
   & Security → Open Anyway. It is not notarization, and it is not a promise of
   a warning-free install.
 - *Developer ID signed and notarized* — Apple has seen the build and issued a
-  ticket, stapled to the artefacts. This is the only policy whose acceptance
+  ticket, stapled to the `.dmg`. The bundler only signs; `.github/actions/macos-notarize`
+  submits the image after the build and waits out Apple's queue a minute at a
+  time, so a network error mid-wait no longer loses the submission (2.0.2). This is the only policy whose acceptance
   criterion is that the app opens through the expected first-open confirmation
   with no damaged-app warning at all.
 

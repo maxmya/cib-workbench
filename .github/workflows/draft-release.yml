@@ -224,6 +224,11 @@ jobs:
           # knows it has no release to be behind.
           SPAGITTY_RELEASE: ${{ needs.tag.outputs.tag }}
 
+      # Apple's verdict, waited for outside the bundler so a slow queue or a
+      # network blip does not throw the submission away (2.0.2).
+      - uses: ./.github/actions/macos-notarize
+        if: runner.os == 'macOS' && steps.signing.outputs.notarized == 'true'
+
       # Before the upload, never after: the point of checking is that a broken
       # container or an unsigned app stops here instead of reaching somebody's
       # Downloads folder.
