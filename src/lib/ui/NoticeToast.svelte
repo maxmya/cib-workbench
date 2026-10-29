@@ -23,7 +23,7 @@
 
 {#if current}
 	{#key current.id}
-		<div class="notice ornament" class:error={current.tone === 'error'} role="status" aria-live="polite">
+		<div class="notice lglass" class:error={current.tone === 'error'} role="status" aria-live="polite">
 			<span class="mark" aria-hidden="true">
 				{#if current.tone === 'error'}
 					<span class="bang">!</span>
@@ -60,7 +60,7 @@
 		align-items: flex-start;
 		gap: 12px;
 		padding: 12px 12px 12px 14px;
-		border-radius: 22px;
+		border-radius: var(--r-toast);
 		/* It arrives from the corner it lives in. */
 		animation: rise-in var(--t-enter-liquid) var(--spring-liquid);
 	}

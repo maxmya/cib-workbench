@@ -2,8 +2,8 @@
 
 # FEAT-184 — Load repository instead of tabs
 
-**Status:** Backlog — proposed in `docs/proposals/workbench-wide-home-and-load-repository.md` § 9.
-**Branch:** none yet.
+**Status:** Done — on `feature/workbench-2.0.0`, as Workbench 2.0.0, from the proposal's § 9. The manual sweep is still to run.
+**Branch:** `feature/workbench-2.0.0`, with the other four of FEAT-180 to FEAT-184.
 **Screens:** 2E Load repository (new dialog), chrome (title bar slot, rail), the launch.
 **Raised by:** the author, 2026-10-28: "instead of multiple tabs, we shall have a load-repo function that makes the app load a specific repo to act upon."
 
@@ -26,3 +26,11 @@
 5. A dimmed rail row is focusable, says why in its title, opens 2E, and navigates after the load.
 6. The `resumeSession` sequence tests cover reload-last, FEAT-172 on, and a command-line path.
 7. With `FEATURES.workbenchWide` off, the existing suite passes unchanged.
+
+## As built
+
+- Loading from a repository screen returns to the loaded repository's own place; loading from Home or another Workbench-wide screen stays there and keeps the selected commit for the graph.
+- `gitlab_local_clones` answers the FEAT-087 lookup for every remembered repository in one read, so the dialog does not ask once per project.
+- The forge lists (Pull requests, Issues, Pipelines, Releases) are not dimmed with nothing loaded; making them Workbench-wide is FEAT-185.
+- The clone folder is remembered in `workbench.json` (`cloneInto`), defaulting to the folder of the most recent repository.
+- Plan: [`FEAT-184-plan.md`](../plans/FEAT-184-plan.md). Tests: [`FEAT-184-automated.md`](../testing/FEAT-184-automated.md). Sweep: [`FEAT-184-sweep.md`](../testing/FEAT-184-sweep.md).

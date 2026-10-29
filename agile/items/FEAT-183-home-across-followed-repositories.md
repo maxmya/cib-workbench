@@ -2,8 +2,8 @@
 
 # FEAT-183 — Home across followed repositories
 
-**Status:** Backlog — proposed in `docs/proposals/workbench-wide-home-and-load-repository.md` § 8.
-**Branch:** none yet.
+**Status:** Done — on `feature/workbench-2.0.0`, as Workbench 2.0.0, from the proposal's § 8. The manual sweep is still to run.
+**Branch:** `feature/workbench-2.0.0`, with the other four of FEAT-180 to FEAT-184.
 **Screens:** 2A Home.
 **Raised by:** the author, 2026-10-28: "work generally with calls and pipelines of selected repos" — Home is not tied to an open repository.
 **Depends on:** FEAT-182. Shares the title bar slot with FEAT-184.
@@ -32,3 +32,10 @@
 4. The card order set in onboarding (FEAT-180) or *Customise Home* is the order shown.
 5. A row for a repository-scoped screen in a project that is not loaded opens Load repository (FEAT-184) with that project selected.
 6. With `FEATURES.workbenchWide` off, Home is FEAT-140/FEAT-148 unchanged.
+
+## As built
+
+- Merge requests are read as two lists, the person's own and their review requests, rather than `involved_merge_requests` alone: the Merge requests card and the pipelines on the person's own branches need both.
+- The Loaded band holds Working copy, Branch (against upstream, with Push) and Recent commits. The 16-week activity and the Farm card are not in it; the Farm is on the rail.
+- A row whose screen is repository-scoped opens Load repository with its project first when that project is not loaded. A release row opens its page on GitLab.
+- Plan: [`FEAT-183-plan.md`](../plans/FEAT-183-plan.md). Tests: [`FEAT-183-automated.md`](../testing/FEAT-183-automated.md). Sweep: [`FEAT-183-sweep.md`](../testing/FEAT-183-sweep.md).

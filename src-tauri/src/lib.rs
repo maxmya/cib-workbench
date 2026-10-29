@@ -41,6 +41,8 @@ mod terminal;
 mod testing;
 mod timing;
 mod watch;
+// Workbench-wide: onboarding, followed projects, Home and Load repository (2.0.0).
+mod workbench;
 
 use tauri::Manager;
 
@@ -333,6 +335,17 @@ pub fn run() {
             commands::check_update,
             self_update::update_prepare,
             self_update::update_restart,
+            workbench::workbench_state,
+            workbench::workbench_set_onboarded,
+            workbench::workbench_set_followed,
+            workbench::workbench_set_clone_into,
+            workbench::gitlab_connect,
+            workbench::gitlab_token_info,
+            workbench::gitlab_projects,
+            workbench::gitlab_projects_cached,
+            workbench::gitlab_local_clones,
+            workbench::home_workbench_wide,
+            workbench::home_workbench_wide_cached,
             commands::signing,
             commands::set_signing,
             commands::clear_signing,

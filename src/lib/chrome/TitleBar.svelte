@@ -3,8 +3,16 @@
 
 	import { appWindow } from '$lib/chrome/window';
 	import RepoTabs from '$lib/chrome/RepoTabs.svelte';
+	import RepoSlot from '$lib/workbench/RepoSlot.svelte';
 	import { isMac } from '$lib/platform';
-	import { BRAND_ASSETS, ORG, PRODUCT_LONG } from '$lib/brand';
+	import { BRAND_ASSETS, FEATURES, ORG, PRODUCT_LONG } from '$lib/brand';
+
+	interface Props {
+		/** Only the window buttons and the drag area: onboarding's (FEAT-180). */
+		bare?: boolean;
+	}
+
+	let { bare = false }: Props = $props();
 	import Icon from '$lib/ui/Icon.svelte';
 	import { center } from '$lib/notifications/center.svelte';
 	import { theme } from '$lib/theme.svelte';
@@ -67,21 +75,22 @@
 	-->
 	<div class="lead" data-tauri-drag-region>
 		<span class="side" class:traffic={mac} aria-hidden="true"></span>
-		<RepoTabs />
+		<!-- Workbench loads one repository instead of opening tabs (FEAT-184). -->
+		{#if bare}{:else if FEATURES.workbenchWide}<RepoSlot />{:else}<RepoTabs />{/if}
 	</div>
 
 	<!--
 		Workbench's lockup: CIB's logo, a hairline, then the wordmark. The logo
 		is CIB's own file for the mode, never a filtered copy, and has no plate.
 	-->
-	<span class="name" role="img" aria-label={PRODUCT_LONG}
+	{#if bare}<span></span>{:else}<span class="name" role="img" aria-label={PRODUCT_LONG}
 		><img
 			class="cib"
 			src={theme.isDark ? BRAND_ASSETS.logoReversed : BRAND_ASSETS.logoColor}
 			alt={ORG}
 			draggable="false"
 		/><span class="rule" aria-hidden="true"></span><Wordmark size={18} /></span
-	>
+	>{/if}
 
 	<div class="controls">
 		<!--
@@ -89,7 +98,7 @@
 			controls: an accent count of what is unread, and pressed while the
 			drawer is open.
 		-->
-		<button
+		{#if !bare}<button
 			class="bell"
 			class:pressed={center.open}
 			aria-pressed={center.open}
@@ -105,7 +114,7 @@
 			{#if center.unread > 0}
 				<span class="badge">{center.unread > 99 ? '99+' : center.unread}</span>
 			{/if}
-		</button>
+		</button>{/if}
 		{#each mac ? [] : CONTROLS as control (control.kind)}
 			<button
 				class="control {control.kind}"

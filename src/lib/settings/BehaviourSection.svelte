@@ -1,7 +1,8 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script lang="ts">
-	import { PRODUCT_NAME } from '$lib/brand';
+	import { FEATURES, PRODUCT_NAME } from '$lib/brand';
 	import Chip from '$lib/ui/Chip.svelte';
+	import RunSetupAgain from '$lib/workbench/RunSetupAgain.svelte';
 	import { settings, type BooleanSetting } from './store.svelte';
 
 	/**
@@ -65,13 +66,21 @@
 			what: 'Deletes remote-tracking refs for branches the remote no longer has. Your own local branches are untouched.',
 			pending: null
 		},
-		{
-			key: 'openOnRepositories',
-			// FEAT-172. Off: a launch goes on where the last one stopped.
-			label: 'Open on All repositories, with no repository open',
-			what: `${PRODUCT_NAME} starts on All repositories and opens nothing until you choose. Your tabs stay. Off reopens the tab you were last on. A repository named on the command line is opened either way.`,
-			pending: null
-		},
+		// FEAT-172. Off: a launch goes on where the last one stopped. Workbench
+		// lands on Home and has no tabs (FEAT-184), so it says so.
+		FEATURES.workbenchWide
+			? {
+					key: 'openOnRepositories',
+					label: 'Open with nothing loaded',
+					what: `${PRODUCT_NAME} starts on Home with no repository loaded. Off loads the one you had loaded. A repository named on the command line is loaded either way.`,
+					pending: null
+				}
+			: {
+					key: 'openOnRepositories',
+					label: 'Open on All repositories, with no repository open',
+					what: `${PRODUCT_NAME} starts on All repositories and opens nothing until you choose. Your tabs stay. Off reopens the tab you were last on. A repository named on the command line is opened either way.`,
+					pending: null
+				},
 		{
 			key: 'terminalMultiplexer',
 			// FEAT-130. On, because it is what keeps a session alive when
@@ -152,6 +161,9 @@
 			}}
 		/>
 	</label>
+
+	<!-- Workbench: onboarding again, accounts kept (FEAT-180). -->
+	{#if FEATURES.workbenchWide}<RunSetupAgain />{/if}
 </section>
 
 <style>

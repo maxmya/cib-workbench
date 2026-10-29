@@ -233,14 +233,15 @@ rather than an audit.
 | [FEAT-177](items/FEAT-177-a-scanned-endpoint-says-which-service-it-is-in.md) | A scanned endpoint says which service it is in | 2C | Done |
 | [FEAT-178](items/FEAT-178-import-as-a-sheet-over-calls-with-a-way-back.md) | Import as a sheet over Calls, with a way back | 2C | Done |
 | [FEAT-179](items/FEAT-179-a-call-s-rules-and-answers-from-its-code-and-openapi-out.md) | A call's rules and answers, from its code, and OpenAPI out | 2C | Done |
-| [FEAT-180](items/FEAT-180-first-launch-onboarding.md) | First-launch onboarding | 2D, 1K | Backlog |
-| [FEAT-181](items/FEAT-181-cib-gitlab-built-in-and-the-token-in-the-keychain.md) | CIB GitLab built in, and the token kept in the keychain | 2D, 1K | Backlog |
-| [FEAT-182](items/FEAT-182-follow-repositories-on-cib-gitlab.md) | Follow repositories on CIB GitLab | 2D, 1K, 2A | Backlog |
-| [FEAT-183](items/FEAT-183-home-across-followed-repositories.md) | Home across followed repositories | 2A | Backlog |
-| [FEAT-184](items/FEAT-184-load-repository-instead-of-tabs.md) | Load repository instead of tabs | 2E, chrome | Backlog |
+| [FEAT-180](items/FEAT-180-first-launch-onboarding.md) | First-launch onboarding | 2D, 1K | Done |
+| [FEAT-181](items/FEAT-181-cib-gitlab-built-in-and-the-token-in-the-keychain.md) | CIB GitLab built in, and the token kept in the keychain | 2D, 1K | Done |
+| [FEAT-182](items/FEAT-182-follow-repositories-on-cib-gitlab.md) | Follow repositories on CIB GitLab | 2D, 1K, 2A | Done |
+| [FEAT-183](items/FEAT-183-home-across-followed-repositories.md) | Home across followed repositories | 2A | Done |
+| [FEAT-184](items/FEAT-184-load-repository-instead-of-tabs.md) | Load repository instead of tabs | 2E, chrome | Done |
 | [FEAT-185](items/FEAT-185-merge-requests-pipelines-and-issues-across-followed-repositories.md) | Merge requests, Pipelines and Issues across followed repositories | 1H, 1Y, 1W | Backlog |
 | [FEAT-186](items/FEAT-186-discard-a-review-before-it-is-sent.md) | Discard a review before it is sent | Review | Done |
 | [FEAT-187](items/FEAT-187-workbench-installs-its-own-updates.md) | Workbench installs its own updates, from its own installer | 1K, chrome | Done |
+| [FEAT-188](items/FEAT-188-continuous-corners-and-liquid-glass.md) | Continuous corners, and liquid glass on three things only | all | Done |
 
 ## Bugs
 

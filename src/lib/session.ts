@@ -50,6 +50,17 @@ export interface ResumePort {
 	startOnRepositories?(): Promise<boolean>;
 	/** Shows no tab. Called when nothing is opened on purpose. */
 	rest?(): void;
+	/**
+	 * Workbench (FEAT-180): first-launch onboarding, when it is due. Resolves
+	 * once it is finished or put off, before anything is opened, so a path on
+	 * the command line loads after it. Absent is no onboarding.
+	 */
+	onboard?(): Promise<void>;
+	/**
+	 * Where a launch that opens nothing on purpose lands (FEAT-172). Absent
+	 * is All repositories; Workbench lands on Home (FEAT-184).
+	 */
+	restingRoute?: string;
 }
 
 /** Where a launch lands when nothing is to be opened (FEAT-172). */
@@ -70,6 +81,12 @@ export const REPOSITORIES_ROUTE = '/repos';
  */
 export async function resumeSession(port: ResumePort): Promise<void> {
 	if (port.cancelled()) return;
+
+	// Onboarding runs before any of it (FEAT-180).
+	if (port.onboard) {
+		await port.onboard();
+		if (port.cancelled()) return;
+	}
 
 	/*
 	 * Every launch lands on Home (FEAT-140), which the author chose as the screen
@@ -92,7 +109,8 @@ export async function resumeSession(port: ResumePort): Promise<void> {
 	if (await port.startOnRepositories?.()) {
 		if (port.cancelled()) return;
 		port.rest?.();
-		if (port.route() !== REPOSITORIES_ROUTE) await port.goto(REPOSITORIES_ROUTE);
+		const resting = port.restingRoute ?? REPOSITORIES_ROUTE;
+		if (port.route() !== resting) await port.goto(resting);
 		return;
 	}
 

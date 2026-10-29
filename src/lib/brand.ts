@@ -37,13 +37,44 @@ export const BASED_ON = {
 	commit: '86c1a2ed2e4130a7983d7c1146d75ad12f3c540b'
 };
 
-/** What Workbench leaves out of Spagitty. */
+/** Where Workbench behaves differently from Spagitty: what it leaves out, and what it adds. */
 export const FEATURES = {
 	/** Workbench updates itself from its own GitHub releases (FEAT-187). */
 	updateCheck: true,
 	/** The author's own section for the delight layer. */
-	godMode: false
+	godMode: false,
+	/**
+	 * Workbench-wide (2.0.0): onboarding, Home across the CIB GitLab projects a
+	 * person follows, and Load repository in place of the tab strip
+	 * (FEAT-180 to FEAT-184). Off is Spagitty's window, tabs and all.
+	 */
+	workbenchWide: true
 };
+
+/**
+ * CIB's GitLab, built in (FEAT-181): the one host the connect screen offers,
+ * and the only one the token page link is built from.
+ */
+export const GITLAB = {
+	/** Lower case, no scheme. GitLab Enterprise Edition 16.6.2. */
+	host: 'gitlab.apps.ocp-nonprod-01.hodomain.local',
+	/** Confirmed signed in on 2026-10-28. `/-/user_settings/` is a 404 on 16.6.2. */
+	tokenPath: '/-/profile/personal_access_tokens',
+	tokenName: 'Workbench',
+	scopes: ['api', 'read_repository', 'write_repository']
+} as const;
+
+/**
+ * GitLab's token page, with the name and scopes in the query. 16.6.2 keeps the
+ * form behind *Add new token* and does not fill it in, so onboarding says what
+ * to do there; a GitLab that honours the query fills it in.
+ */
+export function tokenPageUrl(
+	gitlab: { host: string; tokenPath: string; tokenName: string; scopes: readonly string[] } = GITLAB
+): string {
+	const name = encodeURIComponent(gitlab.tokenName);
+	return `https://${gitlab.host}${gitlab.tokenPath}?name=${name}&scopes=${gitlab.scopes.join(',')}`;
+}
 
 /** The launch screen's line. */
 export const SPLASH_LINE = 'Git, reviews and agents in one place';

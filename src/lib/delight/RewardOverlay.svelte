@@ -141,7 +141,10 @@
 	.dim {
 		position: absolute;
 		inset: 0;
-		background: color-mix(in srgb, var(--umbra) 55%, transparent);
+		/* The scrim: dimmed and blurred behind a modal (FEAT-188). */
+		background: var(--scrim);
+		-webkit-backdrop-filter: var(--scrim-blur);
+		backdrop-filter: var(--scrim-blur);
 		animation: fade-in 320ms var(--ease);
 	}
 

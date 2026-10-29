@@ -45,6 +45,7 @@
 				<div class="line">
 					<span class="kind">{style.label}</span>
 					<span class="what home-ellipsis">{need.title}</span>
+					{#if need.project}<span class="project mono">{need.project}</span>{/if}
 				</div>
 				<div class="meta home-ellipsis">{need.meta}</div>
 			</div>
@@ -121,6 +122,16 @@
 	.what {
 		font-size: var(--fs-ui);
 		font-weight: 500;
+	}
+
+	/* Workbench's Home across projects names each row's project (FEAT-183). */
+	.project {
+		flex: none;
+		margin-left: auto;
+		padding: 2px 8px;
+		border-radius: var(--r-row);
+		background: var(--soft);
+		color: var(--muted);
 	}
 
 	.meta,

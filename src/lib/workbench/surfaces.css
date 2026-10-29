@@ -1,0 +1,123 @@
+/* SPDX-License-Identifier: MIT */
+
+/*
+ * Workbench's corners and glass (2.0.0, FEAT-188).
+ *
+ * Loaded once, after `app.css`, by the root layout. Workbench-only, so a
+ * Spagitty merge never meets it.
+ *
+ * # Corners
+ *
+ * Continuous corners (`corner-shape: superellipse(2)`) where the webview draws
+ * them, and the circular radii everywhere else, unchanged. A squircle with the
+ * same radius looks tighter, so the radius tokens take larger, eye-calibrated
+ * values here. `applyMetrics()` publishes the same values at zoom time
+ * (`CONTINUOUS_RADII` in `src/lib/metrics.ts`); this block is the first paint.
+ *
+ * Rules: components write `border-radius: var(--r-…)`, never a number; nested
+ * shapes are concentric (inner = outer − the padding between); circles, pills,
+ * switches, avatars, dots and the ornaments' capsules never take a squircle.
+ *
+ * # Glass
+ *
+ * Only on the toolbar (`.lrail`, the dock), the notice toast (`.lglass`) and
+ * the scrim behind a modal (`--scrim`). Nothing else is glass: menus,
+ * dialogs, the palette and the rail are solid (`app.css`'s thick material).
+ * Colours come from the `--lg-*` tokens, which the dark theme redefines.
+ */
+
+@supports (corner-shape: superellipse(2)) {
+	:root {
+		--r-field: 11px;
+		--r-button: 14px;
+		--r-row: 6px;
+		--r-panel: 15px;
+		--r-floating: 24px;
+		--r-pane: 27px;
+		--r-toast: 30px;
+		--r-window: 18px;
+	}
+
+	.app,
+	.window-pane,
+	.card,
+	.floating,
+	.btn,
+	.kbd,
+	.lglass,
+	.cc,
+	textarea,
+	input:not([type='checkbox']):not([type='radio']):not([type='range']):not([role='switch']) {
+		corner-shape: superellipse(2);
+	}
+
+	/* An element that has to stay circular says so. */
+	[data-corner-shape='round'] {
+		corner-shape: round;
+	}
+}
+
+/* `select` pickers in their own rule: a browser that does not know
+   `::picker()` would drop the whole rule it shares. */
+@supports (corner-shape: superellipse(2)) and (appearance: base-select) {
+	select,
+	select::picker(select) {
+		corner-shape: superellipse(2);
+	}
+}
+
+/* The basic glass: the toast. */
+.lglass {
+	background: var(--lg-bg);
+	-webkit-backdrop-filter: blur(16px) saturate(180%);
+	backdrop-filter: blur(16px) saturate(180%);
+	border: 1px solid var(--lg-rim);
+	box-shadow:
+		inset 0 1px 1px var(--lg-hi),
+		inset 0 -1px 1px var(--lg-lo),
+		inset 0 0 18px color-mix(in srgb, var(--lg-hi) 16%, transparent),
+		0 14px 34px -10px var(--lg-drop),
+		0 2px 6px color-mix(in srgb, var(--lg-drop) 35%, transparent);
+}
+
+/*
+ * The dock: the toolbar, where what is behind it bends as if through curved
+ * glass (`#lg-refract`, `GlassFilter.svelte`). A webview that refuses the
+ * `url()` keeps the plain frost on the line above it.
+ */
+.ornament.lrail {
+	isolation: isolate;
+	background: var(--lg-bg);
+	-webkit-backdrop-filter: blur(14px) saturate(180%);
+	backdrop-filter: blur(14px) saturate(180%);
+	-webkit-backdrop-filter: url(#lg-refract) blur(2.5px) saturate(185%) brightness(1.04);
+	backdrop-filter: url(#lg-refract) blur(2.5px) saturate(185%) brightness(1.04);
+	border: 1px solid var(--lg-rim);
+	box-shadow:
+		inset 0 1px 1px var(--lg-hi),
+		inset 0 -1px 1px var(--lg-lo),
+		inset 1px 0 1px var(--lg-lo),
+		inset 0 0 20px color-mix(in srgb, var(--lg-hi) 14%, transparent),
+		0 16px 36px -12px var(--lg-drop),
+		0 2px 6px color-mix(in srgb, var(--lg-drop) 35%, transparent);
+}
+
+/* The sheen: light at the top, a little shade at the foot, behind the content. */
+.ornament.lrail::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	z-index: -1;
+	border-radius: inherit;
+	pointer-events: none;
+	background: linear-gradient(175deg, var(--lg-sheen) 0%, transparent 34%, transparent 70%, var(--lg-lo) 100%);
+}
+
+/* Where the webview has no backdrop filter, the tint alone would let text
+   show through, so the surface is solid. */
+@supports not (backdrop-filter: blur(1px)) {
+	.lglass,
+	.ornament.lrail {
+		background: var(--surface-2);
+	}
+}

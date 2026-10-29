@@ -37,6 +37,15 @@ vi.mock('$lib/repo.svelte', async () => await import('../../testing/repo-store.s
 /** The same, for the branch list the toolbar's dropdown reads (FEAT-045). */
 vi.mock('$lib/branches/store.svelte', async () => await import('../../testing/branches-store.svelte'));
 
+/**
+ * Spagitty's chrome: tabs, and a rail that opens a folder. Workbench's, with
+ * `FEATURES.workbenchWide` on, is `src/lib/workbench/chrome.test.ts`.
+ */
+vi.mock('$lib/brand', async (original) => {
+	const brand = await original<typeof import('$lib/brand')>();
+	return { ...brand, FEATURES: { ...brand.FEATURES, workbenchWide: false } };
+});
+
 import {
 	branchRow,
 	control as branchControl,

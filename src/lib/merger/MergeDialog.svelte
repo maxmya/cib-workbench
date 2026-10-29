@@ -227,7 +227,10 @@
 		z-index: 5;
 		display: grid;
 		place-items: center;
-		background: color-mix(in srgb, var(--umbra) 38%, transparent);
+		/* The scrim: dimmed and blurred behind a modal (FEAT-188). */
+		background: var(--scrim);
+		-webkit-backdrop-filter: var(--scrim-blur);
+		backdrop-filter: var(--scrim-blur);
 	}
 
 	.dialog {

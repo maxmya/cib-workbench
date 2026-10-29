@@ -2,8 +2,8 @@
 
 # FEAT-180 — First-launch onboarding
 
-**Status:** Backlog — proposed in `docs/proposals/workbench-wide-home-and-load-repository.md` § 5.
-**Branch:** none yet.
+**Status:** Done — on `feature/workbench-2.0.0`, as Workbench 2.0.0, from the proposal's § 5. The manual sweep is still to run.
+**Branch:** `feature/workbench-2.0.0`, with the other four of FEAT-180 to FEAT-184.
 **Screens:** 2D Onboarding (new, `/welcome`), Settings › Behaviour.
 **Raised by:** the author, 2026-10-28: "when one installs it the first time, they get onboarded to a screen that has Next buttons and explains what this software is."
 **Depends on:** FEAT-181, FEAT-182, FEAT-183 (Home layout).
@@ -26,3 +26,10 @@
 5. *Run setup again* clears `onboarded` and opens `/welcome`. Existing accounts are kept, and steps 2–3 show "Connected as @login".
 6. With `FEATURES.workbenchWide` off, nothing changes.
 7. `resumeSession` tests cover onboarding-first and command-line-after-onboarding.
+
+## As built
+
+- `onboarded` is kept in `workbench.json`, with FEAT-182's list, for the same reason.
+- Step 2's side panel is a numbered guide to 16.6.2's token page (see FEAT-181).
+- The designs' sentences were trimmed where they explained rather than labelled. Welcome's first page shows the wordmark and the approved splash line only: the design's paragraph describing the product is not in `docs/branding.md`, so it waits for the author to approve one there.
+- Plan: [`FEAT-180-plan.md`](../plans/FEAT-180-plan.md). Tests: [`FEAT-180-automated.md`](../testing/FEAT-180-automated.md). Sweep: [`FEAT-180-sweep.md`](../testing/FEAT-180-sweep.md).

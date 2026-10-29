@@ -98,7 +98,10 @@
 		/* Darkened rather than tinted with the page colour: a dialog over a
 		   light theme needs the room behind it to *recede*, and 60% of the
 		   background over the background is barely a change at all. */
-		background: color-mix(in srgb, var(--umbra) 40%, transparent);
+		/* The scrim: dimmed and blurred behind a modal (FEAT-188). */
+		background: var(--scrim);
+		-webkit-backdrop-filter: var(--scrim-blur);
+		backdrop-filter: var(--scrim-blur);
 		z-index: 60;
 	}
 

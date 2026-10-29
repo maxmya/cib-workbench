@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+	CONTINUOUS_RADII,
 	applyMetrics,
 	COMFORTABLE,
 	COMPACT,
@@ -309,7 +310,8 @@ describe('applyMetrics', () => {
 		const published = new Map<string, string>();
 		const root = { style: { setProperty: (k: string, v: string) => published.set(k, v) } };
 
-		applyMetrics(root as unknown as HTMLElement);
+		// Circular corners: the webview cannot draw continuous ones.
+		applyMetrics(root as unknown as HTMLElement, 1, 1, false);
 
 		for (const name of [
 			'r-field',
@@ -319,12 +321,39 @@ describe('applyMetrics', () => {
 			'r-panel',
 			'r-floating',
 			'r-pane',
-			'r-ornament'
+			'r-ornament',
+			'r-toast'
 		]) {
 			const declared = new RegExp(`--${name}:\\s*([0-9.]+)px`).exec(css);
 			expect(declared, `--${name} is missing from app.css`).not.toBeNull();
 			expect(published.get(`--${name}`), `--${name} at zoom 1`).toBe(`${declared?.[1]}px`);
 		}
+	});
+
+	/**
+	 * Workbench (FEAT-188): where the webview draws continuous corners, the
+	 * calibrated radii — and the same ones the stylesheet's `@supports` block
+	 * paints first, so corners do not jump on load.
+	 */
+	it('agrees with the continuous radii, and keeps pills and ornaments round', async () => {
+		const css = await import('node:fs').then((fs) =>
+			fs.readFileSync('src/lib/workbench/surfaces.css', 'utf8')
+		);
+		const block = css.slice(css.indexOf('@supports (corner-shape: superellipse(2)) {'));
+		const published = new Map<string, string>();
+		const root = { style: { setProperty: (k: string, v: string) => published.set(k, v) } };
+
+		applyMetrics(root as unknown as HTMLElement, 1, 1, true);
+
+		for (const [name, value] of Object.entries(CONTINUOUS_RADII)) {
+			expect(block, `--${name} in surfaces.css`).toContain(`--${name}: ${value}px;`);
+			expect(published.get(`--${name}`)).toBe(`${value}px`);
+		}
+		expect(published.get('--r-pill')).toBe('999px');
+		expect(published.get('--r-ornament')).toBe('24px');
+
+		applyMetrics(root as unknown as HTMLElement, 2, 2, true);
+		expect(published.get('--r-panel')).toBe(`${CONTINUOUS_RADII['r-panel'] * 2}px`);
 	});
 
 	it('publishes every structural metric as a px custom property', () => {

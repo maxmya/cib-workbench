@@ -18,7 +18,10 @@ export type HomeCardId =
 	| 'commits'
 	| 'heat'
 	| 'pipelines'
-	| 'releases';
+	| 'releases'
+	// Workbench-wide Home (FEAT-183): assigned issues, and Calls.
+	| 'issues'
+	| 'calls';
 
 export interface HomeCard {
 	id: HomeCardId;
@@ -66,33 +69,43 @@ export function inHomeOrder(order: string[], cards: HomeCard[] = HOME_CARDS): Ho
 }
 
 /** The cards Home draws, in order. */
-export function shownCards(layout: HomeLayout): HomeCard[] {
-	return inHomeOrder(layout.order).filter((card) => !layout.hidden.includes(card.id));
+export function shownCards(layout: HomeLayout, cards: HomeCard[] = HOME_CARDS): HomeCard[] {
+	return inHomeOrder(layout.order, cards).filter((card) => !layout.hidden.includes(card.id));
 }
 
 /** The order to store: nothing when it is the designed order. */
-function orderOf(arranged: HomeCard[]): string[] {
-	return arranged.every((card, index) => card.id === HOME_CARDS[index]?.id)
+function orderOf(arranged: HomeCard[], cards: HomeCard[]): string[] {
+	return arranged.every((card, index) => card.id === cards[index]?.id)
 		? []
 		: arranged.map((card) => card.id);
 }
 
 /** The order after moving `id` by `delta` places. */
-export function moveCardBy(id: string, delta: number, order: string[]): string[] {
-	const arranged = [...inHomeOrder(order)];
+export function moveCardBy(
+	id: string,
+	delta: number,
+	order: string[],
+	cards: HomeCard[] = HOME_CARDS
+): string[] {
+	const arranged = [...inHomeOrder(order, cards)];
 	const from = arranged.findIndex((card) => card.id === id);
 	const to = from + delta;
 	if (from === -1 || to < 0 || to >= arranged.length) return order;
 	const [moving] = arranged.splice(from, 1);
 	arranged.splice(to, 0, moving);
-	return orderOf(arranged);
+	return orderOf(arranged, cards);
 }
 
 /** The order after dropping `id` on `target`'s row. */
-export function moveCardOnto(id: string, target: string, order: string[]): string[] {
-	const arranged = inHomeOrder(order);
+export function moveCardOnto(
+	id: string,
+	target: string,
+	order: string[],
+	cards: HomeCard[] = HOME_CARDS
+): string[] {
+	const arranged = inHomeOrder(order, cards);
 	const from = arranged.findIndex((card) => card.id === id);
 	const to = arranged.findIndex((card) => card.id === target);
 	if (from === -1 || to === -1) return order;
-	return moveCardBy(id, to - from, order);
+	return moveCardBy(id, to - from, order, cards);
 }

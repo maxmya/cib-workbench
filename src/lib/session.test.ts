@@ -252,3 +252,46 @@ describe('starting on All repositories', () => {
 		expect(calls).toContain('open /tmp/last-session');
 	});
 });
+
+describe('Workbench-wide (FEAT-180, FEAT-184)', () => {
+	function wide(overrides: Parameters<typeof recorder>[0] = {}) {
+		const run = recorder({ route: '/welcome', ...overrides });
+		run.port.onboard = async () => void run.calls.push('onboard');
+		run.port.rest = () => void run.calls.push('rest');
+		run.port.restingRoute = '/home';
+		return run;
+	}
+
+	it('onboards before reading anything, then reloads the last loaded repository on Home', async () => {
+		const { port, calls } = wide({ active: '/tmp/crx', places: { '/tmp/crx': { route: '/', selected: 'c1' } } });
+
+		await resumeSession(port);
+
+		expect(calls).toEqual(['onboard', 'launchPath', 'active', 'placeOf /tmp/crx', 'open /tmp/crx', 'goto /home', 'want c1']);
+	});
+
+	it('loads a command-line path after onboarding', async () => {
+		const { port, calls } = wide({ launch: '/tmp/asked-for' });
+
+		await resumeSession(port);
+
+		expect(calls).toEqual(['onboard', 'launchPath', 'open /tmp/asked-for', 'goto /home']);
+	});
+
+	it('opens with nothing loaded, on Home, when FEAT-172 is on', async () => {
+		const { port, calls } = wide({ active: '/tmp/crx' });
+		port.startOnRepositories = async () => true;
+
+		await resumeSession(port);
+
+		expect(calls).toEqual(['onboard', 'launchPath', 'rest', 'goto /home']);
+	});
+
+	it('stops when the shell goes while onboarding', async () => {
+		const { port, calls } = wide({ launch: '/tmp/x', cancelAfter: 1 });
+
+		await resumeSession(port);
+
+		expect(calls).toEqual(['onboard']);
+	});
+});

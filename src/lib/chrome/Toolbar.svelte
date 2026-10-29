@@ -354,7 +354,7 @@
 	An ornament: a floating pill under the pane, centred in the status row
 	(FEAT-082). It was a full-width bar across the top of the window.
 -->
-<div class="toolbar ornament" role="toolbar" aria-label="Repository actions">
+<div class="toolbar ornament lrail" role="toolbar" aria-label="Repository actions">
 	<!--
 		What is running, in git's own words where it has given any (FEAT-121):
 		a pull, a stash, a checkout and the rest, as well as the fetch and the

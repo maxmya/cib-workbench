@@ -14,6 +14,9 @@
 	import Menu from '$lib/ui/Menu.svelte';
 	import type { MenuItem } from '$lib/ui/menu';
 	import type { NavItem, RailSettings } from '$lib/nav';
+	import { FEATURES } from '$lib/brand';
+	import { loader } from '$lib/workbench/loader.svelte';
+	import { isScoped } from '$lib/workbench/scoped';
 
 	interface Props {
 		/**
@@ -83,8 +86,21 @@
 			id: item.code,
 			label: item.label,
 			note: item.code,
-			run: () => void goto(item.href)
+			run: () => go(item)
 		}));
+	}
+
+	/**
+	 * Workbench (FEAT-184): with nothing loaded, a repository screen's row is
+	 * dimmed, stays focusable, and opens Load repository, then the screen.
+	 */
+	function dimmed(item: NavItem): boolean {
+		return FEATURES.workbenchWide && !preview && !repo.info && isScoped(item.href);
+	}
+
+	function go(item: NavItem) {
+		if (dimmed(item)) loader.show({ then: item.href });
+		else void goto(item.href);
 	}
 
 	/**
@@ -132,15 +148,27 @@
 		-->
 		{#if !repo.info && !preview}
 			<div class="open">
-				<button
-					class="item open-repository primary"
-					title="Open repository…"
-					aria-label="Open repository…"
-					onclick={() => repo.choose()}
-				>
-					<span class="glyph"><Icon name="folder" size="1.2em" /></span>
-					<span class="label">Open repository…</span>
-				</button>
+				{#if FEATURES.workbenchWide}
+					<button
+						class="item open-repository primary"
+						title="Load repository…"
+						aria-label="Load repository…"
+						onclick={() => loader.show()}
+					>
+						<span class="glyph"><Icon name="folder" size="1.2em" /></span>
+						<span class="label">Load repository…</span>
+					</button>
+				{:else}
+					<button
+						class="item open-repository primary"
+						title="Open repository…"
+						aria-label="Open repository…"
+						onclick={() => repo.choose()}
+					>
+						<span class="glyph"><Icon name="folder" size="1.2em" /></span>
+						<span class="label">Open repository…</span>
+					</button>
+				{/if}
 			</div>
 		{/if}
 
@@ -166,10 +194,12 @@
 				{/if}
 				<button
 					class="item"
+					class:dimmed={dimmed(row.item)}
 					data-active={isItemActive(row.item, page.url.pathname)}
-					title={row.item.label}
+					aria-disabled={dimmed(row.item) ? 'true' : undefined}
+					title={dimmed(row.item) ? `${row.item.label} — load a repository first` : row.item.label}
 					aria-label={row.item.label}
-					onclick={() => goto(row.item.href)}
+					onclick={() => go(row.item)}
 				>
 					<span class="glyph">
 						<Icon name={row.item.icon} size="1.2em" />
@@ -289,6 +319,12 @@
 
 	.item:active {
 		background: var(--press);
+	}
+
+	/* Workbench: a repository screen with nothing loaded (FEAT-184). Dimmed,
+	   not disabled: it still opens Load repository. */
+	.item.dimmed {
+		color: color-mix(in srgb, var(--ink) 45%, transparent);
 	}
 
 	/*

@@ -34,6 +34,8 @@ import { submoduleModal } from '$lib/submodules/modal.svelte';
 import { agents } from '$lib/agents/store.svelte';
 import { isLive } from '$lib/agents/levels';
 import type { Control } from '$lib/agents/types';
+import { FEATURES } from '$lib/brand';
+import { loader } from '$lib/workbench/loader.svelte';
 
 
 /** True when a repository is open. Most commands are meaningless without one. */
@@ -331,5 +333,27 @@ function agentCommands(): Command[] {
 }
 
 export function registerCommands(): void {
-	palette.register(...navigation(), ...view(), ...appearance(), ...repository(), ...agentCommands());
+	palette.register(...navigation(), ...view(), ...appearance(), ...repository(), ...agentCommands(), ...workbenchWide());
+}
+
+/** Workbench: Load and Unload, with Ctrl+O (FEAT-184). */
+function workbenchWide(): Command[] {
+	if (!FEATURES.workbenchWide) return [];
+	return [
+		{
+			id: 'repo.load',
+			title: 'Load repository…',
+			group: 'Repository',
+			keywords: ['open', 'switch', 'clone', 'gitlab', 'tab'],
+			shortcut: shortcut('O'),
+			run: () => loader.show()
+		},
+		repoCommand({
+			id: 'repo.unload',
+			title: 'Unload repository',
+			group: 'Repository',
+			keywords: ['close', 'nothing loaded'],
+			run: () => loader.unload()
+		})
+	];
 }

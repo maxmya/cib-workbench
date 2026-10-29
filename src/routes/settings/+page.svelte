@@ -21,6 +21,8 @@
 	import ProfilesSection from '$lib/settings/ProfilesSection.svelte';
 	import ExtensionsSection from '$lib/extensions/ExtensionsSection.svelte';
 	import AgentsSection from '$lib/agents/AgentsSection.svelte';
+	import GitLabSection from '$lib/workbench/GitLabSection.svelte';
+	import WideHomeSection from '$lib/workbench/WideHomeSection.svelte';
 	import { SECTIONS, settings } from '$lib/settings/store.svelte';
 	import Chip from '$lib/ui/Chip.svelte';
 	import { delight } from '$lib/delight/store.svelte';
@@ -60,7 +62,9 @@
 	 * on it for nobody else.
 	 */
 	const chips = $derived(
-		SECTIONS.filter((section) => section.id !== 'godmode' || (FEATURES.godMode && delight.on && settings.godMode))
+		SECTIONS.filter((section) => section.id !== 'godmode' || (FEATURES.godMode && delight.on && settings.godMode)).filter(
+			(section) => section.id !== 'gitlab' || FEATURES.workbenchWide
+		)
 	);
 
 	function follow() {
@@ -101,7 +105,10 @@
 			<IdentitySection />
 			<SigningSection />
 			<ProfilesSection />
-			<AccountsSection />
+			<!-- Workbench: Settings › GitLab stands in for the accounts (FEAT-181). -->
+			{#if !FEATURES.workbenchWide}<AccountsSection />{/if}
+		{:else if settings.section === 'gitlab'}
+			{#if FEATURES.workbenchWide}<GitLabSection />{/if}
 		{:else if settings.section === 'agents'}
 			<AgentsSection />
 		{:else if settings.section === 'remotes'}
@@ -128,7 +135,7 @@
 		{:else if settings.section === 'rail'}
 			<RailSection />
 		{:else if settings.section === 'home'}
-			<HomeSection />
+			{#if FEATURES.workbenchWide}<WideHomeSection />{:else}<HomeSection />{/if}
 		{:else if settings.section === 'reading'}
 			<ReadingSection />
 		{:else if settings.section === 'license'}

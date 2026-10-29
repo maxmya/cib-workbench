@@ -225,6 +225,8 @@
 	/* The pane a screen sits in, and the ornaments beside it (FEAT-082). */
 	--r-pane: 18px;
 	--r-ornament: 24px;
+	/* Workbench: the notice toast (2.0.0). Squircle values: `workbench/surfaces.css`. */
+	--r-toast: 22px;
 	/*
 	 * The window's own corner. A step above a panel, because it is read against
 	 * the whole screen rather than against the surface beside it (FEAT-037).
@@ -508,16 +510,16 @@
  * composited layers.
  */
 :root {
-	--glass-thin: color-mix(in srgb, var(--panel) 62%, transparent);
-	--glass: color-mix(in srgb, var(--surface) 72%, transparent);
 	/*
-	 * 68%, not 82%. A tint that covers four fifths of what is behind it leaves
-	 * the frost nothing to be made of, and a pane whose backdrop cannot be seen
-	 * is not glass — it is a rectangle painted the colour of the surface. The
-	 * text over it stays legible because the blur behind it is 10px of a
-	 * commit list, which is a smooth field rather than a busy one (TASK-024).
+	 * Workbench (FEAT-188): glass only on the toolbar, the toast and the scrim
+	 * behind a modal, in `src/lib/workbench/surfaces.css`. The three grades
+	 * here are solid and do not blur, so the menus, dialogs, the palette, the
+	 * command log and the rail that paint with them are solid surfaces. The
+	 * names stay Spagitty's so its components keep merging in.
 	 */
-	--glass-thick: color-mix(in srgb, var(--surface-2) 68%, transparent);
+	--glass-thin: var(--panel);
+	--glass: var(--surface);
+	--glass-thick: var(--surface-2);
 
 	/*
 	 * The cheap half of the material, and what almost everything uses.
@@ -550,8 +552,9 @@
 	 * reads as grey plastic, while one that *pulls* the colour behind it
 	 * forward reads as something wet.
 	 */
-	--blur-thin: blur(16px) saturate(180%);
-	--blur: blur(24px) saturate(200%);
+	/* Workbench (FEAT-188): no blur on these grades; see the note above. */
+	--blur-thin: none;
+	--blur: none;
 	/*
 	 * The thick panes — menu, dialog, palette, toast, command log — carry the
 	 * material the author settled at the window (TASK-020), as a
@@ -573,7 +576,7 @@
 	 * survives the blur, which is what reads as *wet* — the note on the two
 	 * thinner grades above says the same thing and was right about it.
 	 */
-	--blur-thick: blur(10px) saturate(170%);
+	--blur-thick: none;
 
 	/*
 	 * The edge of a pane of glass — thick enough to bend light.
@@ -618,11 +621,10 @@
  * glass read as a material rather than as grey.
  */
 :root[data-theme='dark'] {
-	--glass-thin: color-mix(in srgb, var(--panel) 66%, transparent);
-	--glass: color-mix(in srgb, var(--surface) 76%, transparent);
-	/* 72% rather than 68%: smoked glass over a dark screen needs a little more
-	   body than frosted glass over a light one, or the pane reads as a smudge. */
-	--glass-thick: color-mix(in srgb, var(--surface-2) 72%, transparent);
+	/* Solid in the dark too (FEAT-188). */
+	--glass-thin: var(--panel);
+	--glass: var(--surface);
+	--glass-thick: var(--surface-2);
 
 	--chrome-veil: color-mix(in srgb, var(--panel) 90%, transparent);
 	--surface-veil: color-mix(in srgb, var(--surface) 92%, transparent);
@@ -632,6 +634,43 @@
 	--glass-rim: none;
 	--glass-rim-thick: none;
 	--glass-sheen: none;
+}
+
+/*
+ * Workbench's liquid glass (FEAT-188): the toolbar, the toast and the scrim
+ * behind a modal, and nothing else. The classes that use these are in
+ * `src/lib/workbench/surfaces.css`.
+ */
+:root {
+	/* A top-to-bottom tint, frosted. */
+	--lg-bg: linear-gradient(
+		180deg,
+		color-mix(in srgb, #fff 50%, transparent),
+		color-mix(in srgb, #fff 22%, transparent)
+	);
+	--lg-rim: color-mix(in srgb, #fff 62%, transparent);
+	--lg-hi: color-mix(in srgb, #fff 75%, transparent);
+	--lg-lo: color-mix(in srgb, var(--umbra) 10%, transparent);
+	--lg-sheen: color-mix(in srgb, #fff 45%, transparent);
+	--lg-drop: color-mix(in srgb, var(--umbra) 30%, transparent);
+	/* Behind a modal: dimmed and blurred, with no rim and no shadow. */
+	--scrim: color-mix(in srgb, var(--umbra) 40%, transparent);
+	--scrim-blur: blur(10px) saturate(120%);
+}
+
+/* Night: smoked rather than frosted, and black, not navy. */
+:root[data-theme='dark'] {
+	--lg-bg: linear-gradient(
+		180deg,
+		color-mix(in srgb, var(--surface-2) 42%, transparent),
+		color-mix(in srgb, var(--surface-2) 28%, transparent)
+	);
+	--lg-rim: color-mix(in srgb, #fff 14%, transparent);
+	--lg-hi: color-mix(in srgb, #fff 22%, transparent);
+	--lg-lo: color-mix(in srgb, #000 40%, transparent);
+	--lg-sheen: color-mix(in srgb, #fff 10%, transparent);
+	--lg-drop: color-mix(in srgb, #000 55%, transparent);
+	--scrim: color-mix(in srgb, #000 50%, transparent);
 }
 
 /*
