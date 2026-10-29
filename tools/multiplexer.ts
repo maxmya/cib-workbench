@@ -24,10 +24,11 @@
  * asset's digest is on its release page, and from `gh api
  * repos/<owner>/<repo>/releases/tags/<tag>`.
  */
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import {
 	chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
@@ -222,6 +223,59 @@ export async function fetchMultiplexer(root: string, target: string): Promise<st
 	return `Staged ${pinned.name} ${pinned.version} for ${target}.`;
 }
 
+/** The Developer ID a macOS build signs with, or nothing when it signs ad hoc. */
+export function developerId(env: NodeJS.ProcessEnv = process.env): string | undefined {
+	const identity = env.APPLE_SIGNING_IDENTITY;
+	if (!env.APPLE_CERTIFICATE || !identity || identity === '-') return undefined;
+	return identity;
+}
+
+/** Run a tool and fail with its own words, never with its arguments: they hold secrets. */
+function run(tool: string, args: string[]): string {
+	const done = spawnSync(tool, args, { encoding: 'utf8' });
+	if (done.status !== 0) throw new Error(`${tool} ${args[0]} failed: ${(done.stderr || done.stdout).trim()}`);
+	return done.stdout;
+}
+
+/**
+ * Workbench: sign the staged tmux with the Developer ID (2.0.2). Tauri signs
+ * the app and its own binaries but not its resources, and Apple's notary
+ * refuses an app that holds an executable without a Developer ID signature,
+ * the hardened runtime and a secure timestamp. The certificate goes into a
+ * keychain of this run's own, as Tauri's does, and the keychain is deleted
+ * after.
+ */
+export function signForMac(file: string, identity: string, env: NodeJS.ProcessEnv = process.env): void {
+	const keychain = join(tmpdir(), `multiplexer-${randomBytes(6).toString('hex')}.keychain-db`);
+	const p12 = join(tmpdir(), `multiplexer-${randomBytes(6).toString('hex')}.p12`);
+	const password = randomBytes(24).toString('hex');
+	const searched = run('security', ['list-keychains', '-d', 'user'])
+		.split('\n')
+		.map((line) => line.trim().replace(/^"|"$/g, ''))
+		.filter(Boolean);
+	try {
+		writeFileSync(p12, Buffer.from(env.APPLE_CERTIFICATE ?? '', 'base64'));
+		run('security', ['create-keychain', '-p', password, keychain]);
+		run('security', ['set-keychain-settings', '-lut', '3600', keychain]);
+		run('security', ['unlock-keychain', '-p', password, keychain]);
+		run('security', [
+			'import', p12, '-k', keychain, '-P', env.APPLE_CERTIFICATE_PASSWORD ?? '', '-T', '/usr/bin/codesign'
+		]);
+		run('security', [
+			'set-key-partition-list', '-S', 'apple-tool:,apple:,codesign:', '-s', '-k', password, keychain
+		]);
+		run('security', ['list-keychains', '-d', 'user', '-s', keychain, ...searched]);
+		run('codesign', [
+			'--force', '--options', 'runtime', '--timestamp', '--keychain', keychain, '--sign', identity, file
+		]);
+		run('codesign', ['--verify', '--strict', file]);
+	} finally {
+		spawnSync('security', ['list-keychains', '-d', 'user', '-s', ...searched]);
+		spawnSync('security', ['delete-keychain', keychain]);
+		rmSync(p12, { force: true });
+	}
+}
+
 if (import.meta.main) {
 	const root = resolve(import.meta.dir, '..');
 	const target =
@@ -230,6 +284,12 @@ if (import.meta.main) {
 		targetFor(process.platform, process.arch);
 	try {
 		console.log(await fetchMultiplexer(root, target));
+		const tmux = resolve(root, 'multiplexer', 'bundle', 'tmux');
+		const identity = developerId();
+		if (target.includes('apple-darwin') && identity && existsSync(tmux)) {
+			signForMac(tmux, identity);
+			console.log('Signed tmux with the Developer ID.');
+		}
 	} catch (error) {
 		// A developer with no network still gets a build: the terminal falls
 		// back to the system's multiplexer, or to none. A release must not,

@@ -118,23 +118,20 @@ describe('every lane decides a signing policy before it builds', () => {
 	});
 
 	/**
-	 * The lane that publishes what people are pointed at signs ad hoc only
-	 * while no Developer ID exists, and only if the release says so. Its notes
-	 * are the version's changelog section, so that is where the promise is
-	 * checked: a release that took the interim path in silence would be an
-	 * unsigned-looking build with nothing telling a Mac user what to expect.
-	 * When the Apple secrets exist, gate 5 goes back to `production` and this
-	 * test goes back to requiring it.
+	 * The lane that publishes what people are pointed at is `production`: the
+	 * Apple secrets exist (2.0.2), so it signs with the Developer ID and
+	 * notarizes, or does not build. Its notes are the version's changelog
+	 * section, and they must not still send a Mac user to Open Anyway.
 	 */
-	it('gate 5 signs ad hoc only with notes that say so', () => {
-		expect(read('.github/workflows/gates.yml')).toMatch(/lane: interim/);
+	it('gate 5 signs with the Developer ID, and the notes say so', () => {
+		const gates = read('.github/workflows/gates.yml');
+		expect(gates).toMatch(/lane: production/);
+		expect(gates).not.toMatch(/lane: interim/);
 		// Workbench: its releases take their notes from its own changelog.
 		const version = JSON.parse(read('package.json')).version;
 		const notes = sectionFor(read('CHANGELOG.workbench.md'), version) ?? '';
-		expect(notes, `the ${version} notes do not say the Mac build is not notarized`).toMatch(
-			/not notarized/i
-		);
-		expect(notes).toMatch(/Open Anyway/);
+		expect(notes, `the ${version} notes do not say the Mac build is notarized`).toMatch(/notarized/i);
+		expect(notes).not.toMatch(/not notarized|Open Anyway/i);
 		expect(notes).toMatch(/damaged/i);
 	});
 

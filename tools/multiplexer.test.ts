@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { isStaged, PINNED, sha256, sourceOf, stampOf, targetFor, verify } from './multiplexer';
+import { developerId, isStaged, PINNED, sha256, sourceOf, stampOf, targetFor, verify } from './multiplexer';
 
 const made: string[] = [];
 function aDir(): string {
@@ -170,5 +170,19 @@ describe('what is already staged', () => {
 		mkdirSync(join(dir, 'empty'));
 
 		expect(isStaged(join(dir, 'empty'), target, pinned)).toBe(false);
+	});
+});
+
+/** Workbench: tmux is signed only when the build signs with a Developer ID (2.0.2). */
+describe('the Developer ID tmux is signed with', () => {
+	it('is the identity when the certificate is there', () => {
+		const env = { APPLE_CERTIFICATE: 'cert', APPLE_SIGNING_IDENTITY: 'Developer ID Application: A (T)' };
+		expect(developerId(env)).toBe('Developer ID Application: A (T)');
+	});
+
+	it('is nothing for an ad-hoc build or one with no certificate', () => {
+		expect(developerId({ APPLE_CERTIFICATE: 'cert', APPLE_SIGNING_IDENTITY: '-' })).toBeUndefined();
+		expect(developerId({ APPLE_SIGNING_IDENTITY: 'Developer ID Application: A (T)' })).toBeUndefined();
+		expect(developerId({})).toBeUndefined();
 	});
 });
